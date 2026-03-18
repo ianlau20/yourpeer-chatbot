@@ -1,5 +1,4 @@
-# Placeholder for chatbot service
-# Currently just tells the user what they said
+from app.llm.gemini_client import gemini_reply
 
 def generate_reply(message: str) -> str:
-    return f"You said: {message}"
+    return gemini_reply(message)

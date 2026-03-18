@@ -45,8 +45,14 @@ uvicorn app.main:app --reload
 The API will be available at `http://127.0.0.1:8000`.
 
 ### Testing
-Currently runs a chatbot that simply tells you what you said back to you.
+This backend uses the Gemini LLM. To test it, co-developers must set a `GEMINI_API_KEY` and use `GEMINI_MODEL=gemini-3-flash-preview`.
 Below are the instructions if you want to test it out.
+
+Before starting the server, create/update your `.env` file (repo root is recommended):
+```
+GEMINI_API_KEY="your-gemini-api-key"
+GEMINI_MODEL="gemini-3-flash-preview"
+```
 
 1. Open: http://127.0.0.1:8000/docs
 2. Click POST /chat/
@@ -60,7 +66,7 @@ Below are the instructions if you want to test it out.
 Then lower on the page, FastAPI should show the response.
 You should get something like:
 {
-  "response": "You said: dev ian is the best"
+  "response": "<Gemini-generated text>"
 }
 
 The current flow:
