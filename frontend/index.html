@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YourPeer Chat Demo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app">
+    <h1>YourPeer Chat</h1>
+
+    <section id="chat" class="chat"></section>
+
+    <p id="status" class="status"></p>
+
+    <form id="chat-form" class="input-row">
+      <input
+        id="message-input"
+        type="text"
+        placeholder="Type your message..."
+        autocomplete="off"
+        required
+      />
+      <button id="send-btn" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

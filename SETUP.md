@@ -5,7 +5,7 @@
 ### 1. Create virtual environment
 
 ```bash
-python -m venv backend/venv
+python3 -m venv backend/venv
 ```
 
 ### 2. Activate virtual environment and install dependencies
@@ -44,32 +44,62 @@ uvicorn app.main:app --reload
 
 The API will be available at `http://127.0.0.1:8000`.
 
+## Frontend (demo UI)
+
+A minimal static chat page lives in `frontend/` (`index.html`, `styles.css`, `app.js`). It talks to `POST http://127.0.0.1:8000/chat/`. The backend enables **CORS** for common local origins on port **5500** so the browser can call the API.
+
+**Run the demo (use a second terminal; keep the backend running):**
+
+From the repo root:
+
+```bash
+cd frontend
+python3 -m http.server 5500 --bind 127.0.0.1
+```
+
+Then open **http://127.0.0.1:5500** in your browser (avoid `http://[::1]:5500` unless your backend CORS list includes that origin).
+
+**Stop / restart the frontend server:** in that terminal, press `Ctrl+C`, then run the `http.server` command again.
+
 ### Testing
 This backend uses the Gemini LLM. To test it, co-developers must set a `GEMINI_API_KEY` and use `GEMINI_MODEL=gemini-3-flash-preview`.
-Below are the instructions if you want to test it out.
 
-Before starting the server, create/update your `.env` file (repo root is recommended):
+Before starting the backend, create/update your `.env` file (repo root is recommended):
+
 ```
 GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-3-flash-preview"
 ```
 
+**Option A — Demo UI (recommended for a quick chat)**
+
+1. Start the backend (`uvicorn` in `backend/`).
+2. Start the frontend static server (commands above).
+3. Open http://127.0.0.1:5500 , type a message, click **Send**.
+
+**Option B — Swagger / API docs**
+
 1. Open: http://127.0.0.1:8000/docs
 2. Click POST /chat/
-3. Click Try it out
-4. You should see a JSON box, replace its contents with:
+3. Click **Try it out**
+4. Replace the JSON body with something like:
+```json
 {
-  "message": "dev ian is the best"
+  "message": "Hello"
 }
-5. Click Execute
+```
+5. Click **Execute**
 
-Then lower on the page, FastAPI should show the response.
-You should get something like:
+You should get a response shaped like:
+
+```json
 {
   "response": "<Gemini-generated text>"
 }
+```
 
 The current flow:
-User → POST /chat → Backend → chatbot.py → Response
+User → demo page or POST /chat → Backend → Gemini → Response
+
 The goal flow:
-User → Backend → LLM → query templates → Streetlives data
+User → Backend → LLM + query templates → Streetlives data
