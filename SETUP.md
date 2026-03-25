@@ -46,7 +46,9 @@ The API will be available at `http://127.0.0.1:8000`.
 
 ## Frontend (demo UI)
 
-A minimal static chat page lives in `frontend/` (`index.html`, `styles.css`, `app.js`). It talks to `POST http://127.0.0.1:8000/chat/`. The backend enables **CORS** for common local origins on port **5500** so the browser can call the API.
+A minimal static chat page lives in `frontend/` (`index.html`, `styles.css`, `app.js`). It calls `POST http://127.0.0.1:8000/chat/`. The backend enables **CORS** for common local origins on port **5500** so the browser can call the API.
+
+On load, the page shows a short **welcome message**. The demo keeps a **`session_id`** (in browser storage) so multi-turn chats reuse the same conversation and slot state on the backend. Bot replies strip common Markdown-style `*` / `**` markers for plain-text display.
 
 **Run the demo (use a second terminal; keep the backend running):**
 
@@ -71,35 +73,14 @@ GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-3-flash-preview"
 ```
 
-**Option A — Demo UI (recommended for a quick chat)**
+To try the chat locally:
 
 1. Start the backend (`uvicorn` in `backend/`).
 2. Start the frontend static server (commands above).
-3. Open http://127.0.0.1:5500 , type a message, click **Send**.
-
-**Option B — Swagger / API docs**
-
-1. Open: http://127.0.0.1:8000/docs
-2. Click POST /chat/
-3. Click **Try it out**
-4. Replace the JSON body with something like:
-```json
-{
-  "message": "Hello"
-}
-```
-5. Click **Execute**
-
-You should get a response shaped like:
-
-```json
-{
-  "response": "<Gemini-generated text>"
-}
-```
+3. Open http://127.0.0.1:5500 — you should see the welcome line, then type a message and click **Send**.
 
 The current flow:
-User → demo page or POST /chat → Backend → Gemini → Response
+User → demo page → slot extraction + session merge → (follow-up or Gemini) → Response
 
 The goal flow:
 User → Backend → LLM + query templates → Streetlives data

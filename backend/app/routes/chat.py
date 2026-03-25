@@ -1,10 +1,14 @@
 from fastapi import APIRouter
-from app.models.chat_models import ChatRequest
+from app.models.chat_models import ChatRequest, ChatResponse
 from app.services.chatbot import generate_reply
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-@router.post("/")
+
+@router.post("/", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    response = generate_reply(request.message)
-    return {"response": response}
+    result = generate_reply(
+        message=request.message,
+        session_id=request.session_id,
+    )
+    return result
