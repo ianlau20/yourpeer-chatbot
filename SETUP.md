@@ -11,16 +11,19 @@ python3 -m venv backend/venv
 ### 2. Activate virtual environment and install dependencies
 
 **Windows:**
+
 ```powershell
 backend\venv\Scripts\activate
 ```
 
 **Mac/Linux:**
+
 ```bash
-source backend/venv/bin/activate
+source backend/venv/Scripts/activate
 ```
 
 **Then install:**
+
 ```bash
 pip install -r backend/requirements.txt
 ```
@@ -64,6 +67,7 @@ Then open **http://127.0.0.1:5500** in your browser (avoid `http://[::1]:5500` u
 **Stop / restart the frontend server:** in that terminal, press `Ctrl+C`, then run the `http.server` command again.
 
 ### Testing
+
 This backend uses the Gemini LLM. To test it, co-developers must set a `GEMINI_API_KEY` and use `GEMINI_MODEL=gemini-3-flash-preview`.
 
 Before starting the backend, create/update your `.env` file (repo root is recommended):
