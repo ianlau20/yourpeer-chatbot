@@ -10,7 +10,7 @@ from typing import Optional
 
 SERVICE_KEYWORDS = {
     "food": ["food", "food bank", "meal", "groceries", "pantry"],
-    "shelter": ["shelter", "place to stay", "bed", "housing", "sleep tonight"],
+    "shelter": ["shelter", "place to stay", "bed", "housing", "sleep tonight", "place to sleep"],
     "medical": ["doctor", "clinic", "medical", "hospital", "medicine"],
     "legal": ["legal", "lawyer", "court", "eviction"],
     "employment": ["job", "work", "employment"],
