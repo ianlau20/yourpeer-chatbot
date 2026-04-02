@@ -4,7 +4,7 @@
 
 ### 1. Create virtual environment
 
-```bash
+```
 python3 -m venv backend/venv
 ```
 
@@ -12,19 +12,19 @@ python3 -m venv backend/venv
 
 **Windows:**
 
-```powershell
+```
 backend\venv\Scripts\activate
 ```
 
 **Mac/Linux:**
 
-```bash
-source backend/venv/Scripts/activate
+```
+source backend/venv/bin/activate
 ```
 
 **Then install:**
 
-```bash
+```
 pip install -r backend/requirements.txt
 ```
 
@@ -40,7 +40,7 @@ pip install -r backend/requirements.txt
 
 From the repo root with venv activated:
 
-```bash
+```
 cd backend
 uvicorn app.main:app --reload
 ```
@@ -57,12 +57,12 @@ On load, the page shows a short **welcome message**. The demo keeps a **`session
 
 From the repo root:
 
-```bash
+```
 cd frontend
 python3 -m http.server 5500 --bind 127.0.0.1
 ```
 
-Then open **http://127.0.0.1:5500** in your browser (avoid `http://[::1]:5500` unless your backend CORS list includes that origin).
+Then open **<http://127.0.0.1:5500>** in your browser (avoid `http://[::1]:5500` unless your backend CORS list includes that origin).
 
 **Stop / restart the frontend server:** in that terminal, press `Ctrl+C`, then run the `http.server` command again.
 
@@ -70,18 +70,21 @@ Then open **http://127.0.0.1:5500** in your browser (avoid `http://[::1]:5500` u
 
 This backend uses the Gemini LLM. To test it, co-developers must set a `GEMINI_API_KEY` and use `GEMINI_MODEL=gemini-3-flash-preview`.
 
+To get a Gemini API key, go to [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey), sign in with a Google account, and click "Create API key." The free tier is sufficient for development.
+
 Before starting the backend, create/update your `.env` file (repo root is recommended):
 
 ```
 GEMINI_API_KEY="your-gemini-api-key"
 GEMINI_MODEL="gemini-3-flash-preview"
+DATABASE_URL="postgresql://user:password@host:port/streetlives"
 ```
 
 To try the chat locally:
 
 1. Start the backend (`uvicorn` in `backend/`).
 2. Start the frontend static server (commands above).
-3. Open http://127.0.0.1:5500 — you should see the welcome line, then type a message and click **Send**.
+3. Open <http://127.0.0.1:5500> — you should see the welcome line, then type a message and click **Send**.
 
 The current flow:
 User → demo page → slot extraction + session merge → (follow-up or Gemini) → Response

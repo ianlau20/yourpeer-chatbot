@@ -3,12 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YourPeer Chat Demo</title>
+  <title>YourPeer Chat</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <main class="app">
-    <h1>YourPeer Chat</h1>
+    <div class="header">
+      <h1>YourPeer</h1>
+      <span class="header-tag">Find services near you</span>
+    </div>
 
     <section id="chat" class="chat"></section>
 
@@ -18,15 +21,19 @@
       <input
         id="message-input"
         type="text"
-        placeholder="Type your message..."
+        placeholder="What do you need help with?"
         autocomplete="off"
         required
       />
-      <button id="send-btn" type="submit">Send</button>
+      <button id="send-btn" type="submit">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
     </form>
   </main>
 
-  <!-- Cache-bust so browser picks up app.js changes after edits -->
-  <script src="./app.js?v=3"></script>
+  <script src="./app.js?v=5"></script>
 </body>
 </html>

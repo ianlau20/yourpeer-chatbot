@@ -14,41 +14,6 @@ from app.rag import query_services
 logger = logging.getLogger(__name__)
 
 
-def _format_results(results: dict) -> str:
-    """
-    Format query results as readable service cards.
-    No LLM synthesis — just structured field mapping.
-    """
-    count = results["result_count"]
-    if count == 0:
-        return None
-
-    lines = [f"I found {count} option(s) for you:\n"]
-
-    for i, svc in enumerate(results["services"], 1):
-        lines.append(f"{i}. {svc['service_name']}")
-        if svc.get("organization"):
-            lines.append(f"   {svc['organization']}")
-        if svc.get("address"):
-            lines.append(f"   {svc['address']}")
-        if svc.get("phone"):
-            lines.append(f"   Phone: {svc['phone']}")
-        if svc.get("fees"):
-            lines.append(f"   Cost: {svc['fees']}")
-        if svc.get("description"):
-            # Truncate long descriptions
-            desc = svc["description"]
-            if len(desc) > 120:
-                desc = desc[:117] + "..."
-            lines.append(f"   {desc}")
-        lines.append("")
-
-    if results.get("relaxed"):
-        lines.append("(I broadened the search a bit to find these results.)")
-
-    return "\n".join(lines)
-
-
 def _no_results_message(slots: dict) -> str:
     """Helpful message when no services match the query."""
     service = slots.get("service_type", "services")
@@ -85,6 +50,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # If enough detail exists, query the database for real services.
     if is_enough_to_answer(merged):
 
+        services_list = []
+        result_count = 0
+        relaxed = False
+
         try:
             results = query_services(
                 service_type=merged.get("service_type"),
@@ -93,19 +62,27 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
             )
 
             if results.get("error"):
-                # Template not found or other query-level error —
-                # fall back to LLM for a helpful response.
                 logger.warning(f"Query error: {results['error']}")
                 prompt = _build_help_prompt(message, merged)
                 bot_response = gemini_reply(prompt)
+
             elif results["result_count"] > 0:
-                bot_response = _format_results(results)
+                services_list = results["services"]
+                result_count = results["result_count"]
+                relaxed = results.get("relaxed", False)
+
+                qualifier = ""
+                if relaxed:
+                    qualifier = " (I broadened the search a bit)"
+
+                bot_response = (
+                    f"I found {result_count} option(s) for you{qualifier}. "
+                    f"Here's what's available:"
+                )
             else:
                 bot_response = _no_results_message(merged)
 
         except Exception as e:
-            # DB connection failure or other unexpected error —
-            # fall back to LLM so the user still gets a response.
             logger.error(f"Database query failed: {e}")
             prompt = _build_help_prompt(message, merged)
             bot_response = gemini_reply(prompt)
@@ -115,6 +92,9 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
             "response": bot_response,
             "follow_up_needed": False,
             "slots": merged,
+            "services": services_list,
+            "result_count": result_count,
+            "relaxed_search": relaxed,
         }
 
     # Otherwise, ask one targeted follow-up question.
@@ -124,4 +104,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         "response": follow_up,
         "follow_up_needed": True,
         "slots": merged,
+        "services": [],
+        "result_count": 0,
+        "relaxed_search": False,
     }
