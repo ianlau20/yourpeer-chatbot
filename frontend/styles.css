@@ -205,6 +205,45 @@ h1 {
   margin-top: -4px;
 }
 
+.card-hours {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 3px 10px;
+  border-radius: 10px;
+  letter-spacing: 0.01em;
+}
+
+.status-open {
+  background: #E8F5E2;
+  color: #2D6A1E;
+}
+
+.status-closed {
+  background: #FAECE7;
+  color: #993C1D;
+}
+
+.status-unknown {
+  background: #F5F4F0;
+  color: #9C9A92;
+}
+
+.card-hours-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  color: #6B6A65;
+}
+
 .card-detail {
   display: flex;
   align-items: flex-start;
@@ -241,10 +280,32 @@ h1 {
   align-self: flex-start;
 }
 
+.card-action-btn.learn-more {
+  display: block;
+  flex: none;
+  width: 100%;
+  padding: 10px 0;
+  border-radius: 10px;
+  border: none;
+  background: #FED550;
+  font-size: 0.84rem;
+  font-weight: 650;
+  color: #1A1A18;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  transition: all 0.12s ease;
+  margin-top: auto;
+}
+
+.card-action-btn.learn-more:hover {
+  background: #FDCC30;
+  box-shadow: 0 2px 8px rgba(254,213,80,0.4);
+}
+
 .card-actions {
   display: flex;
   gap: 6px;
-  margin-top: auto;
   padding-top: 4px;
 }
 

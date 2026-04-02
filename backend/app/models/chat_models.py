@@ -19,6 +19,9 @@ class ServiceCard(BaseModel):
     website: Optional[str] = None
     fees: Optional[str] = None
     additional_info: Optional[str] = None
+    yourpeer_url: Optional[str] = None
+    hours_today: Optional[str] = None
+    is_open: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

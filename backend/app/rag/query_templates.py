@@ -51,13 +51,17 @@ SELECT
 
     l.id              AS location_id,
     l.name            AS location_name,
+    l.slug            AS location_slug,
 
     pa.address_1      AS address,
     pa.city           AS city,
     pa.state_province AS state,
     pa.postal_code    AS zip_code,
 
-    ph.number         AS phone
+    ph.number         AS phone,
+
+    today_sched.opens_at   AS today_opens,
+    today_sched.closes_at  AS today_closes
 
 FROM services s
     JOIN service_taxonomy st       ON s.id = st.service_id
@@ -71,6 +75,13 @@ FROM services s
         OR ph.service_id = s.id
         OR ph.organization_id = o.id
     )
+    LEFT JOIN LATERAL (
+        SELECT rs.opens_at, rs.closes_at
+        FROM regular_schedules rs
+        WHERE rs.service_id = s.id
+          AND rs.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int - 1
+        LIMIT 1
+    ) today_sched ON TRUE
 """
 
 # ---------------------------------------------------------------------------
@@ -432,6 +443,15 @@ def format_service_card(row: dict) -> dict:
     ]
     full_address = ", ".join(p for p in address_parts if p)
 
+    # Build YourPeer listing URL from location slug
+    slug = row.get("location_slug")
+    yourpeer_url = f"https://yourpeer.nyc/locations/{slug}" if slug else None
+
+    # Build schedule / open status
+    today_opens = row.get("today_opens")
+    today_closes = row.get("today_closes")
+    schedule_status = _compute_schedule_status(today_opens, today_closes)
+
     return {
         "service_id": str(row.get("service_id", "")),
         "service_name": row.get("service_name", "Unknown Service"),
@@ -444,7 +464,68 @@ def format_service_card(row: dict) -> dict:
         "website": row.get("service_url") or row.get("organization_url"),
         "fees": row.get("fees"),
         "additional_info": row.get("additional_info"),
+        "yourpeer_url": yourpeer_url,
+        "hours_today": schedule_status["hours_today"],
+        "is_open": schedule_status["is_open"],
     }
+
+
+def _compute_schedule_status(opens_at, closes_at) -> dict:
+    """
+    Compute human-readable hours and open/closed status.
+
+    Returns:
+        {
+            "hours_today": str or None,
+                e.g. "9:00 AM – 5:00 PM", or None if no data
+            "is_open": "open" | "closed" | None
+                None means no schedule data available
+        }
+    """
+    if opens_at is None or closes_at is None:
+        return {"hours_today": None, "is_open": None}
+
+    from datetime import datetime, time as dt_time
+
+    # Parse the opens_at / closes_at values.
+    # They come from the DB as time strings (HH:MM:SS) or time objects.
+    try:
+        if isinstance(opens_at, str):
+            open_time = datetime.strptime(opens_at.strip(), "%H:%M:%S").time()
+        elif isinstance(opens_at, dt_time):
+            open_time = opens_at
+        else:
+            open_time = datetime.strptime(str(opens_at).strip()[:8], "%H:%M:%S").time()
+
+        if isinstance(closes_at, str):
+            close_time = datetime.strptime(closes_at.strip(), "%H:%M:%S").time()
+        elif isinstance(closes_at, dt_time):
+            close_time = closes_at
+        else:
+            close_time = datetime.strptime(str(closes_at).strip()[:8], "%H:%M:%S").time()
+    except (ValueError, AttributeError):
+        return {"hours_today": None, "is_open": None}
+
+    # Format for display
+    open_str = _format_time(open_time)
+    close_str = _format_time(close_time)
+    hours_today = f"{open_str} – {close_str}"
+
+    # Determine if currently open
+    now = datetime.now().time()
+    if open_time <= close_time:
+        is_open = "open" if open_time <= now <= close_time else "closed"
+    else:
+        # Wraps midnight (e.g. 8 PM – 6 AM)
+        is_open = "open" if now >= open_time or now <= close_time else "closed"
+
+    return {"hours_today": hours_today, "is_open": is_open}
+
+
+def _format_time(t) -> str:
+    """Format a time object as '9:00 AM' style."""
+    from datetime import datetime
+    return datetime.combine(datetime.min, t).strftime("%-I:%M %p")
 
 
 def deduplicate_results(rows: list[dict]) -> list[dict]:
