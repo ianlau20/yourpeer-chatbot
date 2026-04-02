@@ -307,43 +307,6 @@ TEMPLATES = {
         "default_params": {"taxonomy_name": "Employment"},
         "taxonomy_aliases": ["Employment"],
     },
-    "mental_health": {
-        "name": "MentalHealthQuery",
-        "description": "Find mental health, counseling, and substance abuse services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
-        "optional_filters": [
-            FILTER_BY_CITY,
-            FILTER_BY_PROXIMITY,
-            FILTER_BY_AGE_ELIGIBILITY,
-            FILTER_BY_GENDER_ELIGIBILITY,
-        ],
-        "default_params": {"taxonomy_name": "Mental Health"},
-        "taxonomy_aliases": ["Mental Health"],
-    },
-    "personal_care": {
-        "name": "PersonalCareQuery",
-        "description": "Find showers, laundry, toiletries, restrooms, and haircuts",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
-        "optional_filters": [
-            FILTER_BY_CITY,
-            FILTER_BY_PROXIMITY,
-            FILTER_BY_GENDER_ELIGIBILITY,
-            FILTER_BY_WEEKDAY,
-        ],
-        "default_params": {"taxonomy_name": "Personal Care"},
-        "taxonomy_aliases": ["Personal Care", "Shower", "Laundry", "Toiletries"],
-    },
-    "other": {
-        "name": "OtherServicesQuery",
-        "description": "Find other services (benefits, IDs, phone, mail, storage)",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
-        "optional_filters": [
-            FILTER_BY_CITY,
-            FILTER_BY_PROXIMITY,
-        ],
-        "default_params": {"taxonomy_name": "Other service"},
-        "taxonomy_aliases": ["Other service"],
-    },
 }
 
 
@@ -560,9 +523,12 @@ def _compute_schedule_status(opens_at, closes_at) -> dict:
 
 
 def _format_time(t) -> str:
-    """Format a time object as '9:00 AM' style."""
+    """Format a time object as '9:00 AM' style (cross-platform)."""
     from datetime import datetime
-    return datetime.combine(datetime.min, t).strftime("%-I:%M %p")
+    # Use %I (zero-padded) then strip the leading zero manually.
+    # %-I is macOS-only and crashes on Linux.
+    formatted = datetime.combine(datetime.min, t).strftime("%I:%M %p")
+    return formatted.lstrip("0") if formatted.startswith("0") else formatted
 
 
 def deduplicate_results(rows: list[dict]) -> list[dict]:

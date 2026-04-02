@@ -38,6 +38,20 @@ def _build_help_prompt(user_message: str, slots: dict) -> str:
     )
 
 
+def _fallback_response(message: str, slots: dict) -> str:
+    """Try Gemini, and if that also fails, return a safe static message."""
+    try:
+        prompt = _build_help_prompt(message, slots)
+        return gemini_reply(prompt)
+    except Exception as e:
+        logger.error(f"Gemini fallback also failed: {e}")
+        return (
+            "I'm having trouble looking that up right now. "
+            "Please try again in a moment, or visit yourpeer.nyc "
+            "to search for services directly."
+        )
+
+
 def generate_reply(message: str, session_id: str | None = None) -> dict:
     if not session_id:
         session_id = str(uuid.uuid4())
@@ -50,6 +64,8 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # If enough detail exists, query the database for real services.
     if is_enough_to_answer(merged):
 
+        # Always initialize so we never hit UnboundLocalError
+        bot_response = None
         services_list = []
         result_count = 0
         relaxed = False
@@ -63,8 +79,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
             if results.get("error"):
                 logger.warning(f"Query error: {results['error']}")
-                prompt = _build_help_prompt(message, merged)
-                bot_response = gemini_reply(prompt)
+                bot_response = _fallback_response(message, merged)
 
             elif results["result_count"] > 0:
                 services_list = results["services"]
@@ -84,8 +99,11 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
         except Exception as e:
             logger.error(f"Database query failed: {e}")
-            prompt = _build_help_prompt(message, merged)
-            bot_response = gemini_reply(prompt)
+            bot_response = _fallback_response(message, merged)
+
+        # Final safety net — should never trigger, but guarantees no crash
+        if bot_response is None:
+            bot_response = _fallback_response(message, merged)
 
         return {
             "session_id": session_id,
