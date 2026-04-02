@@ -51,3 +51,8 @@ def _evict_expired() -> None:
     ]
     for sid in expired:
         del _SESSION_STATE[sid]
+
+
+def clear_session(session_id: str) -> None:
+    """Remove all slot data for a session (used for 'start over')."""
+    _SESSION_STATE.pop(session_id, None)
