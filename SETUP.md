@@ -45,30 +45,15 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-The API will be available at `http://127.0.0.1:8000`.
+The app (API + frontend) will be available at `http://127.0.0.1:8000`.
 
-## Frontend (demo UI)
+## Frontend
 
-A minimal static chat page lives in `frontend/` (`index.html`, `styles.css`, `app.js`). It calls `POST http://127.0.0.1:8000/chat/`. The backend enables **CORS** for common local origins on port **5500** so the browser can call the API.
+The chat UI lives in `frontend/` (`index.html`, `styles.css`, `app.js`). The backend serves these files directly — no separate frontend server is needed. Just start the backend and open `http://127.0.0.1:8000` in your browser.
 
-On load, the page shows a short **welcome message**. The demo keeps a **`session_id`** (in browser storage) so multi-turn chats reuse the same conversation and slot state on the backend. Bot replies strip common Markdown-style `*` / `**` markers for plain-text display.
+On load, the page shows a welcome message with a privacy disclosure. The demo keeps a **`session_id`** so multi-turn chats reuse the same conversation and slot state on the backend. When the bot finds matching services, they render as swipeable cards with address, phone, hours, and action buttons.
 
-**Run the demo (use a second terminal; keep the backend running):**
-
-From the repo root:
-
-```
-cd frontend
-python3 -m http.server 5500 --bind 127.0.0.1
-```
-
-Then open **<http://127.0.0.1:5500>** in your browser (avoid `http://[::1]:5500` unless your backend CORS list includes that origin).
-
-**Stop / restart the frontend server:** in that terminal, press `Ctrl+C`, then run the `http.server` command again.
-
-### Testing
-
-This backend uses the Gemini LLM. To test it, co-developers must set a `GEMINI_API_KEY` and use `GEMINI_MODEL=gemini-3-flash-preview`.
+### Environment variables
 
 To get a Gemini API key, go to [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey), sign in with a Google account, and click "Create API key." The free tier is sufficient for development.
 
@@ -80,14 +65,20 @@ GEMINI_MODEL="gemini-3-flash-preview"
 DATABASE_URL="postgresql://user:password@host:port/streetlives"
 ```
 
-To try the chat locally:
+### Testing locally
 
-1. Start the backend (`uvicorn` in `backend/`).
-2. Start the frontend static server (commands above).
-3. Open <http://127.0.0.1:5500> — you should see the welcome line, then type a message and click **Send**.
+1. Activate the virtual environment.
+2. Start the backend: `cd backend && uvicorn app.main:app --reload`
+3. Open <http://127.0.0.1:8000> — you should see the welcome message, then type something like "I need food in Brooklyn" and click Send.
 
-The current flow:
-User → demo page → slot extraction + session merge → (follow-up or Gemini) → Response
+### Useful endpoints
 
-The goal flow:
-User → Backend → LLM + query templates → Streetlives data
+- `http://127.0.0.1:8000` — Chat UI
+- `http://127.0.0.1:8000/docs` — FastAPI interactive API docs
+- `http://127.0.0.1:8000/api/health` — Health check
+
+### Architecture
+
+User → Chat UI → FastAPI → Slot extraction → Query templates → Streetlives DB → Service cards
+
+For deployment instructions, see [DEPLOY.md](DEPLOY.md).

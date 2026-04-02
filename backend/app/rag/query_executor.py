@@ -197,16 +197,38 @@ def _execute_sql(sql: str, params: dict) -> list[dict]:
 # This bridges the gap between what the user says and what template to run.
 
 SLOT_SERVICE_TO_TEMPLATE = {
-    "food":       "food",
-    "shelter":    "shelter",
-    "housing":    "shelter",
-    "clothing":   "clothing",
-    "shower":     "shower",
-    "medical":    "medical",
-    "healthcare": "medical",
-    "legal":      "legal",
-    "employment": "employment",
-    "job":        "employment",
+    # Food
+    "food":          "food",
+
+    # Shelter & Housing
+    "shelter":       "shelter",
+    "housing":       "shelter",
+
+    # Clothing
+    "clothing":      "clothing",
+
+    # Personal Care (showers, laundry, toiletries, haircuts)
+    "personal_care": "personal_care",
+    "shower":        "personal_care",
+
+    # Health Care
+    "medical":       "medical",
+    "healthcare":    "medical",
+    "health":        "medical",
+
+    # Mental Health
+    "mental_health": "mental_health",
+
+    # Legal
+    "legal":         "legal",
+
+    # Employment
+    "employment":    "employment",
+    "job":           "employment",
+
+    # Other Services
+    "other":         "other",
+    "benefits":      "other",
 }
 
 

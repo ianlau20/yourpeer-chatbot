@@ -307,6 +307,43 @@ TEMPLATES = {
         "default_params": {"taxonomy_name": "Employment"},
         "taxonomy_aliases": ["Employment"],
     },
+    "mental_health": {
+        "name": "MentalHealthQuery",
+        "description": "Find mental health, counseling, and substance abuse services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_PROXIMITY,
+            FILTER_BY_AGE_ELIGIBILITY,
+            FILTER_BY_GENDER_ELIGIBILITY,
+        ],
+        "default_params": {"taxonomy_name": "Mental Health"},
+        "taxonomy_aliases": ["Mental Health"],
+    },
+    "personal_care": {
+        "name": "PersonalCareQuery",
+        "description": "Find showers, laundry, toiletries, restrooms, and haircuts",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_PROXIMITY,
+            FILTER_BY_GENDER_ELIGIBILITY,
+            FILTER_BY_WEEKDAY,
+        ],
+        "default_params": {"taxonomy_name": "Personal Care"},
+        "taxonomy_aliases": ["Personal Care", "Shower", "Laundry", "Toiletries"],
+    },
+    "other": {
+        "name": "OtherServicesQuery",
+        "description": "Find other services (benefits, IDs, phone, mail, storage)",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_PROXIMITY,
+        ],
+        "default_params": {"taxonomy_name": "Other service"},
+        "taxonomy_aliases": ["Other service"],
+    },
 }
 
 
