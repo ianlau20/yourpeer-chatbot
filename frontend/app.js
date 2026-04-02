@@ -1,4 +1,4 @@
-const API_URL = "http://127.0.0.1:8000/chat/";
+const API_URL = "/chat/";
 
 const WELCOME_MESSAGE =
   "Hi, welcome to YourPeer. I can help you find services like food, shelter, showers, and more in your area. Your conversation is private \u2014 I don\u2019t save your name or personal details. You can stop or start over anytime.\n\nWhat are you looking for today?";
