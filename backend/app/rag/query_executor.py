@@ -299,6 +299,19 @@ NYC_LOCATION_ALIASES = {
     "morrisania":     "Bronx",
 }
 
+# Borough-level entries — these get the full neighborhood expansion.
+# Neighborhood-level entries should try a direct match first.
+_BOROUGH_KEYS = {
+    "manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island",
+}
+
+
+def is_borough(raw_location: str) -> bool:
+    """Check if a location string is a borough (vs a neighborhood)."""
+    if not raw_location:
+        return False
+    return raw_location.lower().strip() in _BOROUGH_KEYS
+
 
 def normalize_location(raw_location: str) -> str:
     """

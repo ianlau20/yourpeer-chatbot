@@ -435,7 +435,11 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
 
     1. Drop time/schedule filters
     2. Drop eligibility filters (age, gender)
-    3. Broaden city match (exact → LIKE)
+    3. Broaden city match:
+       - Neighborhood search: promote _borough_city_list → city_list
+         (exact "Harlem" → all Manhattan neighborhoods)
+       - Borough search: keep existing city_list
+       - No expansion available: exact city → LIKE pattern
     4. State filter (NY) is NEVER dropped
 
     Returns the broadest reasonable query. Caller should note to the user
@@ -451,14 +455,16 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
     for key in ["age", "gender"]:
         relaxed_params.pop(key, None)
 
-    # Broaden city match:
-    # - If we have city_list (borough expansion), keep it — it already covers
-    #   all neighborhoods. Drop the exact city match to avoid double-filtering.
-    # - If we only have city (no expansion), broaden to LIKE.
-    if "city_list" in relaxed_params:
-        # Borough expansion already covers neighborhoods — just drop exact match
+    # Promote _borough_city_list (from neighborhood searches) to city_list
+    # so the relaxed query broadens from "Harlem" to all of Manhattan.
+    if "_borough_city_list" in relaxed_params:
+        relaxed_params["city_list"] = relaxed_params.pop("_borough_city_list")
+        relaxed_params.pop("city", None)
+    elif "city_list" in relaxed_params:
+        # Borough expansion already covers neighborhoods — drop exact match
         relaxed_params.pop("city", None)
     elif "city" in relaxed_params:
+        # No expansion available — broaden to LIKE
         city = relaxed_params.pop("city")
         relaxed_params["city_pattern"] = f"%{city}%"
 

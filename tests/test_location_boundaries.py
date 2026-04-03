@@ -16,7 +16,12 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.rag.query_templates import build_query, build_relaxed_query, TEMPLATES
-from app.rag.query_executor import normalize_location, NYC_LOCATION_ALIASES, get_borough_city_names
+from app.rag.query_executor import (
+    normalize_location,
+    NYC_LOCATION_ALIASES,
+    get_borough_city_names,
+    is_borough,
+)
 from app.services.slot_extractor import extract_slots, NEAR_ME_SENTINEL
 
 
@@ -479,6 +484,202 @@ def test_no_expansion_uses_like_in_relaxed():
 
 
 # -----------------------------------------------------------------------
+# IS_BOROUGH CLASSIFICATION
+# -----------------------------------------------------------------------
+
+def test_is_borough_true():
+    """Borough names should be identified as boroughs."""
+    boroughs = ["manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island"]
+    for b in boroughs:
+        assert is_borough(b) is True, f"'{b}' should be a borough"
+    print("  PASS: boroughs identified correctly")
+
+
+def test_is_borough_false_neighborhoods():
+    """Neighborhoods should NOT be identified as boroughs."""
+    neighborhoods = ["harlem", "midtown", "bushwick", "astoria", "mott haven"]
+    for n in neighborhoods:
+        assert is_borough(n) is False, f"'{n}' should not be a borough"
+    print("  PASS: neighborhoods not identified as boroughs")
+
+
+def test_is_borough_false_other():
+    """Non-NYC locations should not be boroughs."""
+    assert is_borough("Springfield") is False
+    assert is_borough("") is False
+    assert is_borough(None) is False
+    print("  PASS: non-NYC locations not boroughs")
+
+
+def test_is_borough_case_insensitive():
+    """is_borough should be case-insensitive."""
+    assert is_borough("BROOKLYN") is True
+    assert is_borough("Brooklyn") is True
+    assert is_borough("HARLEM") is False
+    print("  PASS: is_borough case insensitive")
+
+
+# -----------------------------------------------------------------------
+# NEIGHBORHOOD-FIRST QUERY LOGIC
+# -----------------------------------------------------------------------
+
+def test_neighborhood_strict_uses_exact_match():
+    """Neighborhood search strict query should use exact city match, not ANY."""
+    # Simulate what rag/__init__.py passes for "food in Harlem"
+    params = {
+        "city": "Harlem",
+        "_borough_city_list": get_borough_city_names("New York"),
+        "max_results": 5,
+    }
+    sql, bound = build_query("food", params)
+
+    # Strict should use exact match
+    assert "lower(pa.city) = lower(:city)" in sql.lower(), \
+        "Strict neighborhood query should have exact city match"
+    assert bound["city"] == "Harlem"
+
+    # Strict should NOT have ANY (city_list not in params, _borough_city_list
+    # is underscore-prefixed so it doesn't trigger the filter)
+    assert "city_list" not in bound, \
+        "Strict neighborhood query should not have city_list in bound params"
+    assert "any(:city_list)" not in sql.lower(), \
+        "Strict neighborhood query should not use ANY()"
+    print("  PASS: neighborhood strict uses exact match only")
+
+
+def test_neighborhood_relaxed_broadens_to_borough():
+    """Neighborhood search relaxed query should expand to full borough."""
+    params = {
+        "city": "Harlem",
+        "_borough_city_list": get_borough_city_names("New York"),
+        "max_results": 5,
+    }
+    sql, bound = build_relaxed_query("food", params)
+
+    # Relaxed should promote _borough_city_list → city_list
+    assert "city_list" in bound, \
+        "Relaxed neighborhood query should have city_list"
+    assert "harlem" in bound["city_list"], \
+        "Relaxed city_list should include harlem"
+    assert "new york" in bound["city_list"], \
+        "Relaxed city_list should include new york (borough city)"
+
+    # Relaxed should drop exact city
+    assert "city" not in bound, \
+        "Relaxed neighborhood query should drop exact city"
+
+    # Relaxed should NOT use LIKE (city_list is better)
+    assert "city_pattern" not in bound, \
+        "Relaxed neighborhood query should not fall back to LIKE"
+
+    # SQL should use ANY
+    assert "any(:city_list)" in sql.lower(), \
+        "Relaxed neighborhood query should use ANY()"
+    print("  PASS: neighborhood relaxed broadens to borough")
+
+
+def test_neighborhood_relaxed_does_not_cross_boroughs():
+    """Relaxed Harlem search should stay in Manhattan, not include Brooklyn."""
+    params = {
+        "city": "Harlem",
+        "_borough_city_list": get_borough_city_names("New York"),
+        "max_results": 5,
+    }
+    sql, bound = build_relaxed_query("food", params)
+
+    city_list = bound["city_list"]
+    assert "brooklyn" not in city_list, "Harlem relaxed should not include Brooklyn"
+    assert "queens" not in city_list, "Harlem relaxed should not include Queens"
+    assert "astoria" not in city_list, "Harlem relaxed should not include Astoria"
+    print("  PASS: neighborhood relaxed stays within borough")
+
+
+def test_borough_strict_uses_expansion():
+    """Borough search strict query should use ANY() immediately."""
+    city_list = get_borough_city_names("Queens")
+    params = {
+        "city": "Queens",
+        "city_list": city_list,
+        "max_results": 5,
+    }
+    sql, bound = build_query("food", params)
+
+    assert "any(:city_list)" in sql.lower(), \
+        "Borough strict query should use ANY()"
+    assert "city_list" in bound
+    print("  PASS: borough strict uses expansion immediately")
+
+
+def test_borough_vs_neighborhood_param_shapes():
+    """Compare the param shapes for borough vs neighborhood searches."""
+    # Borough: Queens
+    borough_params = {
+        "city": "Queens",
+        "city_list": get_borough_city_names("Queens"),
+        "max_results": 5,
+    }
+
+    # Neighborhood: Harlem
+    neighborhood_params = {
+        "city": "Harlem",
+        "_borough_city_list": get_borough_city_names("New York"),
+        "max_results": 5,
+    }
+
+    # Strict: borough has city_list, neighborhood does not
+    _, b_strict = build_query("food", borough_params)
+    _, n_strict = build_query("food", neighborhood_params)
+    assert "city_list" in b_strict, "Borough strict should have city_list"
+    assert "city_list" not in n_strict, "Neighborhood strict should NOT have city_list"
+
+    # Relaxed: both should have city_list
+    _, b_relaxed = build_relaxed_query("food", borough_params)
+    _, n_relaxed = build_relaxed_query("food", neighborhood_params)
+    assert "city_list" in b_relaxed, "Borough relaxed should have city_list"
+    assert "city_list" in n_relaxed, "Neighborhood relaxed should have city_list"
+
+    print("  PASS: borough vs neighborhood param shapes correct")
+
+
+def test_multiple_neighborhoods_same_borough():
+    """Different neighborhoods in the same borough should expand to the same list."""
+    harlem_relaxed = get_borough_city_names(normalize_location("harlem"))
+    midtown_relaxed = get_borough_city_names(normalize_location("midtown"))
+    chelsea_relaxed = get_borough_city_names(normalize_location("chelsea"))
+
+    assert harlem_relaxed == midtown_relaxed == chelsea_relaxed, \
+        "All Manhattan neighborhoods should expand to the same borough list"
+    print("  PASS: same-borough neighborhoods expand identically")
+
+
+def test_neighborhood_strict_different_from_borough_strict():
+    """Harlem strict should be narrower than Manhattan strict."""
+    # Harlem strict: city = "Harlem"
+    _, harlem_bound = build_query("food", {
+        "city": "Harlem",
+        "_borough_city_list": get_borough_city_names("New York"),
+        "max_results": 5,
+    })
+
+    # Manhattan strict: city = "New York" + city_list = all Manhattan
+    _, manhattan_bound = build_query("food", {
+        "city": "New York",
+        "city_list": get_borough_city_names("New York"),
+        "max_results": 5,
+    })
+
+    # Harlem strict should only match "Harlem"
+    assert harlem_bound["city"] == "Harlem"
+    assert "city_list" not in harlem_bound
+
+    # Manhattan strict should match all Manhattan neighborhoods
+    assert "city_list" in manhattan_bound
+    assert len(manhattan_bound["city_list"]) > 5
+
+    print("  PASS: neighborhood strict is narrower than borough strict")
+
+
+# -----------------------------------------------------------------------
 # RUNNER
 # -----------------------------------------------------------------------
 
@@ -535,6 +736,21 @@ if __name__ == "__main__":
     test_borough_expansion_in_query()
     test_borough_expansion_in_relaxed_query()
     test_no_expansion_uses_like_in_relaxed()
+
+    print("\n--- Is Borough ---")
+    test_is_borough_true()
+    test_is_borough_false_neighborhoods()
+    test_is_borough_false_other()
+    test_is_borough_case_insensitive()
+
+    print("\n--- Neighborhood-First Logic ---")
+    test_neighborhood_strict_uses_exact_match()
+    test_neighborhood_relaxed_broadens_to_borough()
+    test_neighborhood_relaxed_does_not_cross_boroughs()
+    test_borough_strict_uses_expansion()
+    test_borough_vs_neighborhood_param_shapes()
+    test_multiple_neighborhoods_same_borough()
+    test_neighborhood_strict_different_from_borough_strict()
 
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")

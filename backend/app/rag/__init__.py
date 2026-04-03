@@ -17,6 +17,8 @@ from app.rag.query_executor import (
     execute_service_query,
     resolve_template_key,
     normalize_location,
+    get_borough_city_names,
+    is_borough,
     test_connection,
 )
 from app.rag.query_templates import TEMPLATES, build_query
@@ -67,7 +69,29 @@ def query_services(
     # Normalize location to DB-compatible city value
     user_params = {}
     if location:
-        user_params["city"] = normalize_location(location)
+        normalized_city = normalize_location(location)
+        user_location_is_borough = is_borough(location)
+
+        if user_location_is_borough:
+            # Borough-level search: "Queens" → search all Queens neighborhoods.
+            # Use borough expansion (ANY) as the primary filter.
+            user_params["city"] = normalized_city
+            city_list = get_borough_city_names(normalized_city)
+            if len(city_list) > 1:
+                user_params["city_list"] = city_list
+        else:
+            # Neighborhood-level search: "Harlem" → try matching "Harlem" directly
+            # as a city value in the DB. Only exact city match in the strict query.
+            # The borough expansion is stored separately for the relaxed fallback.
+            neighborhood_name = location.strip().title()
+            user_params["city"] = neighborhood_name
+            # Store the borough expansion for relaxed fallback only.
+            # Prefixed with _ so it doesn't trigger FILTER_BY_CITY_IN_BOROUGH
+            # in the strict query (optional filters require "city_list" in params).
+            city_list = get_borough_city_names(normalized_city)
+            if len(city_list) > 1:
+                user_params["_borough_city_list"] = city_list
+
     if age is not None:
         user_params["age"] = age
     if gender:
