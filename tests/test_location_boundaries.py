@@ -802,6 +802,301 @@ def test_harlem_full_query_path():
     print("  PASS: Harlem full query path — strict, relaxed, and cross-borough isolation")
 
 
+def test_neighborhood_proximity_params():
+    """Neighborhood searches should include lat/lon/radius for PostGIS proximity."""
+    from app.rag.query_executor import get_neighborhood_center, DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+
+    for neighborhood in ["Chelsea", "Harlem", "Williamsburg", "Astoria", "Mott Haven"]:
+        center = get_neighborhood_center(neighborhood)
+        assert center is not None, f"{neighborhood} should have center coordinates"
+        lat, lon = center
+        assert 40.4 < lat < 41.0, f"{neighborhood} lat {lat} out of NYC range"
+        assert -74.3 < lon < -73.6, f"{neighborhood} lon {lon} out of NYC range"
+
+    # Boroughs should NOT have center coordinates
+    for borough in ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"]:
+        center = get_neighborhood_center(borough)
+        assert center is None, f"{borough} should NOT have center coordinates"
+
+    print("  PASS: neighborhood proximity params present, boroughs excluded")
+
+
+def test_neighborhood_proximity_in_strict_query():
+    """Strict query for a neighborhood should include ST_DWithin proximity filter."""
+    from app.rag.query_executor import get_neighborhood_center, DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+
+    lat, lon = get_neighborhood_center("chelsea")
+    params = {
+        "city": "New York",
+        "city_list": get_borough_city_names("New York"),
+        "lat": lat,
+        "lon": lon,
+        "radius_meters": DEFAULT_NEIGHBORHOOD_RADIUS_METERS,
+        "max_results": 10,
+    }
+
+    sql, bound = build_query("food", params)
+
+    assert "st_dwithin" in sql.lower(), "Strict should have ST_DWithin filter"
+    assert bound["lat"] == lat
+    assert bound["lon"] == lon
+    assert bound["radius_meters"] == DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+
+    # Should also order by distance
+    assert "st_distance" in sql.lower(), "Strict should order by distance"
+
+    print("  PASS: neighborhood strict query includes proximity filter + distance ordering")
+
+
+def test_neighborhood_relaxed_drops_proximity():
+    """Relaxed query should drop proximity filter to broaden from neighborhood to borough."""
+    from app.rag.query_executor import get_neighborhood_center, DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+
+    lat, lon = get_neighborhood_center("chelsea")
+    params = {
+        "city": "New York",
+        "city_list": get_borough_city_names("New York"),
+        "_borough_city_list": get_borough_city_names("New York"),
+        "lat": lat,
+        "lon": lon,
+        "radius_meters": DEFAULT_NEIGHBORHOOD_RADIUS_METERS,
+        "max_results": 10,
+    }
+
+    sql, bound = build_relaxed_query("food", params)
+
+    # Relaxed should NOT have proximity params
+    assert "lat" not in bound, "Relaxed should drop lat"
+    assert "lon" not in bound, "Relaxed should drop lon"
+    assert "radius_meters" not in bound, "Relaxed should drop radius_meters"
+    assert "st_dwithin" not in sql.lower(), "Relaxed should not have ST_DWithin"
+
+    # Should still have city_list for borough-level filtering
+    assert "city_list" in bound, "Relaxed should keep city_list"
+
+    # Should NOT order by distance (no lat/lon)
+    assert "st_distance" not in sql.lower(), "Relaxed should not order by distance"
+
+    print("  PASS: relaxed query drops proximity, falls back to borough")
+
+
+def test_all_neighborhoods_have_coordinates():
+    """Every neighborhood in the alias map should have center coordinates."""
+    from app.rag.query_executor import NEIGHBORHOOD_CENTERS, NYC_LOCATION_ALIASES
+
+    neighborhoods = {
+        k for k in NYC_LOCATION_ALIASES
+        if k not in ("manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island")
+    }
+
+    missing = []
+    for n in neighborhoods:
+        if n not in NEIGHBORHOOD_CENTERS:
+            missing.append(n)
+
+    assert not missing, f"Missing coordinates for: {missing}"
+    print(f"  PASS: all {len(neighborhoods)} neighborhoods have center coordinates")
+
+
+def test_end_to_end_proximity_via_query_services():
+    """query_services should pass proximity params for neighborhood searches."""
+    from app.rag import query_services
+    from app.rag.query_executor import DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+    from unittest.mock import patch
+
+    mock_results = {
+        "services": [{"service_name": "Test"}],
+        "result_count": 1,
+        "template_used": "FoodQuery",
+        "params_applied": {},
+        "relaxed": False,
+        "execution_ms": 10,
+    }
+
+    # Chelsea should get proximity params
+    with patch("app.rag.execute_service_query", return_value=mock_results) as mock_exec:
+        query_services(service_type="food", location="Chelsea")
+        call_args = mock_exec.call_args
+        user_params = call_args[1]["user_params"] if "user_params" in call_args[1] else call_args[0][1]
+
+        assert "lat" in user_params, "Chelsea should have lat"
+        assert "lon" in user_params, "Chelsea should have lon"
+        assert "radius_meters" in user_params, "Chelsea should have radius_meters"
+        assert user_params["radius_meters"] == DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+
+    # Manhattan (borough) should NOT get proximity params
+    with patch("app.rag.execute_service_query", return_value=mock_results) as mock_exec:
+        query_services(service_type="food", location="Manhattan")
+        call_args = mock_exec.call_args
+        user_params = call_args[1]["user_params"] if "user_params" in call_args[1] else call_args[0][1]
+
+        assert "lat" not in user_params, "Manhattan should NOT have lat"
+        assert "lon" not in user_params, "Manhattan should NOT have lon"
+
+    print("  PASS: end-to-end proximity for neighborhoods, not boroughs")
+
+
+def test_all_alias_neighborhoods_have_coordinates():
+    """Every neighborhood in the alias map must have matching center coordinates."""
+    from app.rag.query_executor import NEIGHBORHOOD_CENTERS, NYC_LOCATION_ALIASES
+
+    neighborhoods = {
+        k for k in NYC_LOCATION_ALIASES
+        if k not in ("manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island")
+    }
+
+    missing = [n for n in neighborhoods if n not in NEIGHBORHOOD_CENTERS]
+    assert not missing, f"Neighborhoods in alias map but missing coordinates: {missing}"
+    print(f"  PASS: all {len(neighborhoods)} alias neighborhoods have coordinates")
+
+
+def test_all_known_locations_have_aliases():
+    """Every location in slot_extractor._KNOWN_LOCATIONS should be in the alias map."""
+    from app.services.slot_extractor import _KNOWN_LOCATIONS
+    from app.rag.query_executor import NYC_LOCATION_ALIASES
+
+    missing = [loc for loc in _KNOWN_LOCATIONS if loc not in NYC_LOCATION_ALIASES]
+    assert not missing, f"Known locations missing from alias map: {missing}"
+    print(f"  PASS: all {len(_KNOWN_LOCATIONS)} known locations have aliases")
+
+
+def test_all_coordinates_within_nyc_bounds():
+    """All neighborhood coordinates must be within NYC bounding box."""
+    from app.rag.query_executor import NEIGHBORHOOD_CENTERS
+
+    # NYC bounding box (generous)
+    NYC_LAT_MIN, NYC_LAT_MAX = 40.49, 40.92
+    NYC_LON_MIN, NYC_LON_MAX = -74.26, -73.70
+
+    for name, (lat, lon) in NEIGHBORHOOD_CENTERS.items():
+        assert NYC_LAT_MIN < lat < NYC_LAT_MAX, \
+            f"{name}: lat {lat} outside NYC bounds ({NYC_LAT_MIN}-{NYC_LAT_MAX})"
+        assert NYC_LON_MIN < lon < NYC_LON_MAX, \
+            f"{name}: lon {lon} outside NYC bounds ({NYC_LON_MIN}-{NYC_LON_MAX})"
+
+    print(f"  PASS: all {len(NEIGHBORHOOD_CENTERS)} coordinates within NYC bounds")
+
+
+def test_neighborhood_case_insensitive_lookup():
+    """Neighborhood center lookup should be case-insensitive."""
+    from app.rag.query_executor import get_neighborhood_center
+
+    for variant in ["Chelsea", "CHELSEA", "chelsea", "HARLEM", "harlem", "Harlem"]:
+        center = get_neighborhood_center(variant)
+        assert center is not None, f"get_neighborhood_center('{variant}') should not be None"
+
+    print("  PASS: neighborhood center lookup is case-insensitive")
+
+
+def test_neighborhood_whitespace_handling():
+    """Neighborhood center lookup should handle leading/trailing whitespace."""
+    from app.rag.query_executor import get_neighborhood_center
+
+    for padded in [" Chelsea ", " harlem", "astoria ", "  midtown  "]:
+        center = get_neighborhood_center(padded)
+        assert center is not None, f"get_neighborhood_center('{padded}') should not be None"
+
+    print("  PASS: neighborhood center lookup handles whitespace")
+
+
+def test_duplicate_neighborhood_names_same_coords():
+    """bed-stuy and bedford-stuyvesant should have identical coordinates."""
+    from app.rag.query_executor import get_neighborhood_center
+
+    c1 = get_neighborhood_center("bed-stuy")
+    c2 = get_neighborhood_center("bedford-stuyvesant")
+    assert c1 == c2, f"bed-stuy {c1} != bedford-stuyvesant {c2}"
+
+    c3 = get_neighborhood_center("hells kitchen")
+    c4 = get_neighborhood_center("hell's kitchen")
+    assert c3 == c4, f"hells kitchen {c3} != hell's kitchen {c4}"
+
+    print("  PASS: duplicate neighborhood names have identical coordinates")
+
+
+def test_new_neighborhoods_extracted_from_messages():
+    """Newly added neighborhoods should be extractable from user messages."""
+    from app.services.slot_extractor import extract_slots
+
+    test_cases = [
+        ("food in chinatown", "chinatown"),
+        ("shelter near dumbo", "dumbo"),
+        ("food in park slope", "park slope"),
+        ("clothing in east harlem", "east harlem"),
+        ("help in the financial district", "financial district"),
+        ("food near times square", "times square"),
+        ("shelter in fort greene", "fort greene"),
+        ("food in corona", "corona"),
+        ("food in ridgewood", "ridgewood"),
+    ]
+
+    for msg, expected_location in test_cases:
+        slots = extract_slots(msg)
+        location = (slots.get("location") or "").lower()
+        assert expected_location in location, \
+            f"'{msg}' should extract location containing '{expected_location}', got '{location}'"
+
+    print("  PASS: new neighborhoods extracted from messages correctly")
+
+
+def test_unknown_location_falls_back_gracefully():
+    """A location not in our map should still work — just without proximity."""
+    from app.rag import query_services
+    from app.rag.query_executor import get_neighborhood_center
+    from unittest.mock import patch
+
+    mock_results = {
+        "services": [], "result_count": 0, "template_used": "FoodQuery",
+        "params_applied": {}, "relaxed": False, "execution_ms": 10,
+    }
+
+    # "Canarsie" is a real Brooklyn neighborhood not in our map
+    assert get_neighborhood_center("Canarsie") is None
+
+    with patch("app.rag.execute_service_query", return_value=mock_results) as mock_exec:
+        query_services(service_type="food", location="Canarsie")
+        call_args = mock_exec.call_args
+        user_params = call_args[1]["user_params"] if "user_params" in call_args[1] else call_args[0][1]
+
+        # Should NOT have proximity params (no coordinates)
+        assert "lat" not in user_params, "Unknown location should not have lat"
+        # Should still have the raw location as city for a LIKE match attempt
+        assert "city" in user_params
+
+    print("  PASS: unknown location falls back to city filter without proximity")
+
+
+def test_proximity_radius_is_reasonable():
+    """Default radius should be between 800m and 3200m (0.5-2 miles)."""
+    from app.rag.query_executor import DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+
+    assert 800 <= DEFAULT_NEIGHBORHOOD_RADIUS_METERS <= 3200, \
+        f"Radius {DEFAULT_NEIGHBORHOOD_RADIUS_METERS}m seems unreasonable"
+    print(f"  PASS: default radius {DEFAULT_NEIGHBORHOOD_RADIUS_METERS}m is reasonable")
+
+
+def test_proximity_does_not_break_non_location_queries():
+    """Queries without a location should not have proximity params."""
+    from app.rag import query_services
+    from unittest.mock import patch
+
+    mock_results = {
+        "services": [], "result_count": 0, "template_used": "FoodQuery",
+        "params_applied": {}, "relaxed": False, "execution_ms": 10,
+    }
+
+    with patch("app.rag.execute_service_query", return_value=mock_results) as mock_exec:
+        query_services(service_type="food", location=None)
+        call_args = mock_exec.call_args
+        user_params = call_args[1]["user_params"] if "user_params" in call_args[1] else call_args[0][1]
+
+        assert "lat" not in user_params
+        assert "lon" not in user_params
+        assert "radius_meters" not in user_params
+
+    print("  PASS: no proximity params when location is None")
+
+
 # -----------------------------------------------------------------------
 # RUNNER
 # -----------------------------------------------------------------------
@@ -877,6 +1172,25 @@ if __name__ == "__main__":
     test_multiple_neighborhoods_same_borough()
     test_end_to_end_neighborhood_via_query_services()
     test_harlem_full_query_path()
+
+    print("\n--- PostGIS Proximity Search ---")
+    test_neighborhood_proximity_params()
+    test_neighborhood_proximity_in_strict_query()
+    test_neighborhood_relaxed_drops_proximity()
+    test_all_neighborhoods_have_coordinates()
+    test_end_to_end_proximity_via_query_services()
+
+    print("\n--- Proximity Edge Cases ---")
+    test_all_alias_neighborhoods_have_coordinates()
+    test_all_known_locations_have_aliases()
+    test_all_coordinates_within_nyc_bounds()
+    test_neighborhood_case_insensitive_lookup()
+    test_neighborhood_whitespace_handling()
+    test_duplicate_neighborhood_names_same_coords()
+    test_new_neighborhoods_extracted_from_messages()
+    test_unknown_location_falls_back_gracefully()
+    test_proximity_radius_is_reasonable()
+    test_proximity_does_not_break_non_location_queries()
 
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")

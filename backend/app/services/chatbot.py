@@ -111,11 +111,20 @@ _SERVICE_LABELS = {
 }
 
 # Confirmation-related phrases
-_CONFIRM_YES = [
+# Short words that need EXACT match to avoid false positives
+_CONFIRM_YES_EXACT = [
     "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "correct",
-    "right", "that's right", "thats right", "go ahead", "search",
-    "yes search", "do it", "find", "go", "please", "looks good",
-    "yes please",
+    "right", "go", "please", "do it", "find",
+]
+
+# Longer phrases that can use STARTS-WITH or CONTAINS matching
+_CONFIRM_YES_STARTSWITH = [
+    "yes ", "yeah ", "yep ", "sure ", "ok ",  # "yes search", "yes please", "yes I want to"
+    "go ahead", "looks good", "looks right", "looks correct",
+    "that's right", "thats right", "that's correct", "thats correct",
+    "search for", "please search", "do the search",
+    "yes search", "yes please",
+    "confirm", "confirmed",
 ]
 
 _CONFIRM_CHANGE_SERVICE = [
@@ -183,8 +192,12 @@ def _classify_message(text: str) -> str:
         if phrase in cleaned:
             return "confirm_change_location"
 
-    for phrase in _CONFIRM_YES:
-        if cleaned == phrase or cleaned == phrase + " please":
+    for phrase in _CONFIRM_YES_EXACT:
+        if cleaned == phrase:
+            return "confirm_yes"
+
+    for phrase in _CONFIRM_YES_STARTSWITH:
+        if cleaned.startswith(phrase) or cleaned == phrase:
             return "confirm_yes"
 
     # Check greetings (only if the message is short — "hi where's food"
@@ -542,10 +555,45 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         return result
 
     # If pending confirmation but user typed something new (not a
-    # confirmation action), treat it as new input — clear the flag
-    # and re-process below.
+    # confirmation action), check if it contains new slot data.
+    # If not, gently re-show the confirmation rather than falling
+    # through to general conversation (which causes loops).
     if pending:
         existing.pop("_pending_confirmation", None)
+
+        # Check if the message has new slot data
+        if _USE_LLM_EXTRACTION:
+            pending_extracted = extract_slots_smart(message)
+        else:
+            pending_extracted = extract_slots(message)
+        pending_has_new = any(v is not None for v in pending_extracted.values())
+
+        if not pending_has_new:
+            # No new slots — user is probably trying to confirm or is confused.
+            # Re-show the confirmation with a nudge.
+            existing["_pending_confirmation"] = True
+            save_session_slots(session_id, existing)
+
+            confirm_msg = (
+                "Just to make sure — " + _build_confirmation_message(existing)
+                + ' Tap "Yes, search" to go, or you can change the details.'
+            )
+            confirm_qr = _confirmation_quick_replies(existing)
+
+            result = {
+                "session_id": session_id,
+                "response": confirm_msg,
+                "follow_up_needed": True,
+                "slots": existing,
+                "services": [],
+                "result_count": 0,
+                "relaxed_search": False,
+                "quick_replies": confirm_qr,
+            }
+            _log_turn(session_id, redacted_message, result, "confirmation_nudge")
+            return result
+
+        # Has new slot data — merge and re-process below
 
     # --- Service request or general conversation ---
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).

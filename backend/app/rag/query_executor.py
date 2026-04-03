@@ -262,7 +262,10 @@ NYC_LOCATION_ALIASES = {
 
     # Common neighborhood → borough mappings
     "harlem":         "New York",
+    "east harlem":    "New York",
     "midtown":        "New York",
+    "midtown east":   "New York",
+    "midtown west":   "New York",
     "soho":           "New York",
     "east village":   "New York",
     "west village":   "New York",
@@ -273,6 +276,18 @@ NYC_LOCATION_ALIASES = {
     "upper east side":"New York",
     "washington heights": "New York",
     "inwood":         "New York",
+    "hells kitchen":  "New York",
+    "hell's kitchen": "New York",
+    "kips bay":       "New York",
+    "murray hill":    "New York",
+    "gramercy":       "New York",
+    "chinatown":      "New York",
+    "little italy":   "New York",
+    "financial district": "New York",
+    "battery park":   "New York",
+    "nolita":         "New York",
+    "noho":           "New York",
+    "times square":   "New York",
 
     "williamsburg":   "Brooklyn",
     "bushwick":       "Brooklyn",
@@ -284,6 +299,12 @@ NYC_LOCATION_ALIASES = {
     "brownsville":    "Brooklyn",
     "sunset park":    "Brooklyn",
     "bay ridge":      "Brooklyn",
+    "dumbo":          "Brooklyn",
+    "red hook":       "Brooklyn",
+    "park slope":     "Brooklyn",
+    "prospect heights": "Brooklyn",
+    "fort greene":    "Brooklyn",
+    "cobble hill":    "Brooklyn",
 
     "astoria":        "Queens",
     "flushing":       "Queens",
@@ -291,6 +312,11 @@ NYC_LOCATION_ALIASES = {
     "long island city": "Queens",
     "jackson heights": "Queens",
     "far rockaway":   "Queens",
+    "ridgewood":      "Queens",
+    "woodside":       "Queens",
+    "sunnyside":      "Queens",
+    "corona":         "Queens",
+    "elmhurst":       "Queens",
 
     "south bronx":    "Bronx",
     "mott haven":     "Bronx",
@@ -362,3 +388,99 @@ def get_borough_city_names(city: str) -> list[str]:
     """
     cities = BOROUGH_TO_CITIES.get(city, [city])
     return [c.lower() for c in cities]
+
+
+# ---------------------------------------------------------------------------
+# NEIGHBORHOOD CENTER COORDINATES (for PostGIS proximity search)
+# ---------------------------------------------------------------------------
+# Approximate center points for NYC neighborhoods. Used with ST_DWithin
+# to find services within a radius of the neighborhood center.
+# Coordinates are (latitude, longitude).
+#
+# Boroughs are NOT included — they use city-level filtering instead.
+# Only neighborhoods that need proximity-based narrowing are listed.
+
+NEIGHBORHOOD_CENTERS = {
+    # Manhattan
+    "chelsea":           (40.7465, -74.0014),
+    "east village":      (40.7265, -73.9815),
+    "west village":      (40.7336, -74.0027),
+    "harlem":            (40.8116, -73.9465),
+    "east harlem":       (40.7957, -73.9425),
+    "midtown":           (40.7549, -73.9840),
+    "midtown east":      (40.7540, -73.9720),
+    "midtown west":      (40.7590, -73.9900),
+    "soho":              (40.7233, -73.9985),
+    "tribeca":           (40.7163, -74.0086),
+    "lower east side":   (40.7150, -73.9843),
+    "upper west side":   (40.7870, -73.9754),
+    "upper east side":   (40.7736, -73.9566),
+    "washington heights": (40.8417, -73.9394),
+    "inwood":            (40.8677, -73.9212),
+    "hells kitchen":     (40.7638, -73.9918),
+    "hell's kitchen":    (40.7638, -73.9918),
+    "kips bay":          (40.7420, -73.9800),
+    "murray hill":       (40.7488, -73.9775),
+    "gramercy":          (40.7382, -73.9860),
+    "chinatown":         (40.7158, -73.9970),
+    "little italy":      (40.7191, -73.9973),
+    "financial district": (40.7075, -74.0113),
+    "battery park":      (40.7033, -74.0170),
+    "nolita":            (40.7231, -73.9946),
+    "noho":              (40.7265, -73.9927),
+    "times square":      (40.7580, -73.9855),
+
+    # Brooklyn
+    "williamsburg":      (40.7081, -73.9571),
+    "bushwick":          (40.6942, -73.9215),
+    "bed-stuy":          (40.6872, -73.9418),
+    "bedford-stuyvesant": (40.6872, -73.9418),
+    "east new york":     (40.6590, -73.8759),
+    "crown heights":     (40.6694, -73.9422),
+    "flatbush":          (40.6524, -73.9596),
+    "brownsville":       (40.6614, -73.9056),
+    "sunset park":       (40.6454, -74.0134),
+    "bay ridge":         (40.6348, -74.0287),
+    "dumbo":             (40.7033, -73.9887),
+    "red hook":          (40.6734, -74.0080),
+    "park slope":        (40.6728, -73.9778),
+    "prospect heights":  (40.6775, -73.9692),
+    "fort greene":       (40.6891, -73.9742),
+    "cobble hill":       (40.6860, -73.9957),
+
+    # Queens
+    "astoria":           (40.7723, -73.9196),
+    "flushing":          (40.7654, -73.8318),
+    "jamaica":           (40.7029, -73.7898),
+    "long island city":  (40.7425, -73.9536),
+    "jackson heights":   (40.7557, -73.8831),
+    "far rockaway":      (40.5998, -73.7448),
+    "ridgewood":         (40.7043, -73.9055),
+    "woodside":          (40.7454, -73.9030),
+    "sunnyside":         (40.7433, -73.9196),
+    "corona":            (40.7470, -73.8602),
+    "elmhurst":          (40.7360, -73.8780),
+
+    # Bronx
+    "south bronx":       (40.8185, -73.9182),
+    "mott haven":        (40.8089, -73.9230),
+    "fordham":           (40.8619, -73.8976),
+    "hunts point":       (40.8094, -73.8814),
+    "morrisania":        (40.8291, -73.9065),
+}
+
+# Default search radius for neighborhood proximity queries (in meters).
+# ~1.6 km ≈ 1 mile — covers most NYC neighborhoods comfortably.
+DEFAULT_NEIGHBORHOOD_RADIUS_METERS = 1600
+
+
+def get_neighborhood_center(location: str) -> tuple[float, float] | None:
+    """
+    Look up the center coordinates for a neighborhood.
+
+    Returns (latitude, longitude) or None if the location is a borough
+    or not in the lookup table.
+    """
+    if not location:
+        return None
+    return NEIGHBORHOOD_CENTERS.get(location.lower().strip())

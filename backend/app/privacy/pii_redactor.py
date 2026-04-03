@@ -111,6 +111,9 @@ _NAME_BLOCKLIST = {
     "harlem", "midtown", "soho", "tribeca", "chelsea",
     "williamsburg", "bushwick", "astoria", "flushing", "jamaica",
     "fordham", "inwood", "flatbush", "brownsville",
+    "chinatown", "dumbo", "gramercy", "nolita", "noho",
+    "corona", "elmhurst", "ridgewood", "woodside", "sunnyside",
+    "morrisania",
     # Common non-name words that might match with IGNORECASE
     "in", "at", "on", "to", "so", "up", "ok", "an", "or", "if",
     "looking", "trying", "searching", "hoping", "needing",

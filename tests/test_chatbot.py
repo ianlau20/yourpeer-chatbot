@@ -538,7 +538,17 @@ def test_relaxed_search_flag(mock_gemini, mock_query):
 
 def test_classify_confirmation_phrases():
     """Confirmation phrases should classify correctly."""
-    for phrase in ["yes", "yeah", "ok", "sure", "go ahead", "yes please"]:
+    # Exact matches (short words)
+    for phrase in ["yes", "yeah", "ok", "sure", "go ahead", "yes please",
+                   "correct", "yep", "yup", "do it", "find", "please"]:
+        assert _classify_message(phrase) == "confirm_yes", \
+            f"'{phrase}' should be confirm_yes"
+
+    # Starts-with matches (longer phrases)
+    for phrase in ["yes search", "yes, search", "yes I want to search",
+                   "please search", "search for that", "looks good",
+                   "that's right", "thats correct", "confirm",
+                   "go ahead and search", "yes that is correct"]:
         assert _classify_message(phrase) == "confirm_yes", \
             f"'{phrase}' should be confirm_yes"
 

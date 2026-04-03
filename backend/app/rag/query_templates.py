@@ -225,6 +225,12 @@ ORDER BY o.name, s.name
 LIMIT :max_results
 """
 
+# Distance-aware ORDER BY — used when proximity params are present
+_ORDER_BY_DISTANCE_LIMIT = """
+ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography), s.name
+LIMIT :max_results
+"""
+
 _DEFAULT_MAX_RESULTS = 10
 
 
@@ -422,7 +428,12 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
     if "max_results" not in params:
         params["max_results"] = _DEFAULT_MAX_RESULTS
 
-    full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{_ORDER_LIMIT}"
+    # Use distance-aware ordering when proximity search is active
+    order_clause = _ORDER_LIMIT
+    if "lat" in params and "lon" in params:
+        order_clause = _ORDER_BY_DISTANCE_LIMIT
+
+    full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{order_clause}"
 
     return full_sql, params
 
@@ -435,16 +446,13 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
 
     1. Drop time/schedule filters
     2. Drop eligibility filters (age, gender)
-    3. Broaden city match:
+    3. Drop proximity filters (lat, lon, radius) — broadens from
+       neighborhood-level to borough-level
+    4. Broaden city match:
        - If _borough_city_list exists: promote to city_list for ANY() match
        - If city_list exists: keep it, drop exact city match
        - No expansion available: exact city → LIKE pattern
-    4. State filter (NY) is NEVER dropped
-
-    Note: Since the DB stores all addresses at the borough level, both
-    borough and neighborhood searches now use the normalized borough city
-    value in strict queries. The relaxed query mainly helps by dropping
-    eligibility and schedule filters.
+    5. State filter (NY) is NEVER dropped
 
     Returns the broadest reasonable query. Caller should note to the user
     that results may be less precisely matched.
@@ -457,6 +465,10 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
 
     # Remove eligibility params
     for key in ["age", "gender"]:
+        relaxed_params.pop(key, None)
+
+    # Remove proximity params — broadens from neighborhood to full borough
+    for key in ["lat", "lon", "radius_meters"]:
         relaxed_params.pop(key, None)
 
     # Promote _borough_city_list (from neighborhood searches) to city_list

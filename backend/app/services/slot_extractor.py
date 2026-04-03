@@ -53,8 +53,9 @@ SERVICE_KEYWORDS = {
     "mental_health": [
         "mental health", "counseling", "counselor", "therapist", "therapy",
         "depression", "anxiety", "stress", "trauma", "ptsd",
-        "substance abuse", "addiction", "rehab", "recovery", "aa",
-        "na", "support group", "emotional support", "psychiatric",
+        "substance abuse", "addiction", "rehab", "recovery",
+        "aa meeting", "na meeting", "narcotics anonymous", "alcoholics anonymous",
+        "support group", "emotional support", "psychiatric",
         "psychiatrist", "crisis counseling",
     ],
 
@@ -167,16 +168,30 @@ def _extract_location(text: str) -> Optional[str]:
 
 # Known NYC locations — used for both bare-mention extraction and
 # the "near me" override check above.
+# Sorted longest-first so "east new york" matches before "new york",
+# "long island city" before "island", etc.
 _KNOWN_LOCATIONS = [
-    "long island city", "midtown", "soho", "queens", "brooklyn",
-    "bronx", "the bronx", "manhattan", "staten island", "harlem",
-    "east village", "west village", "chelsea", "williamsburg",
-    "bushwick", "bed-stuy", "crown heights", "flatbush",
-    "astoria", "flushing", "jamaica", "jackson heights",
-    "south bronx", "mott haven", "fordham", "washington heights",
-    "east new york", "sunset park", "bay ridge", "far rockaway",
+    # Multi-word (longest first)
+    "long island city", "jackson heights", "washington heights",
+    "financial district", "bedford-stuyvesant", "prospect heights",
     "lower east side", "upper west side", "upper east side",
-    "brownsville", "tribeca", "inwood",
+    "east new york", "east village", "west village", "east harlem",
+    "midtown east", "midtown west", "times square",
+    "crown heights", "cobble hill", "sunset park",
+    "bay ridge", "far rockaway", "fort greene",
+    "park slope", "red hook", "south bronx", "mott haven",
+    "hunts point", "little italy", "battery park",
+    "hells kitchen", "hell's kitchen", "kips bay",
+    "murray hill", "staten island", "the bronx",
+    # Single/short words
+    "manhattan", "brooklyn", "queens", "bronx",
+    "harlem", "midtown", "soho", "tribeca", "chelsea",
+    "williamsburg", "bushwick", "bed-stuy", "flatbush",
+    "brownsville", "inwood", "gramercy", "chinatown",
+    "nolita", "noho", "dumbo",
+    "astoria", "flushing", "jamaica", "ridgewood",
+    "woodside", "sunnyside", "corona", "elmhurst",
+    "fordham", "morrisania",
 ]
 
 

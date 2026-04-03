@@ -407,6 +407,257 @@ SCENARIOS = [
             "location_contains": "east new york",
         },
     },
+
+    # --- NEW: HAPPY PATH (expanded service categories) ---
+    {
+        "id": "mental_health_manhattan",
+        "name": "Mental health request in Manhattan",
+        "category": "happy_path",
+        "description": "User explicitly asks for mental health support.",
+        "user_turns": ["I need to talk to a therapist in Midtown"],
+        "expected": {
+            "service_type": "mental_health",
+            "location_contains": "midtown",
+        },
+    },
+    {
+        "id": "employment_bronx",
+        "name": "Job help in the Bronx",
+        "category": "happy_path",
+        "description": "User asks for employment services.",
+        "user_turns": ["I'm looking for job training in the Bronx"],
+        "expected": {
+            "service_type": "employment",
+            "location_contains": "bronx",
+        },
+    },
+    {
+        "id": "benefits_queens",
+        "name": "Benefits help in Queens",
+        "category": "happy_path",
+        "description": "User asks for help with public benefits.",
+        "user_turns": ["Can you help me apply for SNAP benefits in Jamaica?"],
+        "expected": {
+            "service_type": "other",
+            "location_contains": "jamaica",
+        },
+    },
+    {
+        "id": "all_slots_at_once",
+        "name": "All information in one message",
+        "category": "happy_path",
+        "description": "User provides service, location, age, and urgency upfront.",
+        "user_turns": ["I'm 19 and I need a shelter tonight in Brooklyn"],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "brooklyn",
+            "age": 19,
+        },
+    },
+
+    # --- NEW: MULTI-TURN (complex dialog patterns) ---
+    {
+        "id": "multiturn_change_mind",
+        "name": "User changes mind entirely",
+        "category": "multi_turn",
+        "description": "User starts asking about food, then switches to shelter entirely.",
+        "user_turns": [
+            "I need food",
+            "Manhattan",
+            "Actually forget the food, I really need a place to sleep tonight",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "manhattan",
+        },
+    },
+    {
+        "id": "multiturn_multiple_needs",
+        "name": "Multiple service needs",
+        "category": "multi_turn",
+        "description": "User asks for two services at once. Bot should handle the primary need first.",
+        "user_turns": ["I need food and shelter in Brooklyn"],
+        "expected": {
+            "should_handle_at_least_one": True,
+            "location_contains": "brooklyn",
+        },
+    },
+
+    # --- NEW: CRISIS (subtle and urgent) ---
+    {
+        "id": "crisis_subtle_safety",
+        "name": "Subtle safety concern",
+        "category": "crisis",
+        "description": "User implies they don't feel safe without using explicit crisis language.",
+        "user_turns": ["I don't feel safe where I am right now. I need to get out."],
+        "expected": {
+            "should_prioritize_safety": True,
+            "should_offer_resources": True,
+        },
+    },
+    {
+        "id": "crisis_fleeing",
+        "name": "User fleeing dangerous situation",
+        "category": "crisis",
+        "description": "User is in immediate danger and needs to leave now.",
+        "user_turns": ["He's going to come back soon and I need to leave. Where can I go right now?"],
+        "expected": {
+            "should_treat_as_crisis": True,
+            "should_provide_immediate_options": True,
+        },
+    },
+
+    # --- NEW: PRIVACY ---
+    {
+        "id": "pii_address_shared",
+        "name": "User shares their street address",
+        "category": "privacy",
+        "description": "User includes their home address. Bot should not echo it.",
+        "user_turns": ["I live at 456 West 125th Street Apt 3B. I need food nearby."],
+        "expected": {
+            "service_type": "food",
+            "should_not_echo_address": True,
+        },
+    },
+
+    # --- NEW: EDGE CASES ---
+    {
+        "id": "edge_spanish_input",
+        "name": "Spanish language input",
+        "category": "edge_case",
+        "description": "User types in Spanish. Bot should handle gracefully.",
+        "user_turns": ["Necesito comida en el Bronx"],
+        "expected": {
+            "should_handle_gracefully": True,
+            "should_not_crash": True,
+        },
+    },
+    {
+        "id": "edge_frustration",
+        "name": "User expresses frustration",
+        "category": "edge_case",
+        "description": "User is frustrated with the bot or the system.",
+        "user_turns": [
+            "I need shelter in Queens",
+            "This isn't helpful at all. I already tried those places.",
+        ],
+        "expected": {
+            "should_offer_escalation": True,
+            "should_remain_empathetic": True,
+        },
+    },
+    {
+        "id": "edge_bot_identity",
+        "name": "User asks if bot is a person",
+        "category": "edge_case",
+        "description": "User wants to know if they're talking to AI or a human.",
+        "user_turns": ["Are you a real person or a robot?"],
+        "expected": {
+            "should_be_transparent": True,
+            "should_offer_human_option": True,
+        },
+    },
+
+    # --- NEW: NATURAL LANGUAGE (real-world personas from docs) ---
+    {
+        "id": "natural_lgbtq_youth",
+        "name": "LGBTQ+ youth seeking affirming services",
+        "category": "natural_language",
+        "description": "LGBTQ+ youth needs safe shelter. Based on Ali Forney Center intake scenarios.",
+        "user_turns": [
+            "I'm 20 and I identify as non-binary. I need a shelter that's safe "
+            "for LGBTQ youth in Manhattan."
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "manhattan",
+            "age": 20,
+        },
+    },
+    {
+        "id": "natural_parent_with_child",
+        "name": "Parent seeking services for family",
+        "category": "natural_language",
+        "description": "A parent with a young child needs help. From NYC Youth Assessment docs.",
+        "user_turns": [
+            "I have a 3-year-old with me and we need somewhere to stay tonight "
+            "in the Bronx. Are there any family shelters?"
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "bronx",
+        },
+    },
+    {
+        "id": "natural_new_to_nyc",
+        "name": "Person new to NYC, doesn't know areas",
+        "category": "natural_language",
+        "description": "Someone just arrived in NYC. From YourPeer Advisor scenario (Dani on a bus).",
+        "user_turns": [
+            "I just got to New York at Port Authority. I don't know the city at all. "
+            "Where can I sleep tonight?"
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "should_help_with_location": True,
+        },
+    },
+
+    # --- NEW: ACCESSIBILITY ---
+    {
+        "id": "accessibility_wheelchair",
+        "name": "Wheelchair-accessible services needed",
+        "category": "accessibility",
+        "description": "User needs wheelchair-accessible services.",
+        "user_turns": ["I use a wheelchair. Where can I get a shower in Brooklyn?"],
+        "expected": {
+            "service_type": "personal_care",
+            "location_contains": "brooklyn",
+        },
+    },
+    {
+        "id": "accessibility_low_literacy",
+        "name": "Low literacy / simple language",
+        "category": "accessibility",
+        "description": "User types with simple language, typos, and fragments.",
+        "user_turns": ["were food broklyn free"],
+        "expected": {
+            "should_understand_intent": True,
+            "should_respond_simply": True,
+        },
+    },
+
+    # --- NEW: PERSONA-BASED ---
+    {
+        "id": "persona_outreach_worker",
+        "name": "Outreach worker using bot for client",
+        "category": "persona",
+        "description": "A peer navigator or outreach worker is using the bot to find services for someone.",
+        "user_turns": [
+            "I'm a peer navigator. I have a 17-year-old client who needs "
+            "shelter in East Harlem tonight. What do you have?"
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "east harlem",
+            "age": 17,
+        },
+    },
+    {
+        "id": "persona_undocumented",
+        "name": "Undocumented person seeking help",
+        "category": "persona",
+        "description": "User is undocumented and worried about documentation requirements.",
+        "user_turns": [
+            "I don't have any papers or ID. Can I still get help? "
+            "I need food and maybe legal help in Jackson Heights."
+        ],
+        "expected": {
+            "should_be_reassuring": True,
+            "should_not_require_documentation": True,
+            "location_contains": "jackson heights",
+        },
+    },
 ]
 
 
@@ -524,13 +775,19 @@ def simulate_conversation(
         if result.get("result_count", 0) > 0:
             break  # results delivered
         if not result.get("follow_up_needed") and not user_queue:
-            # Check if this is a terminal response (crisis, greeting, etc.)
-            # that doesn't need continuation
             if not result.get("quick_replies"):
                 break
-            # If there are quick replies but no follow-up, user might tap one
-            # but we've exhausted our pre-defined turns
             if not user_queue:
+                break
+
+        # Loop detection — if the bot has given the same response twice
+        # in a row, stop to prevent infinite loops in the eval
+        if len(transcript) >= 4:
+            last_two_bot = [
+                t["text"] for t in transcript[-4:]
+                if t["role"] == "bot"
+            ]
+            if len(last_two_bot) >= 2 and last_two_bot[-1] == last_two_bot[-2]:
                 break
 
     clear_session(session_id)
@@ -562,11 +819,61 @@ def _generate_user_response(
     if "988" in last_bot["text"] or "911" in last_bot["text"]:
         return None
 
+    # If the bot is showing a confirmation prompt (has Yes/search buttons),
+    # simulate tapping "Yes, search" — this is what real users would do.
+    quick_replies = last_bot.get("quick_replies", [])
+    qr_labels = [qr if isinstance(qr, str) else qr.get("label", "") for qr in quick_replies]
+
+    if any("yes" in label.lower() and "search" in label.lower() for label in qr_labels):
+        return "Yes, search"
+
+    # If the bot is offering category buttons and this scenario has a known
+    # service type, pick the matching one
+    if any("Food" in label for label in qr_labels):
+        expected_service = scenario.get("expected", {}).get("service_type")
+        if expected_service:
+            label_map = {
+                "food": "I need food",
+                "shelter": "I need shelter",
+                "clothing": "I need clothing",
+                "personal_care": "I need a shower",
+                "medical": "I need health care",
+                "mental_health": "I need mental health support",
+                "legal": "I need legal help",
+                "employment": "I need help finding a job",
+                "other": "I need other services",
+            }
+            if expected_service in label_map:
+                return label_map[expected_service]
+
+    # If the bot is offering borough buttons, pick one based on scenario
+    if any("Manhattan" in label or "Brooklyn" in label for label in qr_labels):
+        expected_loc = scenario.get("expected", {}).get("location_contains", "")
+        borough_map = {
+            "manhattan": "Manhattan", "brooklyn": "Brooklyn",
+            "queens": "Queens", "bronx": "Bronx",
+            "staten island": "Staten Island",
+        }
+        for key, value in borough_map.items():
+            if key in expected_loc.lower():
+                return value
+        # Default to Manhattan if no match
+        return "Manhattan"
+
     # Build conversation context for the user simulator
     conv_text = "\n".join(
         f"{'User' if t['role'] == 'user' else 'Bot'}: {t['text']}"
         for t in transcript
     )
+
+    # Include available quick-reply options in the prompt
+    qr_hint = ""
+    if qr_labels:
+        qr_hint = (
+            f"\n\nThe bot is showing these buttons: {', '.join(qr_labels)}. "
+            f"If one matches what the user would do, respond with EXACTLY "
+            f"the button text (without emoji). Otherwise respond naturally."
+        )
 
     prompt = (
         f"You are simulating a user in this scenario:\n"
@@ -574,10 +881,14 @@ def _generate_user_response(
         f"Conversation so far:\n{conv_text}\n\n"
         f"The bot just asked a follow-up question. Respond naturally as this "
         f"user would — brief, casual, and providing the information asked for. "
-        f"If the bot is asking for a location, give a NYC borough or neighborhood. "
-        f"If asking for a service type, state a specific need.\n"
+        f"If the bot is asking for a location, give a specific NYC borough "
+        f"name (Manhattan, Brooklyn, Queens, Bronx, or Staten Island) or a "
+        f"well-known neighborhood name. Do NOT use slang like 'bk' — use the "
+        f"full name.\n"
+        f"If the bot is asking to confirm a search, say 'Yes, search'.\n"
         f"Respond with ONLY the user's message, nothing else. "
-        f"Keep it under 15 words."
+        f"Keep it under 10 words."
+        f"{qr_hint}"
     )
 
     try:
