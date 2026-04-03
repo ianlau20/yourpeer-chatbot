@@ -254,6 +254,130 @@ def test_smart_unknown_location_goes_to_llm(mock_llm):
 
 
 # -----------------------------------------------------------------------
+# CONVERSATION HISTORY TESTS
+# -----------------------------------------------------------------------
+
+def test_history_passed_to_llm():
+    """extract_slots_llm should forward conversation history to Claude."""
+    mock_response = _mock_tool_response_from_dict({"location": "Brooklyn"})
+
+    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_get.return_value = mock_client
+
+        history = [
+            {"role": "user", "text": "I need food in Queens"},
+            {"role": "assistant", "text": "I'll search for food in Queens."},
+        ]
+        result = extract_slots_llm("What about in Brooklyn?", conversation_history=history)
+
+        messages = mock_client.messages.create.call_args.kwargs["messages"]
+        assert len(messages) == 3  # 2 history + 1 current
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "I need food in Queens"
+        assert messages[1]["role"] == "assistant"
+        assert messages[2]["content"] == "What about in Brooklyn?"
+        assert result["location"] == "Brooklyn"
+    print("  PASS: history passed to LLM")
+
+
+def test_history_alternating_messages_enforced():
+    """Consecutive same-role messages in history should get placeholders."""
+    mock_response = _mock_tool_response_from_dict({})
+
+    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_get.return_value = mock_client
+
+        history = [
+            {"role": "user", "text": "I need food"},
+            {"role": "user", "text": "in Queens"},
+        ]
+        extract_slots_llm("try Brooklyn", conversation_history=history)
+
+        messages = mock_client.messages.create.call_args.kwargs["messages"]
+        # Verify strictly alternating roles
+        for i in range(1, len(messages)):
+            assert messages[i]["role"] != messages[i - 1]["role"], \
+                f"Messages {i-1} and {i} have same role: {messages[i]['role']}"
+    print("  PASS: alternating messages enforced")
+
+
+def test_history_none_and_empty():
+    """None and empty history should work (single-message extraction)."""
+    mock_response = _mock_tool_response_from_dict({"service_type": "food"})
+
+    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_get.return_value = mock_client
+
+        extract_slots_llm("food in Brooklyn", conversation_history=None)
+        msgs_none = mock_client.messages.create.call_args.kwargs["messages"]
+        assert len(msgs_none) == 1
+
+        extract_slots_llm("food in Brooklyn", conversation_history=[])
+        msgs_empty = mock_client.messages.create.call_args.kwargs["messages"]
+        assert len(msgs_empty) == 1
+    print("  PASS: None and empty history work")
+
+
+def test_history_truncated_to_six():
+    """Only the last 6 history turns should be included."""
+    mock_response = _mock_tool_response_from_dict({})
+
+    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_get.return_value = mock_client
+
+        history = []
+        for i in range(10):
+            history.append({"role": "user", "text": f"msg {i}"})
+            history.append({"role": "assistant", "text": f"resp {i}"})
+
+        extract_slots_llm("latest message", conversation_history=history)
+
+        messages = mock_client.messages.create.call_args.kwargs["messages"]
+        # 6 history messages + 1 current = 7
+        assert len(messages) == 7
+    print("  PASS: history truncated to 6")
+
+
+def test_smart_extractor_passes_history():
+    """extract_slots_smart should forward history to extract_slots_llm."""
+    with patch("app.services.llm_slot_extractor.extract_slots_llm") as mock_llm:
+        mock_llm.return_value = {"service_type": "food", "location": "Brooklyn",
+                                  "age": None, "urgency": None, "gender": None}
+        history = [{"role": "user", "text": "test context"}]
+
+        # Force complex path (long message)
+        extract_slots_smart(
+            "I was just released from the hospital and need somewhere to go",
+            conversation_history=history,
+        )
+
+        mock_llm.assert_called_once()
+        call_kwargs = mock_llm.call_args.kwargs
+        assert "conversation_history" in call_kwargs
+        assert call_kwargs["conversation_history"] == history
+    print("  PASS: smart extractor passes history")
+
+
+def _mock_tool_response_from_dict(slot_values):
+    """Helper: create a mock Claude response with tool_use block."""
+    mock_response = MagicMock()
+    mock_block = MagicMock()
+    mock_block.type = "tool_use"
+    mock_block.name = "extract_intake_slots"
+    mock_block.input = slot_values
+    mock_response.content = [mock_block]
+    return mock_response
+
+
+# -----------------------------------------------------------------------
 # INTEGRATION TESTS (only run with --live flag)
 # -----------------------------------------------------------------------
 

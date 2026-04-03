@@ -112,6 +112,23 @@ _BOT_IDENTITY_PHRASES = [
     "talking to a robot",
 ]
 
+# Confusion / overwhelm — the user doesn't know what they need.
+# These MUST be caught before hitting the LLM, which would otherwise
+# interpret "I don't know what to do" as a mental health request.
+_CONFUSED_PHRASES = [
+    "don't know what to do", "dont know what to do",
+    "idk what to do", "i don't know", "i dont know",
+    "not sure what i need", "don't know what i need",
+    "dont know what i need", "what should i do",
+    "don't know where to start", "dont know where to start",
+    "i'm confused", "im confused",
+    "i'm lost", "im lost",
+    "i'm overwhelmed", "im overwhelmed",
+    "i'm not sure", "im not sure",
+    "where do i start", "where do i begin",
+    "what are my options", "what can i do",
+]
+
 # ---------------------------------------------------------------------------
 # QUICK REPLY DEFINITIONS
 # ---------------------------------------------------------------------------
@@ -201,6 +218,7 @@ def _classify_message(text: str) -> str:
         "confirm_deny"     — user declined a pending search (no / nah / not yet)
         "confirm_change_service"  — user wants to change service type
         "confirm_change_location" — user wants to change location
+        "confused"         — user doesn't know what they need (overwhelmed, lost)
         "service"          — contains a service-related intent or slot data
         "general"          — everything else (conversational, follow-up, unclear)
     """
@@ -285,6 +303,14 @@ def _classify_message(text: str) -> str:
         if phrase in cleaned:
             return "frustration"
 
+    # Check confusion/overwhelm — BEFORE help and BEFORE slot extraction.
+    # "I don't know what to do" must NOT reach the LLM, which would
+    # interpret it as a mental health request and trigger a false
+    # confirmation for a service the user never asked for.
+    for phrase in _CONFUSED_PHRASES:
+        if phrase in cleaned:
+            return "confused"
+
     # Check help
     for phrase in _HELP_PHRASES:
         if phrase in cleaned:
@@ -363,6 +389,19 @@ _BOT_IDENTITY_RESPONSE = (
     "real locations that have been checked by people who've used them.\n\n"
     "If you'd like to talk to a real person, I can connect you with a "
     "peer navigator. Otherwise, just tell me what you need help with!"
+)
+
+_CONFUSED_RESPONSE = (
+    "That's okay — you don't have to know exactly what you need. "
+    "I can help you figure it out.\n\n"
+    "Here are some things people often look for:\n"
+    "• A meal or groceries\n"
+    "• A place to stay tonight\n"
+    "• A shower, clean clothes, or toiletries\n"
+    "• A doctor or someone to talk to\n"
+    "• Help with legal issues, a job, or benefits\n\n"
+    "Tap any option below, or just tell me what's going on "
+    "and I'll point you in the right direction."
 )
 
 
@@ -625,6 +664,20 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         _log_turn(session_id, redacted_message, result, category)
         return result
 
+    # --- Confused / Overwhelmed ---
+    # "I don't know what to do", "I'm lost", "I'm overwhelmed"
+    # Show gentle guidance with category buttons — do NOT send to LLM
+    # (which would misinterpret as a mental health request).
+    if category == "confused":
+        result = _empty_reply(
+            session_id, _CONFUSED_RESPONSE, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES) + [
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
     # --- Frustration ---
     if category == "frustration":
         result = _empty_reply(
@@ -725,7 +778,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
         # Check if the message has new slot data
         if _USE_LLM_EXTRACTION:
-            pending_extracted = extract_slots_smart(message)
+            pending_extracted = extract_slots_smart(
+                message,
+                conversation_history=existing.get("transcript", []),
+            )
         else:
             pending_extracted = extract_slots(message)
         pending_has_new = any(v is not None for v in pending_extracted.values())
@@ -761,7 +817,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
     # Store the REDACTED version in the session transcript.
     if _USE_LLM_EXTRACTION:
-        extracted = extract_slots_smart(message)
+        extracted = extract_slots_smart(
+            message,
+            conversation_history=existing.get("transcript", []),
+        )
     else:
         extracted = extract_slots(message)
 

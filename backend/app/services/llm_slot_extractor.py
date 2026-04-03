@@ -147,7 +147,10 @@ _SYSTEM_PROMPT = (
     "Extract structured information from the user's message using the "
     "extract_intake_slots tool. Only extract what is explicitly stated or "
     "strongly implied. Do not guess or assume. If the message doesn't contain "
-    "any service-related information, call the tool with an empty object {}."
+    "any service-related information, call the tool with an empty object {}.\n\n"
+    "You may receive prior conversation turns for context. Use them to resolve "
+    "references like 'there', 'that area', 'try Queens instead', or 'what about "
+    "Brooklyn?' — but only extract slots from the LATEST user message."
 )
 
 
@@ -155,9 +158,16 @@ _SYSTEM_PROMPT = (
 # LLM EXTRACTION
 # ---------------------------------------------------------------------------
 
-def extract_slots_llm(message: str) -> dict:
+def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
     """
     Use Claude function calling to extract slots from a message.
+
+    Args:
+        message: The current user message to extract slots from.
+        conversation_history: Optional list of prior turns, each a dict
+            with keys 'role' ('user' or 'assistant') and 'text'.
+            Provides context for follow-up messages like
+            "What about in Brooklyn?" or "Try Queens instead".
 
     Returns a dict with keys: service_type, location, age, urgency, gender.
     Values are None for slots that couldn't be extracted.
@@ -165,13 +175,41 @@ def extract_slots_llm(message: str) -> dict:
     try:
         client = _get_client()
 
+        # Build messages with conversation history for context
+        messages = []
+        if conversation_history:
+            # Include up to the last 6 turns (3 user + 3 bot) to stay
+            # within a reasonable token budget for slot extraction.
+            recent = conversation_history[-6:]
+            for turn in recent:
+                role = turn.get("role", "user")
+                text = turn.get("text", "")
+                api_role = "user" if role == "user" else "assistant"
+
+                # Claude API requires strictly alternating roles.
+                # If we'd have two consecutive same-role messages,
+                # insert a placeholder for the other role.
+                if messages and messages[-1]["role"] == api_role:
+                    placeholder_role = "assistant" if api_role == "user" else "user"
+                    messages.append({"role": placeholder_role, "content": "(continuing)"})
+
+                messages.append({"role": api_role, "content": text})
+
+            # Ensure the last history message isn't "user" — we're about
+            # to append the current user message.
+            if messages and messages[-1]["role"] == "user":
+                messages.append({"role": "assistant", "content": "(listening)"})
+
+        # Add the current message
+        messages.append({"role": "user", "content": message})
+
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=256,
             system=_SYSTEM_PROMPT,
             tools=[_EXTRACT_SLOTS_TOOL],
             tool_choice={"type": "tool", "name": "extract_intake_slots"},
-            messages=[{"role": "user", "content": message}],
+            messages=messages,
         )
 
         # Extract the tool call result
@@ -261,14 +299,20 @@ def _is_simple_message(message: str, regex_result: dict) -> bool:
 # SMART EXTRACTOR — complexity-based routing
 # ---------------------------------------------------------------------------
 
-def extract_slots_smart(message: str) -> dict:
+def extract_slots_smart(message: str, conversation_history: list = None) -> dict:
     """
     Extract slots using complexity-based routing:
 
     1. Regex runs first (fast, free)
     2. If message is SIMPLE and regex got clear results → use regex
-    3. If message is COMPLEX → call LLM (authoritative, no merge)
+    3. If message is COMPLEX → call LLM with conversation history
+       (authoritative, no merge)
     4. If LLM fails → fall back to regex
+
+    Args:
+        message: The current user message.
+        conversation_history: Optional list of prior turns for LLM context.
+            Each item is a dict with 'role' and 'text' keys.
 
     Returns the same dict shape as extract_slots().
     """
@@ -284,7 +328,7 @@ def extract_slots_smart(message: str) -> dict:
 
     # Step 3: Complex message — LLM is authoritative
     logger.info("Complex message — calling LLM for slot extraction")
-    llm_result = extract_slots_llm(message)
+    llm_result = extract_slots_llm(message, conversation_history=conversation_history)
 
     # If LLM returned something useful, use it
     llm_has_data = any(v is not None for v in llm_result.values())

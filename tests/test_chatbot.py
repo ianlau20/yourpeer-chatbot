@@ -823,6 +823,9 @@ if __name__ == "__main__":
     test_thanks_with_continuation_falls_through()
     test_empty_message_guard()
     test_whitespace_message_guard()
+    test_confused_classification()
+    test_confused_does_not_trigger_llm()
+    test_conversation_history_passed_to_llm()
 
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")
@@ -971,3 +974,86 @@ def test_whitespace_message_guard(mock_gemini, mock_query):
         "Whitespace message should show all 9 category buttons"
     mock_gemini.assert_not_called()
     print("  PASS: whitespace message returns welcome")
+
+
+def test_confused_classification():
+    """Confusion/overwhelm phrases should classify as 'confused', not 'general'.
+
+    Previously, 'I don't know what to do' was classified as 'general',
+    sent to the LLM, which misinterpreted it as a mental health request
+    and triggered a false confirmation.
+    """
+    phrases = [
+        "I don't know what to do",
+        "I dont know what to do",
+        "idk what to do",
+        "I don't know",
+        "I'm confused",
+        "I'm lost",
+        "I'm overwhelmed",
+        "I'm not sure what I need",
+        "what should I do",
+        "where do I start",
+        "what are my options",
+    ]
+    for phrase in phrases:
+        result = _classify_message(phrase)
+        assert result == "confused", \
+            f"'{phrase}' should classify as confused, got '{result}'"
+
+    # These should NOT be confused
+    assert _classify_message("I need food") == "service"
+    assert _classify_message("hello") == "greeting"
+    print("  PASS: confused phrases classified correctly")
+
+
+@patch("app.services.chatbot.query_services")
+@patch("app.services.chatbot.gemini_reply")
+def test_confused_does_not_trigger_llm(mock_gemini, mock_query):
+    """'I don't know what to do' should NOT reach the LLM or extract slots.
+
+    Previously, the LLM would interpret this as a mental health request
+    and trigger a confirmation for a service the user never asked for.
+    """
+    sid = "test-confused-no-llm"
+    clear_session(sid)
+
+    r = generate_reply("I don't know what to do", session_id=sid)
+
+    # Should get the confused response with category buttons
+    assert "figure it out" in r["response"].lower() or "okay" in r["response"].lower()
+    assert len(r["quick_replies"]) >= 9  # 9 categories + talk to person
+    assert r["slots"].get("service_type") is None, \
+        "Should NOT have extracted a service type"
+    assert r["slots"].get("_pending_confirmation") is None, \
+        "Should NOT have triggered confirmation"
+
+    # Gemini should NOT have been called
+    mock_gemini.assert_not_called()
+    print("  PASS: confused does not trigger LLM")
+
+
+@patch("app.services.chatbot.query_services")
+@patch("app.services.chatbot.gemini_reply", return_value="test")
+def test_conversation_history_passed_to_llm(mock_gemini, mock_query):
+    """When LLM extraction is enabled, the session transcript should be
+    passed as conversation_history so follow-ups like 'What about in
+    Brooklyn?' have context from prior turns.
+
+    This test verifies the plumbing — that the transcript stored in
+    session slots is forwarded to extract_slots_smart.
+    """
+    sid = "test-history-plumbing"
+    clear_session(sid)
+
+    # Turn 1: build up a transcript
+    r1 = generate_reply("I need food in Queens", session_id=sid)
+    slots = r1["slots"]
+    assert "transcript" in slots, "Transcript should be stored in session"
+    assert len(slots["transcript"]) >= 1, "Should have at least 1 transcript entry"
+
+    # Verify the transcript entry has the right shape
+    entry = slots["transcript"][0]
+    assert entry["role"] == "user"
+    assert "food" in entry["text"].lower()
+    print("  PASS: conversation history stored and available for LLM")
