@@ -72,6 +72,9 @@ These metrics assess the quality and usefulness of search results returned to th
 **Measurement:** Query result metadata — check `last_verified` field on each returned service record.  
 **Phase:** Pilot.
 
+### 2.4 Schedule Coverage Note
+From a DB audit (April 2026), schedule data (`regular_schedules` rows) is only populated for services with walk-in hours. Most service categories have 0% schedule coverage — including Mental Health, Employment, Shelter, Benefits, and Clothing. The categories with meaningful coverage are: Soup Kitchen (81%), Shower (55%), Clothing Pantry (64%), Food Pantry (40%). As a result, the majority of service cards show "Call for hours" rather than open/closed status, and the `FILTER_BY_OPEN_NOW` and `FILTER_BY_WEEKDAY` query filters are not currently passed from the chatbot — they would silently exclude services with no schedule data. These filters should only be enabled if/when schedule data coverage improves significantly.
+
 ### 2.4 Eligibility Fit Rate
 **Definition:** % of returned services that match all stated user criteria (service type, age restrictions, gender restrictions, location).  
 **Target:** ≥ 95% — the template query design should make mismatches rare; any miss is a template bug.  

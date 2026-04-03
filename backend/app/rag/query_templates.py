@@ -61,7 +61,9 @@ SELECT
     best_phone.number     AS phone,
 
     today_sched.opens_at   AS today_opens,
-    today_sched.closes_at  AS today_closes
+    today_sched.closes_at  AS today_closes,
+
+    membership_elig.requires_membership AS requires_membership
 
 FROM services s
     JOIN service_taxonomy st       ON s.id = st.service_id
@@ -91,6 +93,19 @@ FROM services s
           AND rs.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int - 1
         LIMIT 1
     ) today_sched ON TRUE
+    LEFT JOIN LATERAL (
+        -- Returns true only when ALL eligible_values are ["true"] (referral required).
+        -- Services with ["true","false"] or no membership rule return NULL (no badge shown).
+        SELECT (
+            e.eligible_values = '["true"]'::jsonb
+            OR e.eligible_values = '[true]'::jsonb
+        ) AS requires_membership
+        FROM eligibility e
+        JOIN eligibility_parameters ep ON ep.id = e.parameter_id
+        WHERE e.service_id = s.id
+          AND ep.name = 'membership'
+        LIMIT 1
+    ) membership_elig ON TRUE
 """
 
 # ---------------------------------------------------------------------------
@@ -273,6 +288,12 @@ TEMPLATES = {
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
             FILTER_BY_WEEKDAY,
+            # FILTER_BY_OPEN_NOW is defined but the chatbot does not currently pass
+            # weekday/current_time params. DB audit (Apr 2026) shows schedule data
+            # is only populated for walk-in services: Soup Kitchen (81%), Shower (55%),
+            # Clothing Pantry (64%), Food Pantry (40%). Enabling this filter would
+            # silently exclude the majority of services with no schedule rows.
+            # Re-enable only if schedule coverage improves substantially.
             FILTER_BY_OPEN_NOW,
         ],
         "default_params": {
@@ -687,6 +708,9 @@ def format_service_card(row: dict) -> dict:
         "yourpeer_url": yourpeer_url,
         "hours_today": schedule_status["hours_today"],
         "is_open": schedule_status["is_open"],
+        # True only when membership eligible_values = ["true"] exclusively.
+        # None/False means open to all or accepts both members and non-members.
+        "requires_membership": bool(row.get("requires_membership")),
     }
 
 

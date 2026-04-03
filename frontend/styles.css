@@ -280,6 +280,17 @@ h1 {
   align-self: flex-start;
 }
 
+.card-referral {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #92400E;
+  background: #FEF3C7;
+  padding: 3px 10px;
+  border-radius: 10px;
+  align-self: flex-start;
+}
+
 .card-action-btn.learn-more {
   display: block;
   flex: none;

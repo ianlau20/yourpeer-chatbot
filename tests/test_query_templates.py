@@ -342,6 +342,7 @@ def _mock_row(**overrides):
         "phone": "212-555-0001",
         "today_opens": None,
         "today_closes": None,
+        "requires_membership": None,
     }
     base.update(overrides)
     return base
@@ -844,6 +845,159 @@ def test_is_borough_false_for_neighborhoods():
 
 
 # -----------------------------------------------------------------------
+# MEMBERSHIP / REFERRAL BADGE
+# -----------------------------------------------------------------------
+# DB audit (Apr 2026): 624 services have membership = ["true"] (referral
+# required). 635 have ["true","false"] (open to all). We surface a badge
+# on the card rather than filtering — silently excluding 624 services would
+# significantly reduce results for vulnerable users.
+
+def test_requires_membership_true_when_true_only():
+    """Card must set requires_membership=True when eligible_values is ["true"] only."""
+    card = format_service_card(_mock_row(requires_membership=True))
+    assert card["requires_membership"] is True, \
+        "requires_membership should be True when DB returns True"
+    print("  PASS: requires_membership=True when membership rule is true-only")
+
+
+def test_requires_membership_false_when_null():
+    """Card must set requires_membership=False when no membership rule exists (NULL from LATERAL)."""
+    card = format_service_card(_mock_row(requires_membership=None))
+    assert card["requires_membership"] is False, \
+        "requires_membership should be False when DB returns NULL (no rule)"
+    print("  PASS: requires_membership=False when no membership eligibility rule")
+
+
+def test_requires_membership_false_when_false():
+    """Card must set requires_membership=False when membership allows non-members."""
+    card = format_service_card(_mock_row(requires_membership=False))
+    assert card["requires_membership"] is False, \
+        "requires_membership should be False when DB returns False (['true','false'])"
+    print("  PASS: requires_membership=False when membership accepts non-members")
+
+
+def test_requires_membership_always_present_in_card():
+    """requires_membership key must always be present in the card dict."""
+    card = format_service_card(_mock_row())
+    assert "requires_membership" in card, \
+        "requires_membership field missing from service card — frontend badge logic will break"
+    print("  PASS: requires_membership key always present in card")
+
+
+def test_base_query_selects_requires_membership():
+    """Base query must select requires_membership from the membership LATERAL join."""
+    assert "requires_membership" in _BASE_QUERY.lower(), \
+        "Base query missing requires_membership field — membership LATERAL join not added"
+    assert "membership_elig" in _BASE_QUERY.lower(), \
+        "Base query missing membership_elig LATERAL join alias"
+    assert "eligibility_parameters" in _BASE_QUERY.lower(), \
+        "Base query missing eligibility_parameters join in membership LATERAL"
+    print("  PASS: base query selects requires_membership via membership LATERAL join")
+
+
+# -----------------------------------------------------------------------
+# SCHEDULE FILTERS — open-now safety
+# -----------------------------------------------------------------------
+# DB audit (Apr 2026): schedule data is only populated for walk-in services.
+# Most categories have 0% coverage. Applying schedule filters broadly would
+# silently exclude the majority of the DB.
+#
+# Rules enforced here:
+#   - FILTER_BY_OPEN_NOW only fires when BOTH weekday AND current_time present
+#   - FILTER_BY_WEEKDAY fires with weekday alone (distinct, documented intent)
+#   - Relaxed query always drops both schedule params
+#   - No template has schedule filters as required (always optional)
+
+def test_open_now_requires_both_weekday_and_current_time():
+    """FILTER_BY_OPEN_NOW must only fire when both weekday AND current_time are present.
+
+    Passing just one must not trigger it — that would silently exclude services
+    with no schedule rows, which is the majority of the DB for most categories.
+
+    We check bound params rather than SQL text because opens_at/closes_at appear
+    in the base query's display LATERAL and in FILTER_BY_OPEN_NOW's subquery,
+    making SQL-text scanning ambiguous.
+    """
+    _, params_weekday_only = build_query("food", {"weekday": 1, "max_results": 5})
+    _, params_time_only = build_query("food", {"current_time": "14:00", "max_results": 5})
+    _, params_neither = build_query("food", {"max_results": 5})
+    _, params_both = build_query("food", {"weekday": 1, "current_time": "14:00", "max_results": 5})
+
+    assert "current_time" not in params_weekday_only, \
+        "current_time appeared in params with weekday only — open-now filter should not fire"
+    assert "weekday" not in params_time_only, \
+        "weekday appeared in params with current_time only — open-now filter should not fire"
+    assert "weekday" not in params_neither and "current_time" not in params_neither, \
+        "schedule params appeared with no schedule input"
+    assert "weekday" in params_both and "current_time" in params_both, \
+        "open-now filter did not bind both params when both provided"
+    print("  PASS: FILTER_BY_OPEN_NOW only fires with both weekday and current_time")
+
+
+def test_weekday_filter_fires_without_current_time():
+    """FILTER_BY_WEEKDAY fires with weekday alone — distinct from open-now.
+
+    This is intentional: weekday-only filters to services operating on a given
+    day, without requiring a specific time. Documents the distinction explicitly.
+    """
+    _, params = build_query("shelter", {"weekday": 0, "max_results": 5})
+    assert "weekday" in params, \
+        "weekday param missing from bound params — FILTER_BY_WEEKDAY did not fire"
+    assert "current_time" not in params, \
+        "current_time appeared without being passed — open-now filter should not have fired"
+    print("  PASS: FILTER_BY_WEEKDAY fires with weekday alone, open-now does not")
+
+
+def test_relaxed_query_drops_schedule_params():
+    """Relaxed query must always drop weekday and current_time.
+
+    Schedule filters would silently exclude services with no schedule rows.
+    The relaxed path must broaden — never further restrict.
+    """
+    _, params = build_relaxed_query("food", {
+        "borough": "Queens",
+        "weekday": 2,
+        "current_time": "10:00",
+        "max_results": 5,
+    })
+    assert "weekday" not in params, \
+        "Relaxed query kept weekday param — must drop all schedule filters"
+    assert "current_time" not in params, \
+        "Relaxed query kept current_time param — must drop all schedule filters"
+    print("  PASS: relaxed query drops weekday and current_time params")
+
+
+def test_schedule_filters_are_optional_not_required():
+    """No template should have FILTER_BY_OPEN_NOW or FILTER_BY_WEEKDAY in required_filters.
+
+    Making schedule filters required would break every query for the ~80% of
+    services with no schedule data.
+    """
+    from app.rag.query_templates import FILTER_BY_OPEN_NOW, FILTER_BY_WEEKDAY
+    for key, template in TEMPLATES.items():
+        required = template["required_filters"]
+        assert FILTER_BY_OPEN_NOW not in required, \
+            f"Template '{key}' has FILTER_BY_OPEN_NOW in required_filters — must be optional only"
+        assert FILTER_BY_WEEKDAY not in required, \
+            f"Template '{key}' has FILTER_BY_WEEKDAY in required_filters — must be optional only"
+    print("  PASS: schedule filters are optional in all templates, never required")
+
+
+def test_no_schedule_data_card_is_none():
+    """Service card with no schedule rows must have is_open=None and hours_today=None.
+
+    The frontend uses is_open=None to show 'Call for hours' badge.
+    Ensure the card never fabricates an open/closed status from missing data.
+    """
+    card = format_service_card(_mock_row(today_opens=None, today_closes=None))
+    assert card["is_open"] is None, \
+        f"is_open should be None when no schedule data, got '{card['is_open']}'"
+    assert card["hours_today"] is None, \
+        f"hours_today should be None when no schedule data, got '{card['hours_today']}'"
+    print("  PASS: no schedule data → is_open=None and hours_today=None (triggers 'Call for hours')")
+
+
+# -----------------------------------------------------------------------
 # RUNNER
 # -----------------------------------------------------------------------
 
@@ -935,6 +1089,20 @@ if __name__ == "__main__":
     test_get_borough_city_names_queens()
     test_is_borough_all_five()
     test_is_borough_false_for_neighborhoods()
+
+    print("\n--- Schedule Filters: Safety ---")
+    test_open_now_requires_both_weekday_and_current_time()
+    test_weekday_filter_fires_without_current_time()
+    test_relaxed_query_drops_schedule_params()
+    test_schedule_filters_are_optional_not_required()
+    test_no_schedule_data_card_is_none()
+
+    print("\n--- Membership / Referral Badge ---")
+    test_requires_membership_true_when_true_only()
+    test_requires_membership_false_when_null()
+    test_requires_membership_false_when_false()
+    test_requires_membership_always_present_in_card()
+    test_base_query_selects_requires_membership()
 
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")

@@ -186,7 +186,7 @@ function createServiceCard(svc) {
     badge.textContent = "Closed";
   } else {
     badge.className = "status-badge status-unknown";
-    badge.textContent = "Hours not available";
+    badge.textContent = "Call for hours";
   }
   hoursRow.appendChild(badge);
 
@@ -237,6 +237,14 @@ function createServiceCard(svc) {
     fee.className = "card-fee";
     fee.textContent = svc.fees;
     card.appendChild(fee);
+  }
+
+  // Referral / membership badge
+  if (svc.requires_membership) {
+    const ref = document.createElement("span");
+    ref.className = "card-referral";
+    ref.textContent = "Referral may be required";
+    card.appendChild(ref);
   }
 
   // Learn More button (links to YourPeer listing)
