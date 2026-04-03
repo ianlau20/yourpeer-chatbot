@@ -64,6 +64,7 @@ The system follows a **Safer, Limited RAG** pattern with four phases:
 - **Graceful degradation** — if the database is unreachable, falls back to LLM; if LLM also fails, returns a safe static message
 - **URL normalization** — website links from the database are normalized to include `https://` so they open correctly in all browsers
 - **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin/`. Includes a full transcript viewer with slot metadata and crisis flags. Data is stored in-memory for the pilot and resets on server restart; swap to PostgreSQL or Redis for production persistence
+- **In-browser eval runner** — the Eval tab in the staff console includes a "Run Evals" button that triggers the LLM-as-judge suite as a FastAPI background task, with live progress polling and a scenario count selector (5 / 10 / 20 / all). **Note (future):** the background task runs in the same process as the web server, which is acceptable for the pilot but will consume server resources during long runs. For production, isolate eval execution into a separate worker process or task queue (e.g. Celery + Redis, or a Render background worker service) to avoid impacting request latency
 - **Audit log** — every conversation turn, database query, crisis detection, and session reset is recorded in a thread-safe in-memory ring buffer (capped at 2,000 events) for staff review. No PII is stored
 - **LLM-as-judge evaluation** — 29-scenario automated evaluation framework that simulates conversations and uses Claude to score the system across 8 quality dimensions. Outputs a structured report with per-scenario detail and critical failure tracking
 
@@ -110,6 +111,7 @@ See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration a
 | [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
 | [TESTING.md](TESTING.md) | Test suite guide — 247 unit tests across 8 suites + 29-scenario LLM-as-judge evaluation framework |
+| [METRICS.md](METRICS.md) | Success metrics — definitions, targets, measurement methods, and pilot vs. post-pilot phasing across intake quality, answer quality, safety, system eval, and closed-loop outcomes |
 
 ## Related Repositories
 

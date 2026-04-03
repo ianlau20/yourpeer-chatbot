@@ -453,6 +453,16 @@
 
     <!-- EVAL -->
     <div id="tab-eval" class="tab-panel">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+        <button id="run-eval-btn" class="refresh-btn" style="background:var(--accent);color:#fff;padding:8px 18px;font-size:0.88rem;" onclick="triggerEvalRun()">▶ Run Evals</button>
+        <select id="eval-scenario-count" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.84rem;">
+          <option value="">All scenarios</option>
+          <option value="5">5 scenarios (quick)</option>
+          <option value="10">10 scenarios</option>
+          <option value="20">20 scenarios</option>
+        </select>
+        <span id="eval-run-status" style="font-size:0.82rem;color:var(--text-dim);"></span>
+      </div>
       <div id="eval-content"></div>
     </div>
   </div>
@@ -699,6 +709,72 @@
         renderEval(data);
       } catch (e) {
         document.getElementById('eval-content').innerHTML = renderEmpty('🧪', 'Failed to load evaluation results.');
+      }
+    }
+
+    let _evalPollInterval = null;
+
+    async function triggerEvalRun() {
+      const btn = document.getElementById('run-eval-btn');
+      const statusEl = document.getElementById('eval-run-status');
+      const count = document.getElementById('eval-scenario-count').value;
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Running…';
+      statusEl.textContent = 'Starting eval run…';
+
+      try {
+        const params = new URLSearchParams();
+        if (count) params.set('scenarios', count);
+
+        const res = await fetch(`${API}/eval/run?${params}`, { method: 'POST' });
+        const data = await res.json();
+
+        if (!res.ok) {
+          statusEl.textContent = `Error: ${data.detail}`;
+          btn.disabled = false;
+          btn.textContent = '▶ Run Evals';
+          return;
+        }
+
+        statusEl.textContent = data.detail;
+        _evalPollInterval = setInterval(pollEvalStatus, 2500);
+      } catch (e) {
+        statusEl.textContent = 'Failed to start eval run.';
+        btn.disabled = false;
+        btn.textContent = '▶ Run Evals';
+      }
+    }
+
+    async function pollEvalStatus() {
+      const btn = document.getElementById('run-eval-btn');
+      const statusEl = document.getElementById('eval-run-status');
+
+      try {
+        const res = await fetch(`${API}/eval/status`);
+        const data = await res.json();
+
+        const progress = data.total
+          ? ` (${data.completed || 0}/${data.total})`
+          : '';
+        statusEl.textContent = (data.message || '') + progress;
+
+        if (!data.running) {
+          clearInterval(_evalPollInterval);
+          _evalPollInterval = null;
+          btn.disabled = false;
+          btn.textContent = '▶ Run Evals';
+
+          if (data.finished_at) {
+            statusEl.textContent = `✅ ${data.message}`;
+            // Reload results
+            await loadEval();
+          } else if (data.message?.startsWith('Error')) {
+            statusEl.textContent = `❌ ${data.message}`;
+          }
+        }
+      } catch (e) {
+        statusEl.textContent = 'Lost connection to server.';
       }
     }
 
