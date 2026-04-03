@@ -6,13 +6,15 @@ Built by [Streetlives](https://www.streetlives.nyc/) as a front-end to the [Your
 
 ## How It Works
 
-A user describes what they need in plain language. The chatbot extracts the service type and location through natural conversation, then queries the Streetlives database and returns real, verified service listings as interactive cards — with addresses, hours, phone numbers, and links to the full YourPeer listing.
+A user describes what they need in plain language — or taps a quick-reply button. The chatbot extracts the service type and location through natural conversation, confirms the search parameters, then queries the Streetlives database and returns real, verified service listings as interactive cards — with addresses, hours, phone numbers, and links to the full YourPeer listing.
 
 ```
-User:  "I need food in Brooklyn"
-Bot:   extracts → service_type=food, location=Brooklyn
-       queries → Streetlives DB (2,400+ locations, 3,500+ services)
-       returns → service cards with names, addresses, hours, and action buttons
+User:  taps "🍽️ Food"
+Bot:   "What neighborhood or borough are you in?"  [Manhattan] [Brooklyn] [Queens] [Bronx]
+User:  taps "Brooklyn"
+Bot:   "I'll search for food in Brooklyn."  [✅ Yes, search] [📍 Change location] [🔄 Change service]
+User:  taps "✅ Yes, search"
+Bot:   returns → 2 service cards with names, addresses, hours, and action buttons
 ```
 
 **No hallucination by design.** The LLM handles conversation only — all service data comes from deterministic database queries using pre-reviewed templates. The bot never makes up service names, addresses, or eligibility rules.
@@ -20,26 +22,33 @@ Bot:   extracts → service_type=food, location=Brooklyn
 ## Architecture
 
 ```
-User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Query Templates → Streetlives DB
-                                 ↓                     ↓                                    ↓
-                          Crisis Detection        PII Redaction                       Service Cards
-                          Greeting / Reset             ↓                                    ↓
-                          Thanks / Help          Session Store                      YourPeer links
+User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Confirmation → Query Templates → Streetlives DB
+          ↑                      ↓                     ↓               ↓                                   ↓
+   Quick-reply            Crisis Detection        PII Redaction    User confirms                      Service Cards
+   buttons                Greeting / Reset             ↓          or changes slots                         ↓
+                          Thanks / Help          Session Store                                       YourPeer links
                           Escalation                   ↓
-                                ↓                Gemini LLM (fallback
-                         Static responses +      for general conversation
-                         crisis resources        and DB failures only)
+                          Confirmation ←         Gemini LLM (fallback
+                          handling               for general conversation
+                                                 and DB failures only)
+
+Staff → Admin Console (/admin/) → Audit Log API → Anonymized transcripts, query logs, crisis events, stats
+                                       ↓
+                                  Eval Results → LLM-as-judge scores (from eval_llm_judge.py)
 ```
 
-The system follows a **Safer, Limited RAG** pattern with three phases:
+The system follows a **Safer, Limited RAG** pattern with four phases:
 
-1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude for ambiguous inputs. The message classifier routes crisis language, greetings, resets, escalation requests, and help before slot extraction runs. PII is redacted from stored transcripts.
-2. **Query** — Pre-defined, parameterized SQL templates run against the Streetlives PostgreSQL database. Borough-level queries expand to include all neighborhood city values. If the strict query returns no results, filters are automatically relaxed while keeping location boundaries.
-3. **Rendering** — Results are returned as structured service cards with open/closed status, never as LLM-generated text. The LLM is only used for general conversational messages and as a fallback when the database is unreachable.
+1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Quick-reply buttons let users tap instead of type. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude for ambiguous inputs. The message classifier routes crisis language, greetings, resets, escalation requests, and help before slot extraction runs. PII is redacted from stored transcripts.
+2. **Confirmation** — When service type and location are filled, the bot summarizes the search ("I'll search for food in Brooklyn") and presents quick-reply options: confirm, change location, change service, or start over. The database is only queried after explicit user confirmation.
+3. **Query** — Pre-defined, parameterized SQL templates run against the Streetlives PostgreSQL database. Borough-level queries expand to include all neighborhood city values. If the strict query returns no results, filters are automatically relaxed while keeping location boundaries.
+4. **Rendering** — Results are returned as structured service cards with open/closed status, never as LLM-generated text. The LLM is only used for general conversational messages and as a fallback when the database is unreachable.
 
 ## Features
 
 - **9 service categories** — food, shelter, clothing, personal care, health care, mental health, legal, employment, and other services (benefits, IDs, etc.)
+- **Quick-reply buttons** — tappable category buttons on welcome (Food, Shelter, Showers, Clothing, etc.), borough buttons when location is needed, and confirmation actions — no typing required
+- **Confirmation before search** — bot summarizes what it will search for and lets the user confirm, change location, change service, or start over before querying the database
 - **Conversational slot-filling** — multi-turn dialog that asks only what's needed, one question at a time
 - **LLM-enhanced extraction** — optional Claude-powered slot extraction handles nuanced inputs like "my son is 12 and needs a coat" or "I'm in Queens but looking for food in the Bronx." Activates automatically when `ANTHROPIC_API_KEY` is set; falls back to regex-only otherwise
 - **Crisis detection** — detects suicide/self-harm, violence, domestic violence, trafficking, and medical emergency language and immediately surfaces category-specific resources (988 Lifeline, Trevor Project, National DV Hotline, Trafficking Hotline, 911)
@@ -53,6 +62,10 @@ The system follows a **Safer, Limited RAG** pattern with three phases:
 - **Relaxed fallback** — if strict filters return no results, automatically broadens the search while keeping location boundaries
 - **Conversational routing** — greetings, thanks, help requests, and "start over" are handled naturally without triggering database queries
 - **Graceful degradation** — if the database is unreachable, falls back to LLM; if LLM also fails, returns a safe static message
+- **URL normalization** — website links from the database are normalized to include `https://` so they open correctly in all browsers
+- **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin/`. Includes a full transcript viewer with slot metadata and crisis flags. Data is stored in-memory for the pilot and resets on server restart; swap to PostgreSQL or Redis for production persistence
+- **Audit log** — every conversation turn, database query, crisis detection, and session reset is recorded in a thread-safe in-memory ring buffer (capped at 2,000 events) for staff review. No PII is stored
+- **LLM-as-judge evaluation** — 29-scenario automated evaluation framework that simulates conversations and uses Claude to score the system across 8 quality dimensions. Outputs a structured report with per-scenario detail and critical failure tracking
 
 ## Tech Stack
 
@@ -84,7 +97,8 @@ cp .env.example .env
 cd backend
 uvicorn app.main:app --reload
 
-# Open http://127.0.0.1:8000
+# Open http://127.0.0.1:8000        (chat interface)
+# Open http://127.0.0.1:8000/admin/  (staff review console)
 ```
 
 See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration and troubleshooting.
@@ -95,7 +109,7 @@ See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration a
 |---|---|
 | [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
-| [TESTING.md](TESTING.md) | Test suite guide — 221 tests across 8 suites, how to run, what's covered, how to add tests |
+| [TESTING.md](TESTING.md) | Test suite guide — 247 unit tests across 8 suites + 29-scenario LLM-as-judge evaluation framework |
 
 ## Related Repositories
 

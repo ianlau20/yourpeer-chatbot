@@ -24,6 +24,12 @@ class ServiceCard(BaseModel):
     is_open: Optional[str] = None
 
 
+class QuickReply(BaseModel):
+    """A tappable button option shown below a bot message."""
+    label: str
+    value: str  # the text sent as a user message when tapped
+
+
 class ChatResponse(BaseModel):
     session_id: str
     response: str
@@ -32,3 +38,4 @@ class ChatResponse(BaseModel):
     services: List[ServiceCard] = []
     result_count: int = 0
     relaxed_search: bool = False
+    quick_replies: List[QuickReply] = []

@@ -225,6 +225,12 @@ ORDER BY o.name, s.name
 LIMIT :max_results
 """
 
+# Distance-aware ORDER BY — used when proximity params are present
+_ORDER_BY_DISTANCE_LIMIT = """
+ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography), s.name
+LIMIT :max_results
+"""
+
 _DEFAULT_MAX_RESULTS = 10
 
 
@@ -422,7 +428,12 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
     if "max_results" not in params:
         params["max_results"] = _DEFAULT_MAX_RESULTS
 
-    full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{_ORDER_LIMIT}"
+    # Use distance-aware ordering when proximity search is active
+    order_clause = _ORDER_LIMIT
+    if "lat" in params and "lon" in params:
+        order_clause = _ORDER_BY_DISTANCE_LIMIT
+
+    full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{order_clause}"
 
     return full_sql, params
 
@@ -435,12 +446,13 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
 
     1. Drop time/schedule filters
     2. Drop eligibility filters (age, gender)
-    3. Broaden city match:
-       - Neighborhood search: promote _borough_city_list → city_list
-         (exact "Harlem" → all Manhattan neighborhoods)
-       - Borough search: keep existing city_list
+    3. Drop proximity filters (lat, lon, radius) — broadens from
+       neighborhood-level to borough-level
+    4. Broaden city match:
+       - If _borough_city_list exists: promote to city_list for ANY() match
+       - If city_list exists: keep it, drop exact city match
        - No expansion available: exact city → LIKE pattern
-    4. State filter (NY) is NEVER dropped
+    5. State filter (NY) is NEVER dropped
 
     Returns the broadest reasonable query. Caller should note to the user
     that results may be less precisely matched.
@@ -453,6 +465,10 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
 
     # Remove eligibility params
     for key in ["age", "gender"]:
+        relaxed_params.pop(key, None)
+
+    # Remove proximity params — broadens from neighborhood to full borough
+    for key in ["lat", "lon", "radius_meters"]:
         relaxed_params.pop(key, None)
 
     # Promote _borough_city_list (from neighborhood searches) to city_list
@@ -474,6 +490,18 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
 # ---------------------------------------------------------------------------
 # RESULT FORMATTER
 # ---------------------------------------------------------------------------
+
+def _normalize_url(url: str | None) -> str | None:
+    """Ensure a URL has a protocol prefix so browsers open it as absolute."""
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+    if not url.startswith(("http://", "https://", "//")):
+        return "https://" + url
+    return url
+
 
 def format_service_card(row: dict) -> dict:
     """
@@ -509,7 +537,7 @@ def format_service_card(row: dict) -> dict:
         "city": row.get("city"),
         "phone": row.get("phone"),
         "email": row.get("service_email"),
-        "website": row.get("service_url") or row.get("organization_url"),
+        "website": _normalize_url(row.get("service_url") or row.get("organization_url")),
         "fees": row.get("fees"),
         "additional_info": row.get("additional_info"),
         "yourpeer_url": yourpeer_url,

@@ -18,8 +18,10 @@ from app.rag.query_executor import (
     resolve_template_key,
     normalize_location,
     get_borough_city_names,
+    get_neighborhood_center,
     is_borough,
     test_connection,
+    DEFAULT_NEIGHBORHOOD_RADIUS_METERS,
 )
 from app.rag.query_templates import TEMPLATES, build_query
 
@@ -80,16 +82,28 @@ def query_services(
             if len(city_list) > 1:
                 user_params["city_list"] = city_list
         else:
-            # Neighborhood-level search: "Harlem" → try matching "Harlem" directly
-            # as a city value in the DB. Only exact city match in the strict query.
-            # The borough expansion is stored separately for the relaxed fallback.
-            neighborhood_name = location.strip().title()
-            user_params["city"] = neighborhood_name
-            # Store the borough expansion for relaxed fallback only.
-            # Prefixed with _ so it doesn't trigger FILTER_BY_CITY_IN_BOROUGH
-            # in the strict query (optional filters require "city_list" in params).
+            # Neighborhood-level search: "Chelsea" or "Williamsburg"
+            # Use PostGIS proximity search if we have center coordinates,
+            # falling back to borough-level city filtering if not.
+            center = get_neighborhood_center(location)
+
+            if center:
+                # Proximity search — find services within ~1 mile of
+                # the neighborhood center. This gives genuinely local
+                # results instead of all-of-Manhattan for "Chelsea".
+                lat, lon = center
+                user_params["lat"] = lat
+                user_params["lon"] = lon
+                user_params["radius_meters"] = DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+
+            # Also include city-level filters as a safety net.
+            # The DB stores city at the borough level, so this ensures
+            # results stay within the correct borough even if PostGIS
+            # data is missing on some locations.
+            user_params["city"] = normalized_city
             city_list = get_borough_city_names(normalized_city)
             if len(city_list) > 1:
+                user_params["city_list"] = city_list
                 user_params["_borough_city_list"] = city_list
 
     if age is not None:

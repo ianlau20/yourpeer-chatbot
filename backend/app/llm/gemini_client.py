@@ -1,27 +1,28 @@
 import os
 import logging
-import google.generativeai as genai
 from dotenv import load_dotenv
+from google import genai
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-_model = None
+_client = None
 _init_error = None
+_model_name = None
 
 
-def _get_model():
-    """Lazy-initialize the Gemini model on first use, not on import."""
-    global _model, _init_error
+def _get_client():
+    """Lazy-initialize the Gemini client on first use, not on import."""
+    global _client, _init_error, _model_name
 
-    if _model is not None:
-        return _model
+    if _client is not None:
+        return _client
 
     if _init_error is not None:
         raise _init_error
 
     gemini_api_key = os.getenv("GEMINI_API_KEY")
-    gemini_model = os.getenv("GEMINI_MODEL")
+    _model_name = os.getenv("GEMINI_MODEL")
 
     if not gemini_api_key:
         _init_error = RuntimeError(
@@ -30,18 +31,17 @@ def _get_model():
         )
         raise _init_error
 
-    if not gemini_model:
+    if not _model_name:
         _init_error = RuntimeError(
             "Missing GEMINI_MODEL. Set it in your .env file. "
-            'Example: GEMINI_MODEL="gemini-3-flash-preview"'
+            'Example: GEMINI_MODEL="gemini-2.0-flash"'
         )
         raise _init_error
 
     try:
-        genai.configure(api_key=gemini_api_key)
-        _model = genai.GenerativeModel(gemini_model)
-        logger.info(f"Gemini model initialized: {gemini_model}")
-        return _model
+        _client = genai.Client(api_key=gemini_api_key)
+        logger.info(f"Gemini client initialized, model: {_model_name}")
+        return _client
     except Exception as e:
         _init_error = RuntimeError(f"Failed to initialize Gemini: {e}")
         raise _init_error
@@ -50,9 +50,12 @@ def _get_model():
 def gemini_reply(prompt: str) -> str:
     """Generate a reply using Gemini. Returns empty string on failure."""
     try:
-        model = _get_model()
-        response = model.generate_content(prompt)
-        return getattr(response, "text", "") or ""
+        client = _get_client()
+        response = client.models.generate_content(
+            model=_model_name,
+            contents=prompt,
+        )
+        return response.text or ""
     except Exception as e:
         logger.error(f"Gemini reply failed: {e}")
         return "I'm having trouble connecting right now. Please try again."

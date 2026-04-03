@@ -297,6 +297,46 @@ function escapeHtml(str) {
 }
 
 
+// --- Quick-reply buttons ---
+
+function addQuickReplies(replies) {
+  if (!replies || replies.length === 0) return;
+
+  // Remove any existing quick-reply containers (only latest set is active)
+  chat.querySelectorAll(".quick-replies").forEach((el) => {
+    el.classList.add("used");
+    el.querySelectorAll(".quick-reply-btn").forEach((btn) => {
+      btn.classList.add("used");
+    });
+  });
+
+  const container = document.createElement("div");
+  container.className = "quick-replies";
+
+  replies.forEach((qr) => {
+    const btn = document.createElement("button");
+    btn.className = "quick-reply-btn";
+    btn.textContent = qr.label;
+    btn.type = "button";
+
+    btn.addEventListener("click", () => {
+      // Disable all buttons in this set
+      container.querySelectorAll(".quick-reply-btn").forEach((b) => {
+        b.classList.add("used");
+      });
+
+      // Send the value as a user message
+      sendMessage(qr.value);
+    });
+
+    container.appendChild(btn);
+  });
+
+  chat.appendChild(container);
+  scrollToBottom();
+}
+
+
 // --- Loading / error states ---
 
 function setLoading(isLoading) {
@@ -312,16 +352,13 @@ function setError(message) {
 }
 
 
-// --- Form submission ---
+// --- Send message (shared by form submit and quick-reply taps) ---
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const message = input.value.trim();
-  if (!message) return;
+async function sendMessage(text) {
+  if (!text || !text.trim()) return;
+  const message = text.trim();
 
   addMessage("user", message);
-  input.value = "";
   setLoading(true);
 
   try {
@@ -349,6 +386,11 @@ form.addEventListener("submit", async (event) => {
     if (data.services && data.services.length > 0) {
       addServiceCards(data.services);
     }
+
+    // If there are quick replies, render them
+    if (data.quick_replies && data.quick_replies.length > 0) {
+      addQuickReplies(data.quick_replies);
+    }
   } catch (err) {
     setError(`Error: ${err.message}`);
     addMessage("bot", "Sorry, something went wrong. Please try again.");
@@ -356,8 +398,40 @@ form.addEventListener("submit", async (event) => {
     setLoading(false);
     input.focus();
   }
+}
+
+
+// --- Form submission ---
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const message = input.value.trim();
+  if (!message) return;
+
+  input.value = "";
+
+  // Disable any active quick-reply buttons when user types manually
+  chat.querySelectorAll(".quick-replies").forEach((el) => {
+    el.querySelectorAll(".quick-reply-btn").forEach((btn) => {
+      btn.classList.add("used");
+    });
+  });
+
+  await sendMessage(message);
 });
 
 
 // --- Welcome message ---
 addMessage("bot", WELCOME_MESSAGE);
+addQuickReplies([
+  { label: "🍽️ Food", value: "I need food" },
+  { label: "🏠 Shelter", value: "I need shelter" },
+  { label: "🚿 Showers", value: "I need a shower" },
+  { label: "👕 Clothing", value: "I need clothing" },
+  { label: "🏥 Health Care", value: "I need health care" },
+  { label: "💼 Jobs", value: "I need help finding a job" },
+  { label: "⚖️ Legal Help", value: "I need legal help" },
+  { label: "🧠 Mental Health", value: "I need mental health support" },
+  { label: "📋 Other", value: "I need other services" },
+]);
