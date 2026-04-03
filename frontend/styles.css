@@ -446,4 +446,57 @@ h1 {
   .service-card {
     flex: 0 0 260px;
   }
+  .quick-replies {
+    gap: 6px;
+  }
+  .quick-reply-btn {
+    font-size: 0.8rem;
+    padding: 8px 14px;
+  }
+}
+
+/* --- Quick-reply buttons --- */
+
+.quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 92%;
+  animation: msgIn 0.3s ease-out;
+  animation-fill-mode: both;
+}
+
+.quick-reply-btn {
+  padding: 9px 16px;
+  border-radius: 20px;
+  border: 1.5px solid #E8E6DF;
+  background: #FFFFFF;
+  color: #1A1A18;
+  font-size: 0.84rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1.3;
+  font-family: inherit;
+}
+
+.quick-reply-btn:hover {
+  background: #FED550;
+  border-color: #FED550;
+  box-shadow: 0 2px 8px rgba(254,213,80,0.3);
+  transform: translateY(-1px);
+}
+
+.quick-reply-btn:active {
+  transform: translateY(0px) scale(0.97);
+  box-shadow: none;
+}
+
+.quick-reply-btn.used {
+  opacity: 0.5;
+  pointer-events: none;
+  border-color: #E8E6DF;
+  background: #F5F4F0;
 }

@@ -67,20 +67,74 @@ _ESCALATION_PHRASES = [
     "case manager", "social worker", "counselor",
 ]
 
+# ---------------------------------------------------------------------------
+# QUICK REPLY DEFINITIONS
+# ---------------------------------------------------------------------------
+
+# Welcome / entry-point category buttons (matches wireframe)
+_WELCOME_QUICK_REPLIES = [
+    {"label": "🍽️ Food", "value": "I need food"},
+    {"label": "🏠 Shelter", "value": "I need shelter"},
+    {"label": "🚿 Showers", "value": "I need a shower"},
+    {"label": "👕 Clothing", "value": "I need clothing"},
+    {"label": "🏥 Health Care", "value": "I need health care"},
+    {"label": "💼 Jobs", "value": "I need help finding a job"},
+    {"label": "⚖️ Legal Help", "value": "I need legal help"},
+    {"label": "🧠 Mental Health", "value": "I need mental health support"},
+    {"label": "📋 Other", "value": "I need other services"},
+]
+
+# Service-type labels for confirmation messages
+_SERVICE_LABELS = {
+    "food": "food",
+    "shelter": "shelter",
+    "clothing": "clothing",
+    "personal_care": "showers / personal care",
+    "medical": "health care",
+    "mental_health": "mental health support",
+    "legal": "legal help",
+    "employment": "job help",
+    "other": "other services",
+}
+
+# Confirmation-related phrases
+_CONFIRM_YES = [
+    "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "correct",
+    "right", "that's right", "thats right", "go ahead", "search",
+    "yes search", "do it", "find", "go", "please", "looks good",
+    "yes, search", "yes search", "yes please",
+]
+
+_CONFIRM_CHANGE_SERVICE = [
+    "change service", "different service", "not that",
+    "wrong service", "change what i need", "something else",
+    "change service type",
+]
+
+_CONFIRM_CHANGE_LOCATION = [
+    "change location", "different location", "wrong location",
+    "not there", "different area", "different borough",
+    "change borough", "change neighborhood",
+    "change location",
+]
+
 
 def _classify_message(text: str) -> str:
     """
     Classify a message into a routing category.
 
     Returns one of:
-        "crisis"      — suicide, violence, DV, trafficking, medical emergency
-        "reset"       — user wants to start over
-        "greeting"    — hi / hello / hey
-        "thanks"      — thank you / thx
-        "help"        — what can you do / how does this work
-        "escalation"  — user wants to talk to a real person / peer navigator
-        "service"     — contains a service-related intent or slot data
-        "general"     — everything else (conversational, follow-up, unclear)
+        "crisis"           — suicide, violence, DV, trafficking, medical emergency
+        "reset"            — user wants to start over
+        "greeting"         — hi / hello / hey
+        "thanks"           — thank you / thx
+        "help"             — what can you do / how does this work
+        "escalation"       — user wants to talk to a real person / peer navigator
+        "confirm_yes"      — user confirmed a pending search
+        "confirm_change_service"  — user wants to change service type
+        "confirm_change_location" — user wants to change location
+        "service"          — contains a service-related intent or slot data
+        "general"          — everything else (conversational, follow-up, unclear)
     """
     lower = text.lower().strip()
 
@@ -103,6 +157,20 @@ def _classify_message(text: str) -> str:
     for phrase in _ESCALATION_PHRASES:
         if phrase in cleaned:
             return "escalation"
+
+    # Check confirmation responses (only meaningful when pending_confirmation
+    # is set, but we classify here and let the main flow decide)
+    for phrase in _CONFIRM_CHANGE_SERVICE:
+        if phrase in cleaned:
+            return "confirm_change_service"
+
+    for phrase in _CONFIRM_CHANGE_LOCATION:
+        if phrase in cleaned:
+            return "confirm_change_location"
+
+    for phrase in _CONFIRM_YES:
+        if cleaned == phrase or cleaned == phrase + " please":
+            return "confirm_yes"
 
     # Check greetings (only if the message is short — "hi where's food"
     # should be classified as a service request, not a greeting)
@@ -174,6 +242,52 @@ _ESCALATION_RESPONSE = (
     "Would you like me to keep searching for services, or is there "
     "anything else I can help with?"
 )
+
+
+# ---------------------------------------------------------------------------
+# CONFIRMATION HELPERS
+# ---------------------------------------------------------------------------
+
+def _build_confirmation_message(slots: dict) -> str:
+    """Build a human-readable confirmation prompt from filled slots."""
+    service = slots.get("service_type", "services")
+    service_label = _SERVICE_LABELS.get(service, service)
+    location = slots.get("location", "your area")
+    age = slots.get("age")
+
+    parts = [f"I'll search for {service_label} in {location}"]
+    if age:
+        parts[0] += f" (age {age})"
+    parts[0] += "."
+
+    return " ".join(parts)
+
+
+def _confirmation_quick_replies(slots: dict) -> list:
+    """Quick-reply buttons for the confirmation step."""
+    return [
+        {"label": "✅ Yes, search", "value": "Yes, search"},
+        {"label": "📍 Change location", "value": "Change location"},
+        {"label": "🔄 Change service", "value": "Change service"},
+        {"label": "❌ Start over", "value": "Start over"},
+    ]
+
+
+def _follow_up_quick_replies(slots: dict) -> list:
+    """Quick-reply buttons for follow-up questions (when missing slots)."""
+    if not slots.get("service_type"):
+        return list(_WELCOME_QUICK_REPLIES)
+
+    # Missing location — suggest common boroughs
+    if not slots.get("location") or slots.get("location") == "__near_me__":
+        return [
+            {"label": "Manhattan", "value": "Manhattan"},
+            {"label": "Brooklyn", "value": "Brooklyn"},
+            {"label": "Queens", "value": "Queens"},
+            {"label": "Bronx", "value": "Bronx"},
+        ]
+
+    return []
 
 # Nearby borough suggestions for when a query returns no results
 _NEARBY_BOROUGHS = {
@@ -258,7 +372,12 @@ def _fallback_response(message: str, slots: dict) -> str:
 # EMPTY RESPONSE HELPER
 # ---------------------------------------------------------------------------
 
-def _empty_reply(session_id: str, response: str, slots: dict) -> dict:
+def _empty_reply(
+    session_id: str,
+    response: str,
+    slots: dict,
+    quick_replies: list | None = None,
+) -> dict:
     """Build a reply dict with no service results."""
     return {
         "session_id": session_id,
@@ -268,6 +387,7 @@ def _empty_reply(session_id: str, response: str, slots: dict) -> dict:
         "services": [],
         "result_count": 0,
         "relaxed_search": False,
+        "quick_replies": quick_replies or [],
     }
 
 
@@ -309,7 +429,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # --- Reset ---
     if category == "reset":
         clear_session(session_id)
-        return _empty_reply(session_id, _RESET_RESPONSE, {})
+        return _empty_reply(
+            session_id, _RESET_RESPONSE, {},
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
 
     # --- Greeting ---
     if category == "greeting":
@@ -320,19 +443,73 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
                 "Want to keep going, or would you like to start over?"
             )
             return _empty_reply(session_id, response, existing)
-        return _empty_reply(session_id, _GREETING_RESPONSE, existing)
+        return _empty_reply(
+            session_id, _GREETING_RESPONSE, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
 
     # --- Thanks ---
     if category == "thanks":
-        return _empty_reply(session_id, _THANKS_RESPONSE, existing)
+        return _empty_reply(
+            session_id, _THANKS_RESPONSE, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
 
     # --- Help ---
     if category == "help":
-        return _empty_reply(session_id, _HELP_RESPONSE, existing)
+        return _empty_reply(
+            session_id, _HELP_RESPONSE, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
 
     # --- Escalation ---
     if category == "escalation":
         return _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+
+    # --- Handle confirmation responses ---
+    pending = existing.get("_pending_confirmation")
+
+    if pending and category == "confirm_yes":
+        # User confirmed — clear the flag and execute the query
+        existing.pop("_pending_confirmation", None)
+        save_session_slots(session_id, existing)
+        return _execute_and_respond(session_id, message, existing)
+
+    if pending and category == "confirm_change_service":
+        # User wants to change service type — clear it and ask
+        existing.pop("_pending_confirmation", None)
+        existing["service_type"] = None
+        save_session_slots(session_id, existing)
+        return _empty_reply(
+            session_id,
+            "No problem! What kind of help do you need?",
+            existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+
+    if pending and category == "confirm_change_location":
+        # User wants to change location — clear it and ask
+        existing.pop("_pending_confirmation", None)
+        existing["location"] = None
+        save_session_slots(session_id, existing)
+        return _empty_reply(
+            session_id,
+            "Sure! What neighborhood or borough should I search in?",
+            existing,
+            quick_replies=[
+                {"label": "Manhattan", "value": "Manhattan"},
+                {"label": "Brooklyn", "value": "Brooklyn"},
+                {"label": "Queens", "value": "Queens"},
+                {"label": "Bronx", "value": "Bronx"},
+                {"label": "Staten Island", "value": "Staten Island"},
+            ],
+        )
+
+    # If pending confirmation but user typed something new (not a
+    # confirmation action), treat it as new input — clear the flag
+    # and re-process below.
+    if pending:
+        existing.pop("_pending_confirmation", None)
 
     # --- Service request or general conversation ---
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
@@ -341,6 +518,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         extracted = extract_slots_smart(message)
     else:
         extracted = extract_slots(message)
+
+    # Track whether THIS message contributed any new slot data
+    has_new_slots = any(v is not None for v in extracted.values())
+
     merged = merge_slots(existing, extracted)
 
     # Store the redacted message in transcript history (not the original)
@@ -350,62 +531,34 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
     save_session_slots(session_id, merged)
 
-    # If enough detail exists, query the database
-    if is_enough_to_answer(merged):
+    # If enough detail exists AND this message contributed new info,
+    # go to CONFIRMATION step. If the user just typed "no" or something
+    # conversational and the old slots happen to be complete, don't
+    # re-trigger confirmation — route to general conversation instead.
+    if is_enough_to_answer(merged) and has_new_slots:
+        # Set pending confirmation flag
+        merged["_pending_confirmation"] = True
+        save_session_slots(session_id, merged)
 
-        bot_response = None
-        services_list = []
-        result_count = 0
-        relaxed = False
-
-        try:
-            results = query_services(
-                service_type=merged.get("service_type"),
-                location=merged.get("location"),
-                age=merged.get("age"),
-            )
-
-            if results.get("error"):
-                logger.warning(f"Query error: {results['error']}")
-                bot_response = _fallback_response(message, merged)
-
-            elif results["result_count"] > 0:
-                services_list = results["services"]
-                result_count = results["result_count"]
-                relaxed = results.get("relaxed", False)
-
-                qualifier = ""
-                if relaxed:
-                    qualifier = " (I broadened the search a bit)"
-
-                bot_response = (
-                    f"I found {result_count} option(s) for you{qualifier}. "
-                    f"Here's what's available:"
-                )
-            else:
-                bot_response = _no_results_message(merged)
-
-        except Exception as e:
-            logger.error(f"Database query failed: {e}")
-            bot_response = _fallback_response(message, merged)
-
-        if bot_response is None:
-            bot_response = _fallback_response(message, merged)
+        confirm_msg = _build_confirmation_message(merged)
+        confirm_qr = _confirmation_quick_replies(merged)
 
         return {
             "session_id": session_id,
-            "response": bot_response,
-            "follow_up_needed": False,
+            "response": confirm_msg,
+            "follow_up_needed": True,
             "slots": merged,
-            "services": services_list,
-            "result_count": result_count,
-            "relaxed_search": relaxed,
+            "services": [],
+            "result_count": 0,
+            "relaxed_search": False,
+            "quick_replies": confirm_qr,
         }
 
     # Not enough slots yet — but is this a service request or just conversation?
     if category == "service":
         # They mentioned something service-related but we need more info
         follow_up = next_follow_up_question(merged)
+        follow_up_qr = _follow_up_quick_replies(merged)
         return {
             "session_id": session_id,
             "response": follow_up,
@@ -414,6 +567,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
             "services": [],
             "result_count": 0,
             "relaxed_search": False,
+            "quick_replies": follow_up_qr,
         }
 
     # --- General conversation ---
@@ -421,4 +575,70 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # Use Gemini for a natural conversational response that gently steers
     # the user back toward telling us what they need.
     response = _fallback_response(message, merged)
-    return _empty_reply(session_id, response, merged)
+    return _empty_reply(
+        session_id, response, merged,
+        quick_replies=list(_WELCOME_QUICK_REPLIES),
+    )
+
+
+# ---------------------------------------------------------------------------
+# QUERY EXECUTION (after confirmation)
+# ---------------------------------------------------------------------------
+
+def _execute_and_respond(session_id: str, message: str, slots: dict) -> dict:
+    """Execute the DB query and return results. Called after user confirms."""
+    bot_response = None
+    services_list = []
+    result_count = 0
+    relaxed = False
+
+    try:
+        results = query_services(
+            service_type=slots.get("service_type"),
+            location=slots.get("location"),
+            age=slots.get("age"),
+        )
+
+        if results.get("error"):
+            logger.warning(f"Query error: {results['error']}")
+            bot_response = _fallback_response(message, slots)
+
+        elif results["result_count"] > 0:
+            services_list = results["services"]
+            result_count = results["result_count"]
+            relaxed = results.get("relaxed", False)
+
+            qualifier = ""
+            if relaxed:
+                qualifier = " (I broadened the search a bit)"
+
+            bot_response = (
+                f"I found {result_count} option(s) for you{qualifier}. "
+                f"Here's what's available:"
+            )
+        else:
+            bot_response = _no_results_message(slots)
+
+    except Exception as e:
+        logger.error(f"Database query failed: {e}")
+        bot_response = _fallback_response(message, slots)
+
+    if bot_response is None:
+        bot_response = _fallback_response(message, slots)
+
+    # After showing results, offer to search again
+    after_results_qr = [
+        {"label": "🔍 New search", "value": "Start over"},
+        {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+    ]
+
+    return {
+        "session_id": session_id,
+        "response": bot_response,
+        "follow_up_needed": False,
+        "slots": slots,
+        "services": services_list,
+        "result_count": result_count,
+        "relaxed_search": relaxed,
+        "quick_replies": after_results_qr if services_list else list(_WELCOME_QUICK_REPLIES),
+    }

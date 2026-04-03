@@ -244,6 +244,46 @@ def test_format_card_website_prefers_service():
     print("  PASS: website prefers service URL")
 
 
+def test_format_card_website_normalizes_missing_protocol():
+    """URLs without a protocol should get https:// prepended."""
+    # Bare domain
+    card = format_service_card(_mock_row(service_url="www.example.com", organization_url=None))
+    assert card["website"] == "https://www.example.com"
+
+    # Domain with path
+    card = format_service_card(_mock_row(service_url="example.org/services", organization_url=None))
+    assert card["website"] == "https://example.org/services"
+
+    # Org URL fallback also normalized
+    card = format_service_card(_mock_row(service_url=None, organization_url="org.example.com"))
+    assert card["website"] == "https://org.example.com"
+
+    # Already has https — no change
+    card = format_service_card(_mock_row(service_url="https://already-good.com"))
+    assert card["website"] == "https://already-good.com"
+
+    # Already has http — no change
+    card = format_service_card(_mock_row(service_url="http://legacy.com"))
+    assert card["website"] == "http://legacy.com"
+
+    # Protocol-relative — no change
+    card = format_service_card(_mock_row(service_url="//cdn.example.com"))
+    assert card["website"] == "//cdn.example.com"
+
+    # None/empty → None
+    card = format_service_card(_mock_row(service_url=None, organization_url=None))
+    assert card["website"] is None
+
+    card = format_service_card(_mock_row(service_url="", organization_url=""))
+    assert card["website"] is None
+
+    # Whitespace-only → None
+    card = format_service_card(_mock_row(service_url="  ", organization_url=None))
+    assert card["website"] is None
+
+    print("  PASS: website URLs normalized with protocol")
+
+
 def test_format_card_no_address():
     """Card address should be None if all address parts are missing."""
     card = format_service_card(_mock_row(
@@ -522,6 +562,7 @@ if __name__ == "__main__":
     test_format_card_missing_optional_fields()
     test_format_card_website_fallback()
     test_format_card_website_prefers_service()
+    test_format_card_website_normalizes_missing_protocol()
     test_format_card_no_address()
     test_format_card_partial_address()
     test_format_card_default_service_name()

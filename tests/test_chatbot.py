@@ -88,8 +88,6 @@ def test_classify_general():
     phrases = [
         "tell me more",
         "what about the second one",
-        "ok",
-        "sure",
         "I see",
     ]
     for phrase in phrases:
@@ -225,72 +223,91 @@ def test_help_route(mock_gemini, mock_query):
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
 @patch("app.services.chatbot.gemini_reply")
 def test_service_with_results(mock_gemini, mock_query):
-    """Full service request should query DB and return service cards."""
-    clear_session("test-service-results")
-    result = generate_reply("I need food in Brooklyn", session_id="test-service-results")
+    """Full service request should confirm first, then query DB on confirmation."""
+    sid = "test-service-results"
+    clear_session(sid)
+
+    # Step 1: Send message with both slots — should get confirmation
+    r1 = generate_reply("I need food in Brooklyn", session_id=sid)
+    mock_query.assert_not_called()  # Not yet — waiting for confirmation
+    assert r1["follow_up_needed"] is True
+    assert "food" in r1["response"].lower()
+    assert "brooklyn" in r1["response"].lower()
+    assert len(r1["quick_replies"]) > 0
+
+    # Step 2: Confirm — now it should query the DB
+    r2 = generate_reply("Yes, search", session_id=sid)
     mock_query.assert_called_once()
     mock_gemini.assert_not_called()
-    assert result["result_count"] == 1
-    assert len(result["services"]) == 1
-    assert result["services"][0]["service_name"] == "Test Food Pantry"
-    assert "found" in result["response"].lower()
+    assert r2["result_count"] == 1
+    assert len(r2["services"]) == 1
+    assert r2["services"][0]["service_name"] == "Test Food Pantry"
+    assert "found" in r2["response"].lower()
 
-    clear_session("test-service-results")
-    print("  PASS: service request with DB results")
+    clear_session(sid)
+    print("  PASS: service request with confirmation then DB results")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_EMPTY_RESULTS)
 @patch("app.services.chatbot.gemini_reply")
 def test_service_no_results(mock_gemini, mock_query):
-    """Service request with no results should show helpful message."""
-    clear_session("test-no-results")
-    result = generate_reply("I need food in Brooklyn", session_id="test-no-results")
+    """Service request with no results should show helpful message after confirmation."""
+    sid = "test-no-results"
+    clear_session(sid)
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation step
+    result = generate_reply("Yes, search", session_id=sid)  # confirm → query
     mock_query.assert_called_once()
     assert result["result_count"] == 0
     assert "wasn't able to find" in result["response"] or "try" in result["response"].lower()
 
-    clear_session("test-no-results")
+    clear_session(sid)
     print("  PASS: service request with no results")
 
 
 @patch("app.services.chatbot.query_services", side_effect=Exception("DB connection failed"))
 @patch("app.services.chatbot.gemini_reply", return_value="Let me try to help another way.")
 def test_db_failure_falls_back_to_gemini(mock_gemini, mock_query):
-    """If DB query throws, should fall back to Gemini."""
-    clear_session("test-db-fail")
-    result = generate_reply("I need food in Brooklyn", session_id="test-db-fail")
+    """If DB query throws after confirmation, should fall back to Gemini."""
+    sid = "test-db-fail"
+    clear_session(sid)
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation step
+    result = generate_reply("Yes, search", session_id=sid)  # confirm → query fails
     mock_query.assert_called_once()
     mock_gemini.assert_called_once()
     assert result["response"] == "Let me try to help another way."
     assert result["services"] == []
 
-    clear_session("test-db-fail")
+    clear_session(sid)
     print("  PASS: DB failure falls back to Gemini")
 
 
 @patch("app.services.chatbot.query_services", side_effect=Exception("DB down"))
 @patch("app.services.chatbot.gemini_reply", side_effect=Exception("Gemini down too"))
 def test_both_db_and_gemini_fail(mock_gemini, mock_query):
-    """If both DB and Gemini fail, should return safe static message."""
-    clear_session("test-both-fail")
-    result = generate_reply("I need food in Brooklyn", session_id="test-both-fail")
+    """If both DB and Gemini fail after confirmation, should return safe static message."""
+    sid = "test-both-fail"
+    clear_session(sid)
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation step
+    result = generate_reply("Yes, search", session_id=sid)  # confirm → both fail
     assert "yourpeer.nyc" in result["response"].lower() or "trouble" in result["response"].lower()
     assert result["services"] == []
 
-    clear_session("test-both-fail")
+    clear_session(sid)
     print("  PASS: both DB + Gemini fail → safe static response")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_ERROR_RESULTS)
 @patch("app.services.chatbot.gemini_reply", return_value="I can try to help with that.")
 def test_query_error_falls_back(mock_gemini, mock_query):
-    """If query_services returns an error key, should fall back to Gemini."""
-    clear_session("test-query-error")
-    result = generate_reply("I need food in Brooklyn", session_id="test-query-error")
+    """If query_services returns an error key after confirmation, should fall back to Gemini."""
+    sid = "test-query-error"
+    clear_session(sid)
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation step
+    result = generate_reply("Yes, search", session_id=sid)  # confirm → error
     mock_gemini.assert_called_once()
     assert result["response"] == "I can try to help with that."
 
-    clear_session("test-query-error")
+    clear_session(sid)
     print("  PASS: query error falls back to Gemini")
 
 
@@ -348,15 +365,19 @@ def test_multi_turn_slot_accumulation(mock_gemini, mock_query):
     assert r1["slots"].get("service_type") == "food"
     mock_query.assert_not_called()
 
-    # Turn 2: location
+    # Turn 2: location → should trigger confirmation (not query yet)
     r2 = generate_reply("Brooklyn", session_id=sid)
-    # Now it should have both slots and query the DB
-    mock_query.assert_called_once()
+    mock_query.assert_not_called()  # confirmation pending
+    assert r2["follow_up_needed"] is True
     assert r2["slots"].get("service_type") == "food"
     assert "brooklyn" in r2["slots"].get("location", "").lower()
 
+    # Turn 3: confirm → now query
+    r3 = generate_reply("Yes, search", session_id=sid)
+    mock_query.assert_called_once()
+
     clear_session(sid)
-    print("  PASS: multi-turn slot accumulation")
+    print("  PASS: multi-turn slot accumulation with confirmation")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -398,7 +419,7 @@ def test_pii_redacted_in_transcript(mock_gemini, mock_query):
         session_id=sid,
     )
 
-    # Slots should extract correctly from the original message
+    # Should be at confirmation step (not queried yet)
     assert result["slots"].get("service_type") == "food"
     assert "brooklyn" in result["slots"].get("location", "").lower()
 
@@ -473,6 +494,7 @@ def test_response_has_all_required_keys(mock_gemini, mock_query):
     required_keys = [
         "session_id", "response", "follow_up_needed",
         "slots", "services", "result_count", "relaxed_search",
+        "quick_replies",
     ]
 
     # Test multiple routes
@@ -489,8 +511,10 @@ def test_response_has_all_required_keys(mock_gemini, mock_query):
 @patch("app.services.chatbot.gemini_reply")
 def test_relaxed_search_flag(mock_gemini, mock_query):
     """relaxed_search should reflect whether the query was relaxed."""
-    clear_session("test-relaxed")
-    result = generate_reply("I need food in Brooklyn", session_id="test-relaxed")
+    sid = "test-relaxed"
+    clear_session(sid)
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation
+    result = generate_reply("Yes, search", session_id=sid)  # confirm
     assert result["relaxed_search"] is False  # mock returns relaxed=False
 
     # Now test with relaxed=True
@@ -498,13 +522,224 @@ def test_relaxed_search_flag(mock_gemini, mock_query):
         **MOCK_QUERY_RESULTS,
         "relaxed": True,
     }
-    clear_session("test-relaxed")
-    result2 = generate_reply("I need food in Brooklyn", session_id="test-relaxed")
+    clear_session(sid)
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation
+    result2 = generate_reply("Yes, search", session_id=sid)  # confirm
     assert result2["relaxed_search"] is True
     assert "broadened" in result2["response"].lower()
 
-    clear_session("test-relaxed")
+    clear_session(sid)
     print("  PASS: relaxed search flag")
+
+
+# -----------------------------------------------------------------------
+# CONFIRMATION FLOW & QUICK REPLIES
+# -----------------------------------------------------------------------
+
+def test_classify_confirmation_phrases():
+    """Confirmation phrases should classify correctly."""
+    for phrase in ["yes", "yeah", "ok", "sure", "go ahead", "yes please"]:
+        assert _classify_message(phrase) == "confirm_yes", \
+            f"'{phrase}' should be confirm_yes"
+
+    for phrase in ["change location", "different area", "wrong location"]:
+        assert _classify_message(phrase) == "confirm_change_location", \
+            f"'{phrase}' should be confirm_change_location"
+
+    for phrase in ["change service", "different service", "something else"]:
+        assert _classify_message(phrase) == "confirm_change_service", \
+            f"'{phrase}' should be confirm_change_service"
+
+    print("  PASS: confirmation phrase classification")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_confirmation_step_triggered(mock_gemini, mock_query):
+    """When both slots are filled, should return confirmation, not query."""
+    sid = "test-confirm-trigger"
+    clear_session(sid)
+
+    result = generate_reply("I need food in Brooklyn", session_id=sid)
+    mock_query.assert_not_called()
+    assert result["follow_up_needed"] is True
+    assert "food" in result["response"].lower()
+    assert "brooklyn" in result["response"].lower()
+    assert len(result["quick_replies"]) >= 3  # yes, change location, change service, start over
+
+    clear_session(sid)
+    print("  PASS: confirmation step triggered when slots complete")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_change_location_during_confirmation(mock_gemini, mock_query):
+    """User can change location during confirmation."""
+    sid = "test-change-loc"
+    clear_session(sid)
+
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation
+    result = generate_reply("Change location", session_id=sid)  # change loc
+
+    assert result["slots"].get("location") is None
+    assert result["slots"].get("service_type") == "food"
+    assert len(result["quick_replies"]) > 0  # borough buttons
+
+    clear_session(sid)
+    print("  PASS: change location during confirmation")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_change_service_during_confirmation(mock_gemini, mock_query):
+    """User can change service type during confirmation."""
+    sid = "test-change-svc"
+    clear_session(sid)
+
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation
+    result = generate_reply("Change service", session_id=sid)  # change svc
+
+    assert result["slots"].get("service_type") is None
+    assert "brooklyn" in result["slots"].get("location", "").lower()
+    assert len(result["quick_replies"]) > 0  # category buttons
+
+    clear_session(sid)
+    print("  PASS: change service during confirmation")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_greeting_has_quick_replies(mock_gemini, mock_query):
+    """Greeting response should include quick-reply category buttons."""
+    sid = "test-qr-greeting"
+    clear_session(sid)
+
+    result = generate_reply("hi", session_id=sid)
+    assert len(result["quick_replies"]) > 0
+    labels = [qr["label"] for qr in result["quick_replies"]]
+    assert any("Food" in l for l in labels)
+    assert any("Shelter" in l for l in labels)
+
+    clear_session(sid)
+    print("  PASS: greeting has quick replies")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_reset_has_quick_replies(mock_gemini, mock_query):
+    """Reset response should include quick-reply category buttons."""
+    sid = "test-qr-reset"
+    clear_session(sid)
+
+    result = generate_reply("start over", session_id=sid)
+    assert len(result["quick_replies"]) > 0
+
+    clear_session(sid)
+    print("  PASS: reset has quick replies")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_service_followup_has_quick_replies(mock_gemini, mock_query):
+    """When only service type is known, follow-up should show borough buttons."""
+    sid = "test-qr-followup"
+    clear_session(sid)
+
+    result = generate_reply("I need food", session_id=sid)
+    assert result["follow_up_needed"] is True
+    # Should have borough quick replies since we're missing location
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert any("Manhattan" in l or "Brooklyn" in l for l in labels), \
+        f"Expected borough buttons, got: {labels}"
+
+    clear_session(sid)
+    print("  PASS: follow-up has borough quick replies")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_new_input_clears_pending_confirmation(mock_gemini, mock_query):
+    """Typing new service input during confirmation should re-extract and re-confirm."""
+    sid = "test-new-input-confirm"
+    clear_session(sid)
+
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation
+    # Instead of confirming, user changes their mind entirely
+    result = generate_reply("I need shelter in Queens", session_id=sid)
+
+    # Should re-confirm with the new slots
+    assert result["slots"].get("service_type") == "shelter"
+    assert "queens" in result["slots"].get("location", "").lower()
+    assert result["follow_up_needed"] is True
+    mock_query.assert_not_called()  # still in confirmation
+
+    clear_session(sid)
+    print("  PASS: new input during confirmation re-extracts slots")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply")
+def test_results_have_post_search_quick_replies(mock_gemini, mock_query):
+    """After results are shown, should offer new search and peer navigator buttons."""
+    sid = "test-qr-results"
+    clear_session(sid)
+
+    generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation
+    result = generate_reply("Yes, search", session_id=sid)  # confirm → results
+
+    assert result["result_count"] > 0
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert any("search" in l.lower() or "new" in l.lower() for l in labels)
+
+    clear_session(sid)
+    print("  PASS: results have post-search quick replies")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply", return_value="No problem! What else can I help with?")
+def test_general_reply_does_not_retrigger_confirmation(mock_gemini, mock_query):
+    """A general message like 'no' should NOT re-trigger confirmation from stale slots."""
+    sid = "test-no-retrigger"
+    clear_session(sid)
+
+    # Build up complete slots via a confirmed search
+    generate_reply("I need food in Manhattan", session_id=sid)  # confirmation
+    generate_reply("Yes, search", session_id=sid)  # executes query
+
+    # Now user says "no" — this is conversational, not a new service request.
+    # The session still has service_type=food + location=Manhattan, but
+    # "no" should NOT re-trigger the confirmation flow.
+    result = generate_reply("no", session_id=sid)
+    assert result["result_count"] == 0, "Should not have queried DB"
+    assert "search for" not in result["response"].lower(), \
+        f"Should not re-confirm, got: {result['response']}"
+    assert result["follow_up_needed"] is False
+
+    clear_session(sid)
+    print("  PASS: 'no' does not re-trigger confirmation from stale slots")
+
+
+@patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
+@patch("app.services.chatbot.gemini_reply", return_value="No problem! What else can I help with?")
+def test_no_after_escalation_does_not_confirm(mock_gemini, mock_query):
+    """After escalation response, 'no' should route to general conversation."""
+    sid = "test-no-after-escalation"
+    clear_session(sid)
+
+    # Build up slots first
+    generate_reply("I need food in Manhattan", session_id=sid)  # confirmation
+    generate_reply("Yes, search", session_id=sid)  # executes query
+
+    # User asks for escalation
+    generate_reply("Connect with peer navigator", session_id=sid)
+
+    # User says "no" — should NOT re-trigger confirmation
+    result = generate_reply("no", session_id=sid)
+    assert result["result_count"] == 0
+    assert "search for" not in result["response"].lower()
+
+    clear_session(sid)
+    print("  PASS: 'no' after escalation does not re-trigger confirmation")
 
 
 # -----------------------------------------------------------------------
@@ -524,6 +759,7 @@ if __name__ == "__main__":
     test_classify_general()
     test_classify_reset_takes_priority()
     test_classify_with_punctuation()
+    test_classify_confirmation_phrases()
 
     print("\n--- Routing Paths ---")
     test_greeting_route()
@@ -556,6 +792,18 @@ if __name__ == "__main__":
     print("\n--- Response Structure ---")
     test_response_has_all_required_keys()
     test_relaxed_search_flag()
+
+    print("\n--- Confirmation & Quick Replies ---")
+    test_confirmation_step_triggered()
+    test_change_location_during_confirmation()
+    test_change_service_during_confirmation()
+    test_greeting_has_quick_replies()
+    test_reset_has_quick_replies()
+    test_service_followup_has_quick_replies()
+    test_new_input_clears_pending_confirmation()
+    test_results_have_post_search_quick_replies()
+    test_general_reply_does_not_retrigger_confirmation()
+    test_no_after_escalation_does_not_confirm()
 
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")

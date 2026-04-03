@@ -475,6 +475,18 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
 # RESULT FORMATTER
 # ---------------------------------------------------------------------------
 
+def _normalize_url(url: str | None) -> str | None:
+    """Ensure a URL has a protocol prefix so browsers open it as absolute."""
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+    if not url.startswith(("http://", "https://", "//")):
+        return "https://" + url
+    return url
+
+
 def format_service_card(row: dict) -> dict:
     """
     Format a raw query result row into a structured service card.
@@ -509,7 +521,7 @@ def format_service_card(row: dict) -> dict:
         "city": row.get("city"),
         "phone": row.get("phone"),
         "email": row.get("service_email"),
-        "website": row.get("service_url") or row.get("organization_url"),
+        "website": _normalize_url(row.get("service_url") or row.get("organization_url")),
         "fees": row.get("fees"),
         "additional_info": row.get("additional_info"),
         "yourpeer_url": yourpeer_url,
