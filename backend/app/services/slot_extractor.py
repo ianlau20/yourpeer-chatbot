@@ -108,8 +108,18 @@ NEAR_ME_SENTINEL = "__near_me__"
 # Consider returning a list of services instead of a single value.
 def _extract_service_type(text: str) -> Optional[str]:
     lower = text.lower()
+
+    # Build a flat list of (keyword, service_type) sorted longest-first.
+    # This ensures "mental health" matches before "health",
+    # "food bank" before "food", "substance abuse" before "abuse", etc.
+    all_keywords = []
     for service, keywords in SERVICE_KEYWORDS.items():
-        if any(k in lower for k in keywords):
+        for kw in keywords:
+            all_keywords.append((kw, service))
+    all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
+
+    for keyword, service in all_keywords:
+        if keyword in lower:
             return service
     return None
 
@@ -118,37 +128,56 @@ def _extract_location(text: str) -> Optional[str]:
     lower = text.lower()
 
     # Check for "near me" phrases first — these are NOT real locations.
+    # Important: check these BEFORE the preposition patterns so that
+    # "near me" doesn't fall through to the "near <location>" pattern.
     for phrase in _NEAR_ME_PHRASES:
         if phrase in lower:
-            return NEAR_ME_SENTINEL
+            # But only if there's no known location after the "near me" phrase.
+            # "Food near me in Brooklyn" should extract Brooklyn, not sentinel.
+            remainder = lower[lower.index(phrase) + len(phrase):]
+            has_real_location_after = any(loc in remainder for loc in _KNOWN_LOCATIONS)
+            if not has_real_location_after:
+                return NEAR_ME_SENTINEL
 
-    # Very simple pattern: "in <location>"
-    match = re.search(r"\bin\s+([a-zA-Z][a-zA-Z\s\-]{1,40})", text)
-    if match:
-        candidate = match.group(1).strip().lower()
-        # Make sure we didn't capture a non-location phrase
-        # like "in need" or "in trouble"
-        non_locations = ["need", "trouble", "danger", "a", "the", "my", "your"]
-        if candidate.split()[0] not in non_locations:
-            return match.group(1).strip()
+    # Preposition + location pattern: "in Brooklyn", "near Queens",
+    # "around Harlem", "by Midtown", "from the Bronx"
+    prep_match = re.search(
+        r"\b(?:in|near|around|by|from|over in|out in)\s+([a-zA-Z][a-zA-Z\s\-]{1,40})",
+        text,
+        re.IGNORECASE,
+    )
+    if prep_match:
+        candidate = prep_match.group(1).strip()
+        candidate_lower = candidate.lower()
+        # Filter out non-location phrases
+        non_locations = [
+            "need", "trouble", "danger", "a", "the", "my", "your",
+            "here", "there", "me", "help", "this",
+        ]
+        if candidate_lower.split()[0] not in non_locations:
+            return candidate
 
-    # Known NYC boroughs and neighborhoods
-    known = [
-        "long island city", "midtown", "soho", "queens", "brooklyn",
-        "bronx", "the bronx", "manhattan", "staten island", "harlem",
-        "east village", "west village", "chelsea", "williamsburg",
-        "bushwick", "bed-stuy", "crown heights", "flatbush",
-        "astoria", "flushing", "jamaica", "jackson heights",
-        "south bronx", "mott haven", "fordham", "washington heights",
-        "east new york", "sunset park", "bay ridge", "far rockaway",
-        "lower east side", "upper west side", "upper east side",
-        "brownsville", "tribeca", "inwood",
-    ]
-    for loc in known:
+    # Known NYC boroughs and neighborhoods (bare mention without preposition)
+    for loc in _KNOWN_LOCATIONS:
         if loc in lower:
             return loc
 
     return None
+
+
+# Known NYC locations — used for both bare-mention extraction and
+# the "near me" override check above.
+_KNOWN_LOCATIONS = [
+    "long island city", "midtown", "soho", "queens", "brooklyn",
+    "bronx", "the bronx", "manhattan", "staten island", "harlem",
+    "east village", "west village", "chelsea", "williamsburg",
+    "bushwick", "bed-stuy", "crown heights", "flatbush",
+    "astoria", "flushing", "jamaica", "jackson heights",
+    "south bronx", "mott haven", "fordham", "washington heights",
+    "east new york", "sunset park", "bay ridge", "far rockaway",
+    "lower east side", "upper west side", "upper east side",
+    "brownsville", "tribeca", "inwood",
+]
 
 
 def _extract_urgency(text: str) -> Optional[str]:

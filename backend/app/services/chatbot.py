@@ -15,6 +15,7 @@ from app.services.slot_extractor import (
     next_follow_up_question,
 )
 from app.rag import query_services
+from app.privacy.pii_redactor import redact_pii
 
 logger = logging.getLogger(__name__)
 
@@ -203,8 +204,20 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     if not session_id:
         session_id = str(uuid.uuid4())
 
+    # --- PII Redaction ---
+    # Run redaction on every incoming message.
+    # Slot extraction uses the ORIGINAL text (so locations/ages still parse).
+    # The REDACTED version is what gets stored in session transcript.
+    redacted_message, pii_detections = redact_pii(message)
+
+    if pii_detections:
+        logger.info(
+            f"Session {session_id}: redacted {len(pii_detections)} PII item(s) "
+            f"from message: {[d.pii_type for d in pii_detections]}"
+        )
+
     existing = get_session_slots(session_id)
-    category = _classify_message(message)
+    category = _classify_message(message)  # classify on original for accuracy
 
     # --- Reset ---
     if category == "reset":
@@ -231,9 +244,16 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         return _empty_reply(session_id, _HELP_RESPONSE, existing)
 
     # --- Service request or general conversation ---
-    # Run slot extraction and merge with existing session
+    # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
+    # Store the REDACTED version in the session transcript.
     extracted = extract_slots(message)
     merged = merge_slots(existing, extracted)
+
+    # Store the redacted message in transcript history (not the original)
+    if "transcript" not in merged:
+        merged["transcript"] = []
+    merged["transcript"].append({"role": "user", "text": redacted_message})
+
     save_session_slots(session_id, merged)
 
     # If enough detail exists, query the database
