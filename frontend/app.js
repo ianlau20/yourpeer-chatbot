@@ -337,7 +337,54 @@ function addQuickReplies(replies) {
 }
 
 
-// --- Loading / error states ---
+// --- Feedback (thumbs up/down) ---
+
+function addFeedbackRow() {
+  const row = document.createElement("div");
+  row.className = "feedback-row";
+
+  const label = document.createElement("span");
+  label.className = "feedback-label";
+  label.textContent = "Were these results helpful?";
+
+  const thumbsUp = document.createElement("button");
+  thumbsUp.className = "feedback-btn";
+  thumbsUp.setAttribute("aria-label", "Thumbs up");
+  thumbsUp.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>`;
+
+  const thumbsDown = document.createElement("button");
+  thumbsDown.className = "feedback-btn";
+  thumbsDown.setAttribute("aria-label", "Thumbs down");
+  thumbsDown.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>`;
+
+  function submitFeedback(rating) {
+    // Disable both buttons immediately
+    thumbsUp.disabled = true;
+    thumbsDown.disabled = true;
+    thumbsUp.classList.toggle("feedback-selected-up", rating === "up");
+    thumbsDown.classList.toggle("feedback-selected-down", rating === "down");
+
+    // Show thank-you inline
+    label.textContent = rating === "up" ? "Thanks for the feedback! 👍" : "Thanks — we'll work to improve. 👎";
+
+    // Fire and forget — no need to block the UI
+    fetch("/chat/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, rating }),
+    }).catch(() => {/* silent — feedback loss is acceptable */});
+  }
+
+  thumbsUp.addEventListener("click", () => submitFeedback("up"));
+  thumbsDown.addEventListener("click", () => submitFeedback("down"));
+
+  row.appendChild(label);
+  row.appendChild(thumbsUp);
+  row.appendChild(thumbsDown);
+
+  chat.appendChild(row);
+  scrollToBottom();
+}
 
 function setLoading(isLoading) {
   sendBtn.disabled = isLoading;
@@ -382,9 +429,10 @@ async function sendMessage(text) {
     // Always show the text response
     addMessage("bot", data.response || "(No response text)");
 
-    // If there are service cards, render the carousel
+    // If there are service cards, render the carousel + feedback prompt
     if (data.services && data.services.length > 0) {
       addServiceCards(data.services);
+      addFeedbackRow();
     }
 
     // If there are quick replies, render them

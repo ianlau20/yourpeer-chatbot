@@ -8,9 +8,11 @@ The admin HTML page is served at /admin/.
 import os
 import sys
 import json
-import asyncio
 import logging
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Query, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Tracks whether an eval run is currently in progress
 _eval_running = False
 _eval_status: dict = {}
+_eval_lock = threading.Lock()
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -112,12 +115,10 @@ def admin_eval():
             results = get_eval_results()
 
     if results is None:
+        # Return 200 with empty sentinel — 404 causes noisy server logs during polling
         return JSONResponse(
-            status_code=404,
-            content={
-                "detail": "No evaluation results found. Run: "
-                "ANTHROPIC_API_KEY=sk-... python tests/eval_llm_judge.py --output tests/eval_report.json"
-            },
+            status_code=200,
+            content={"results": None, "detail": "No evaluation results yet. Use the Run Evals button to generate them."},
         )
     return results
 
@@ -125,7 +126,8 @@ def admin_eval():
 @router.get("/api/eval/status")
 def admin_eval_status():
     """Check whether an eval run is in progress."""
-    return {"running": _eval_running, **_eval_status}
+    with _eval_lock:
+        return {"running": _eval_running, **_eval_status}
 
 
 @router.post("/api/eval/run")
@@ -151,26 +153,26 @@ async def admin_eval_run(
         )
 
     _eval_running = True
-    _eval_status = {"started_at": __import__("datetime").datetime.utcnow().isoformat(), "message": "Starting…"}
+    _eval_status = {"started_at": datetime.now(timezone.utc).isoformat(), "message": "Starting…"}
 
     background_tasks.add_task(_run_eval_background, api_key, scenarios, category)
 
     return {"detail": "Eval started. Poll /admin/api/eval/status for progress."}
 
 
-def _run_eval_background(api_key: str, max_scenarios: int | None, category: str | None):
+def _run_eval_background(api_key: str, max_scenarios: Optional[int], category: Optional[str]):
     """Run the eval suite in a background thread and store results."""
     global _eval_running, _eval_status
 
     try:
-        # Import here so it only loads when needed
-        eval_dir = str(TESTS_DIR.parent)
-        if eval_dir not in sys.path:
-            sys.path.insert(0, str(TESTS_DIR.parent / "backend"))
+        # Ensure the backend package is importable from within the eval module
+        backend_dir = str(TESTS_DIR.parent / "backend")
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
 
         import importlib.util
         spec = importlib.util.spec_from_file_location("eval_llm_judge", str(TESTS_DIR / "eval_llm_judge.py"))
-        eval_module = importlib.util.load_from_spec(spec)
+        eval_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(eval_module)
 
         import anthropic
@@ -184,14 +186,16 @@ def _run_eval_background(api_key: str, max_scenarios: int | None, category: str 
             scenarios = scenarios[:max_scenarios]
 
         total = len(scenarios)
-        _eval_status["message"] = f"Running {total} scenario(s)…"
-        _eval_status["total"] = total
-        _eval_status["completed"] = 0
+        with _eval_lock:
+            _eval_status["message"] = f"Running {total} scenario(s)…"
+            _eval_status["total"] = total
+            _eval_status["completed"] = 0
 
         results = []
         for i, scenario in enumerate(scenarios):
-            _eval_status["message"] = f"[{i+1}/{total}] {scenario['name']}"
-            _eval_status["completed"] = i
+            with _eval_lock:
+                _eval_status["message"] = f"[{i+1}/{total}] {scenario['name']}"
+                _eval_status["completed"] = i
 
             conversation = eval_module.simulate_conversation(scenario, client)
             judgment = eval_module.judge_conversation(client, conversation)
@@ -206,15 +210,18 @@ def _run_eval_background(api_key: str, max_scenarios: int | None, category: str 
 
         set_eval_results(report)
 
-        _eval_status = {
-            "message": f"Done — {total} scenario(s) evaluated.",
-            "completed": total,
-            "total": total,
-            "finished_at": __import__("datetime").datetime.utcnow().isoformat(),
-        }
+        with _eval_lock:
+            _eval_status = {
+                "message": f"Done — {total} scenario(s) evaluated.",
+                "completed": total,
+                "total": total,
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            }
 
     except Exception as e:
         logger.exception("Eval run failed")
-        _eval_status = {"message": f"Error: {e}"}
+        with _eval_lock:
+            _eval_status = {"message": f"Error: {e}"}
     finally:
-        _eval_running = False
+        with _eval_lock:
+            _eval_running = False
