@@ -58,7 +58,7 @@ SELECT
     pa.state_province AS state,
     pa.postal_code    AS zip_code,
 
-    ph.number         AS phone,
+    best_phone.number     AS phone,
 
     today_sched.opens_at   AS today_opens,
     today_sched.closes_at  AS today_closes
@@ -70,11 +70,20 @@ FROM services s
     JOIN locations l               ON sal.location_id = l.id
     LEFT JOIN organizations o      ON s.organization_id = o.id
     LEFT JOIN physical_addresses pa ON l.id = pa.location_id
-    LEFT JOIN phones ph            ON (
-        ph.location_id = l.id
-        OR ph.service_id = s.id
-        OR ph.organization_id = o.id
-    )
+    LEFT JOIN LATERAL (
+        SELECT ph.number
+        FROM phones ph
+        WHERE ph.location_id = l.id
+           OR ph.service_id = s.id
+           OR ph.organization_id = o.id
+        ORDER BY
+            CASE
+                WHEN ph.location_id = l.id THEN 1
+                WHEN ph.service_id = s.id THEN 2
+                WHEN ph.organization_id = o.id THEN 3
+            END
+        LIMIT 1
+    ) best_phone ON TRUE
     LEFT JOIN LATERAL (
         SELECT rs.opens_at, rs.closes_at
         FROM regular_schedules rs
@@ -110,6 +119,14 @@ FILTER_BY_CITY = (
 FILTER_BY_CITY_LIKE = (
     "LOWER(pa.city) LIKE LOWER(:city_pattern)",
     ["city_pattern"],
+)
+
+# State filter — ensures results are within New York State.
+# Prevents results from Poughkeepsie, Albany, etc. leaking in when
+# the city filter is relaxed.
+FILTER_BY_STATE_NY = (
+    "LOWER(pa.state_province) = 'ny'",
+    [],
 )
 
 # PostGIS proximity search (requires lat/lon).
@@ -217,9 +234,10 @@ TEMPLATES = {
     "food": {
         "name": "FoodQuery",
         "description": "Find food services (pantries, soup kitchens, meals) by location",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
@@ -235,9 +253,10 @@ TEMPLATES = {
     "shelter": {
         "name": "HousingEligibilityQuery",
         "description": "Find shelters and housing with eligibility checks",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
@@ -249,9 +268,10 @@ TEMPLATES = {
     "clothing": {
         "name": "ClothingQuery",
         "description": "Find clothing distribution services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
@@ -262,9 +282,10 @@ TEMPLATES = {
     "shower": {
         "name": "ShowerQuery",
         "description": "Find shower and hygiene facilities",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_GENDER_ELIGIBILITY,
             FILTER_BY_WEEKDAY,
@@ -275,32 +296,35 @@ TEMPLATES = {
     "medical": {
         "name": "HealthcareQuery",
         "description": "Find medical and healthcare services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
-        "default_params": {"taxonomy_name": "Healthcare"},
-        "taxonomy_aliases": ["Healthcare", "Crisis"],
+        "default_params": {"taxonomy_name": "Health"},
+        "taxonomy_aliases": ["Health", "Crisis"],
     },
     "legal": {
         "name": "LegalQuery",
         "description": "Find legal aid and immigration services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
         ],
-        "default_params": {"taxonomy_name": "Legal"},
-        "taxonomy_aliases": ["Legal"],
+        "default_params": {"taxonomy_name": "Legal Services"},
+        "taxonomy_aliases": ["Legal Services", "Advocates / Legal Aid"],
     },
     "employment": {
         "name": "EmploymentQuery",
         "description": "Find job training and employment services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
@@ -368,11 +392,13 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
 def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict]:
     """
     Build a relaxed version of the query for when the strict version
-    returns zero results. Drops optional filters progressively:
+    returns zero results. Drops filters progressively but KEEPS location
+    boundaries to prevent out-of-area results:
+
     1. Drop time/schedule filters
-    2. Drop eligibility filters
-    3. Broaden location (city LIKE instead of exact match)
-    4. Drop location entirely (city-wide search)
+    2. Drop eligibility filters (age, gender)
+    3. Broaden city match (exact → LIKE)
+    4. State filter (NY) is NEVER dropped
 
     Returns the broadest reasonable query. Caller should note to the user
     that results may be less precisely matched.
@@ -387,7 +413,8 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
     for key in ["age", "gender"]:
         relaxed_params.pop(key, None)
 
-    # Try broadened city match
+    # Broaden city match (exact → LIKE), but do NOT drop it entirely.
+    # "Brooklyn" becomes "%Brooklyn%" to catch "East Brooklyn", etc.
     if "city" in relaxed_params:
         city = relaxed_params.pop("city")
         relaxed_params["city_pattern"] = f"%{city}%"
@@ -454,7 +481,7 @@ def format_service_card(row: dict) -> dict:
 
     return {
         "service_id": str(row.get("service_id", "")),
-        "service_name": row.get("service_name", "Unknown Service"),
+        "service_name": row.get("service_name") or "Unknown Service",
         "organization": row.get("organization_name"),
         "description": row.get("service_description"),
         "address": full_address or None,
