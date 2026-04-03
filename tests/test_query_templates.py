@@ -696,6 +696,154 @@ def test_unknown_template_raises():
 
 
 # -----------------------------------------------------------------------
+# BOROUGH FILTER — pa.borough column
+# -----------------------------------------------------------------------
+
+def test_all_templates_have_borough_filter():
+    """Every template must include FILTER_BY_BOROUGH in optional_filters.
+
+    pa.borough is a clean, consistently populated column — much more
+    reliable than the city field for borough-level searches.
+    """
+    from app.rag.query_templates import FILTER_BY_BOROUGH
+    for key, template in TEMPLATES.items():
+        optional = template["optional_filters"]
+        assert FILTER_BY_BOROUGH in optional, \
+            f"Template '{key}' is missing FILTER_BY_BOROUGH in optional_filters. " \
+            f"Add it so borough-level searches use pa.borough directly."
+    print("  PASS: all templates include FILTER_BY_BOROUGH")
+
+
+def test_borough_filter_uses_pa_borough_column():
+    """FILTER_BY_BOROUGH must reference pa.borough, not pa.city."""
+    from app.rag.query_templates import FILTER_BY_BOROUGH
+    sql_fragment = FILTER_BY_BOROUGH[0]
+    assert "pa.borough" in sql_fragment, \
+        f"FILTER_BY_BOROUGH must use pa.borough column, got: {sql_fragment}"
+    assert "pa.city" not in sql_fragment, \
+        "FILTER_BY_BOROUGH must not use pa.city — that column has casing issues"
+    assert ":borough" in sql_fragment, \
+        "FILTER_BY_BOROUGH must use :borough param placeholder"
+    print("  PASS: FILTER_BY_BOROUGH uses pa.borough column with :borough param")
+
+
+def test_borough_param_included_in_sql_when_provided():
+    """When borough param is passed, SQL must include the borough filter clause."""
+    sql, params = build_query("food", {"borough": "Queens", "max_results": 5})
+    assert "pa.borough" in sql, \
+        "Borough filter not in SQL when borough param provided"
+    assert params["borough"] == "Queens"
+    print("  PASS: borough param produces pa.borough filter in SQL")
+
+
+def test_borough_filter_absent_when_no_borough_param():
+    """Without a borough param, the borough filter must not appear in SQL."""
+    sql, params = build_query("food", {"city": "Brooklyn", "max_results": 5})
+    assert "pa.borough" not in sql, \
+        "Borough filter appeared in SQL without a borough param — optional filters broken"
+    print("  PASS: borough filter absent when no borough param")
+
+
+def test_relaxed_query_drops_borough():
+    """Relaxed query must drop the borough param to broaden the search."""
+    sql, params = build_relaxed_query("food", {
+        "borough": "Queens",
+        "city_list": ["queens", "jamaica", "flushing"],
+        "max_results": 5,
+    })
+    assert "borough" not in params, \
+        "Relaxed query must drop borough param — it should broaden, not stay borough-restricted"
+    assert "pa.borough" not in sql, \
+        "Borough filter must not appear in relaxed query SQL"
+    print("  PASS: relaxed query drops borough param")
+
+
+def test_borough_filter_before_city_filters_in_optional():
+    """FILTER_BY_BOROUGH should appear before FILTER_BY_CITY in optional_filters.
+
+    Since only one location filter fires per query (whichever params are present),
+    ordering doesn't affect correctness — but keeping borough first documents intent.
+    """
+    from app.rag.query_templates import FILTER_BY_BOROUGH, FILTER_BY_CITY
+    for key, template in TEMPLATES.items():
+        optional = template["optional_filters"]
+        if FILTER_BY_BOROUGH in optional and FILTER_BY_CITY in optional:
+            borough_idx = optional.index(FILTER_BY_BOROUGH)
+            city_idx = optional.index(FILTER_BY_CITY)
+            assert borough_idx < city_idx, \
+                f"Template '{key}': FILTER_BY_BOROUGH (idx {borough_idx}) should come " \
+                f"before FILTER_BY_CITY (idx {city_idx})"
+    print("  PASS: FILTER_BY_BOROUGH precedes FILTER_BY_CITY in all templates")
+
+
+# -----------------------------------------------------------------------
+# BOROUGH NORMALIZATION (query_executor)
+# -----------------------------------------------------------------------
+
+def test_normalize_borough_names():
+    """Borough names must normalize to canonical pa.borough values."""
+    from app.rag.query_executor import normalize_location
+    assert normalize_location("manhattan") == "Manhattan"
+    assert normalize_location("Brooklyn") == "Brooklyn"  # already canonical
+    assert normalize_location("queens") == "Queens"
+    assert normalize_location("bronx") == "Bronx"
+    assert normalize_location("the bronx") == "Bronx"
+    assert normalize_location("staten island") == "Staten Island"
+    print("  PASS: borough names normalize to canonical pa.borough values")
+
+
+def test_normalize_manhattan_not_new_york():
+    """'manhattan' must normalize to 'Manhattan', not 'New York'.
+
+    Previously this returned 'New York' (the DB city value), which broke
+    borough filtering now that we use pa.borough directly.
+    """
+    from app.rag.query_executor import normalize_location
+    result = normalize_location("manhattan")
+    assert result == "Manhattan", \
+        f"'manhattan' normalized to '{result}' but must be 'Manhattan' for pa.borough matching"
+    assert result != "New York", \
+        "'manhattan' must not normalize to 'New York' — that was the old city-field approach"
+    print("  PASS: manhattan normalizes to 'Manhattan' (not 'New York')")
+
+
+def test_get_borough_city_names_manhattan():
+    """Manhattan borough must expand to New York city values for city-field fallback."""
+    from app.rag.query_executor import get_borough_city_names
+    cities = get_borough_city_names("Manhattan")
+    assert "new york" in cities, \
+        "Manhattan city expansion must include 'new york' for pa.city fallback queries"
+    print("  PASS: Manhattan expands to include 'new york' city values")
+
+
+def test_get_borough_city_names_queens():
+    """Queens borough must expand to all Queens neighborhood city values."""
+    from app.rag.query_executor import get_borough_city_names
+    cities = get_borough_city_names("Queens")
+    for expected in ["queens", "jamaica", "flushing", "astoria", "long island city"]:
+        assert expected in cities, \
+            f"Queens city expansion missing '{expected}'"
+    print("  PASS: Queens expands to all Queens neighborhood city values")
+
+
+def test_is_borough_all_five():
+    """is_borough must return True for all five NYC boroughs."""
+    from app.rag.query_executor import is_borough
+    for b in ["manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island",
+              "Manhattan", "QUEENS", "The Bronx"]:
+        assert is_borough(b), f"is_borough('{b}') returned False"
+    print("  PASS: is_borough recognizes all five NYC boroughs")
+
+
+def test_is_borough_false_for_neighborhoods():
+    """is_borough must return False for neighborhoods."""
+    from app.rag.query_executor import is_borough
+    for n in ["harlem", "williamsburg", "astoria", "jamaica", "chelsea", ""]:
+        assert not is_borough(n), f"is_borough('{n}') returned True — should be False"
+    print("  PASS: is_borough returns False for neighborhoods")
+
+
+# -----------------------------------------------------------------------
 # RUNNER
 # -----------------------------------------------------------------------
 
@@ -771,6 +919,22 @@ if __name__ == "__main__":
     test_both_city_and_city_like_dont_conflict()
     test_relaxed_has_city_pattern_not_city()
     test_unknown_template_raises()
+
+    print("\n--- Borough Filter: Templates ---")
+    test_all_templates_have_borough_filter()
+    test_borough_filter_uses_pa_borough_column()
+    test_borough_param_included_in_sql_when_provided()
+    test_borough_filter_absent_when_no_borough_param()
+    test_relaxed_query_drops_borough()
+    test_borough_filter_before_city_filters_in_optional()
+
+    print("\n--- Borough Normalization: Executor ---")
+    test_normalize_borough_names()
+    test_normalize_manhattan_not_new_york()
+    test_get_borough_city_names_manhattan()
+    test_get_borough_city_names_queens()
+    test_is_borough_all_five()
+    test_is_borough_false_for_neighborhoods()
 
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")

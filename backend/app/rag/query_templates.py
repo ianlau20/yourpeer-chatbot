@@ -113,6 +113,16 @@ FILTER_BY_TAXONOMY_NAME_IN = (
     ["taxonomy_names"],
 )
 
+# Borough filter — uses the physical_addresses.borough column directly.
+# This is the most reliable borough filter: the borough column is clean,
+# consistently populated, and avoids the city-field casing chaos
+# (e.g. "BRONX" vs "Bronx" vs "The Bronx" all in the same borough).
+# Case-insensitive match handles any remaining inconsistencies.
+FILTER_BY_BOROUGH = (
+    "LOWER(pa.borough) = LOWER(:borough)",
+    ["borough"],
+)
+
 FILTER_BY_CITY = (
     "LOWER(pa.city) = LOWER(:city)",
     ["city"],
@@ -255,6 +265,7 @@ TEMPLATES = {
         "description": "Find food services (pantries, soup kitchens, meals) by location",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -290,6 +301,7 @@ TEMPLATES = {
         "description": "Find shelters and housing with eligibility checks",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -319,6 +331,7 @@ TEMPLATES = {
         "description": "Find clothing distribution services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -346,6 +359,7 @@ TEMPLATES = {
         "description": "Find medical and healthcare services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -366,6 +380,7 @@ TEMPLATES = {
         "description": "Find legal aid and immigration services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -384,6 +399,7 @@ TEMPLATES = {
         "description": "Find job training and employment services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -403,6 +419,7 @@ TEMPLATES = {
         "description": "Find showers, laundry, toiletries, and hygiene services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -431,6 +448,7 @@ TEMPLATES = {
         "description": "Find mental health, counseling, and substance use services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -455,6 +473,7 @@ TEMPLATES = {
         "description": "Find benefits, drop-in centers, case workers, and miscellaneous services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -591,6 +610,10 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
     # Remove proximity params — broadens from neighborhood to full borough
     for key in ["lat", "lon", "radius_meters"]:
         relaxed_params.pop(key, None)
+
+    # Drop borough filter — keep city_list as the broader fallback.
+    # This ensures records where pa.borough is NULL can still be found.
+    relaxed_params.pop("borough", None)
 
     # Promote _borough_city_list (from neighborhood searches) to city_list
     # so the relaxed query broadens from "Harlem" to all of Manhattan.
