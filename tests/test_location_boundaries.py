@@ -1192,5 +1192,33 @@ if __name__ == "__main__":
     test_proximity_radius_is_reasonable()
     test_proximity_does_not_break_non_location_queries()
 
+    print("\n--- DB Connection ---")
+    test_test_connection_without_db()
+
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")
+
+
+# -----------------------------------------------------------------------
+# DB CONNECTION (test_connection function)
+# -----------------------------------------------------------------------
+
+def test_test_connection_without_db():
+    """test_connection() should return False when no DATABASE_URL is set,
+    not crash the application."""
+    from unittest.mock import patch
+    from app.rag.query_executor import test_connection
+    import app.rag.query_executor as qe
+
+    # Save and clear the engine so it tries to reinitialize
+    saved_engine = qe._engine
+    qe._engine = None
+
+    try:
+        with patch.dict(os.environ, {}, clear=True):
+            # Without DATABASE_URL, test_connection should return False
+            result = test_connection()
+            assert result is False, "test_connection should return False without a DB"
+    finally:
+        qe._engine = saved_engine
+    print("  PASS: test_connection returns False without DB")
