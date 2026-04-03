@@ -36,7 +36,27 @@ pip install -r backend/requirements.txt
 2. Run **Python: Select Interpreter**
 3. Choose the interpreter from `backend/venv`
 
-### 4. Run the backend
+### 4. Configure environment
+
+Create a `.env` file in the repo root:
+
+```
+# Required
+DATABASE_URL="postgresql://user:password@host:port/streetlives"
+GEMINI_API_KEY="your-gemini-api-key"
+GEMINI_MODEL="gemini-3-flash-preview"
+
+# Optional — enables LLM-enhanced slot extraction
+ANTHROPIC_API_KEY="sk-ant-your-key"
+```
+
+**Gemini API key** — used for conversational fallback when messages don't match service keywords. Get a free key at [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+
+**Anthropic API key** (optional) — enables Claude-powered slot extraction for nuanced inputs like "my son is 12 and needs a coat" or "I'm in Queens but looking in the Bronx." Without this key, the system uses regex-only extraction which handles most simple inputs correctly.
+
+**Database URL** — the Streetlives PostgreSQL staging database on AWS RDS. Contact the Streetlives team for credentials. The RDS instance requires IP whitelisting.
+
+### 5. Run the backend
 
 From the repo root with venv activated:
 
@@ -45,49 +65,27 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-The API will be available at `http://127.0.0.1:8000`.
+The API and frontend will both be available at `http://127.0.0.1:8000`.
 
-## Frontend (demo UI)
+## Frontend
 
-A minimal static chat page lives in `frontend/` (`index.html`, `styles.css`, `app.js`). It calls `POST http://127.0.0.1:8000/chat/`. The backend enables **CORS** for common local origins on port **5500** so the browser can call the API.
+The frontend is served by FastAPI as static files — no separate server needed. Just start the backend and open `http://127.0.0.1:8000`.
 
-On load, the page shows a short **welcome message**. The demo keeps a **`session_id`** (in browser storage) so multi-turn chats reuse the same conversation and slot state on the backend. Bot replies strip common Markdown-style `*` / `**` markers for plain-text display.
+The chat UI lives in `frontend/` (`index.html`, `styles.css`, `app.js`). It calls `POST /chat/` on the same server. The demo keeps a `session_id` in browser storage so multi-turn chats reuse the same conversation and slot state.
 
-**Run the demo (use a second terminal; keep the backend running):**
+## Running Tests
 
-From the repo root:
-
-```
-cd frontend
-python3 -m http.server 5500 --bind 127.0.0.1
-```
-
-Then open **<http://127.0.0.1:5500>** in your browser (avoid `http://[::1]:5500` unless your backend CORS list includes that origin).
-
-**Stop / restart the frontend server:** in that terminal, press `Ctrl+C`, then run the `http.server` command again.
-
-### Testing
-
-This backend uses the Gemini LLM. To test it, co-developers must set a `GEMINI_API_KEY` and use `GEMINI_MODEL=gemini-3-flash-preview`.
-
-To get a Gemini API key, go to [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey), sign in with a Google account, and click "Create API key." The free tier is sufficient for development.
-
-Before starting the backend, create/update your `.env` file (repo root is recommended):
+See [TESTING.md](TESTING.md) for the full guide. Quick start:
 
 ```
-GEMINI_API_KEY="your-gemini-api-key"
-GEMINI_MODEL="gemini-3-flash-preview"
-DATABASE_URL="postgresql://user:password@host:port/streetlives"
+cd tests
+python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py && python test_crisis_detector.py && python test_llm_slot_extractor.py
 ```
 
-To try the chat locally:
+All 221 tests run without external services (database and LLM calls are mocked).
 
-1. Start the backend (`uvicorn` in `backend/`).
-2. Start the frontend static server (commands above).
-3. Open <http://127.0.0.1:5500> — you should see the welcome line, then type a message and click **Send**.
+To run LLM integration tests against the real Claude API:
 
-The current flow:
-User → demo page → slot extraction + session merge → (follow-up or Gemini) → Response
-
-The goal flow:
-User → Backend → LLM + query templates → Streetlives data
+```
+ANTHROPIC_API_KEY=sk-ant-... python tests/test_llm_slot_extractor.py --live
+```

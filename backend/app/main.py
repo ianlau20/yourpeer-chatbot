@@ -22,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- API routes ---
+# --- API routes (registered FIRST so they take priority) ---
 app.include_router(chat_router)
 
 
@@ -36,22 +36,35 @@ def health():
 # Locally, it also sits at ../frontend/.
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
-if FRONTEND_DIR.exists():
-    # Serve static assets (CSS, JS) from /static path
-    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+# Known API path prefixes that should never be handled by the static file server.
+_API_PREFIXES = {"chat", "api", "docs", "redoc", "openapi.json"}
 
+if FRONTEND_DIR.exists():
     # Serve index.html at the root
     @app.get("/")
     def serve_frontend():
         return FileResponse(str(FRONTEND_DIR / "index.html"))
 
     # Serve individual frontend files (styles.css, app.js, etc.)
-    @app.get("/{filename}")
+    # Only matches actual files — does NOT intercept API paths.
+    @app.get("/{filename:path}")
     def serve_file(filename: str):
+        # Don't intercept API routes
+        first_segment = filename.split("/")[0] if filename else ""
+        if first_segment in _API_PREFIXES:
+            # Let FastAPI's normal routing handle it.
+            # Returning 404 here allows the default handlers to kick in.
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Not found"},
+            )
+
         file_path = FRONTEND_DIR / filename
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
-        # Fall back to index.html for SPA-style routing
+
+        # Unknown path — serve index.html as fallback
         return FileResponse(str(FRONTEND_DIR / "index.html"))
 else:
     @app.get("/")

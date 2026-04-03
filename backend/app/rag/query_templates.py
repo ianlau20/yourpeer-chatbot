@@ -58,7 +58,7 @@ SELECT
     pa.state_province AS state,
     pa.postal_code    AS zip_code,
 
-    ph.number         AS phone,
+    best_phone.number     AS phone,
 
     today_sched.opens_at   AS today_opens,
     today_sched.closes_at  AS today_closes
@@ -70,11 +70,20 @@ FROM services s
     JOIN locations l               ON sal.location_id = l.id
     LEFT JOIN organizations o      ON s.organization_id = o.id
     LEFT JOIN physical_addresses pa ON l.id = pa.location_id
-    LEFT JOIN phones ph            ON (
-        ph.location_id = l.id
-        OR ph.service_id = s.id
-        OR ph.organization_id = o.id
-    )
+    LEFT JOIN LATERAL (
+        SELECT ph.number
+        FROM phones ph
+        WHERE ph.location_id = l.id
+           OR ph.service_id = s.id
+           OR ph.organization_id = o.id
+        ORDER BY
+            CASE
+                WHEN ph.location_id = l.id THEN 1
+                WHEN ph.service_id = s.id THEN 2
+                WHEN ph.organization_id = o.id THEN 3
+            END
+        LIMIT 1
+    ) best_phone ON TRUE
     LEFT JOIN LATERAL (
         SELECT rs.opens_at, rs.closes_at
         FROM regular_schedules rs
@@ -95,14 +104,18 @@ FILTER_BY_TAXONOMY_NAME = (
     ["taxonomy_name"],
 )
 
-FILTER_BY_TAXONOMY_ID = (
-    "t.id = :taxonomy_id::uuid",
-    ["taxonomy_id"],
-)
-
 FILTER_BY_CITY = (
     "LOWER(pa.city) = LOWER(:city)",
     ["city"],
+)
+
+# Borough-level city match — matches any city value that belongs to the borough.
+# When a user says "Queens", this matches "Queens", "Astoria", "Flushing",
+# "Jamaica", "Long Island City", etc.
+# The SQL uses ANY() with an array parameter, which SQLAlchemy handles natively.
+FILTER_BY_CITY_IN_BOROUGH = (
+    "LOWER(pa.city) = ANY(:city_list)",
+    ["city_list"],
 )
 
 # Broader city match — matches if the city field contains the search term.
@@ -110,6 +123,14 @@ FILTER_BY_CITY = (
 FILTER_BY_CITY_LIKE = (
     "LOWER(pa.city) LIKE LOWER(:city_pattern)",
     ["city_pattern"],
+)
+
+# State filter — ensures results are within New York State.
+# Prevents results from Poughkeepsie, Albany, etc. leaking in when
+# the city filter is relaxed.
+FILTER_BY_STATE_NY = (
+    "LOWER(pa.state_province) = 'ny'",
+    [],
 )
 
 # PostGIS proximity search (requires lat/lon).
@@ -217,9 +238,11 @@ TEMPLATES = {
     "food": {
         "name": "FoodQuery",
         "description": "Find food services (pantries, soup kitchens, meals) by location",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
@@ -235,9 +258,11 @@ TEMPLATES = {
     "shelter": {
         "name": "HousingEligibilityQuery",
         "description": "Find shelters and housing with eligibility checks",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
@@ -249,9 +274,11 @@ TEMPLATES = {
     "clothing": {
         "name": "ClothingQuery",
         "description": "Find clothing distribution services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
@@ -259,53 +286,88 @@ TEMPLATES = {
         "default_params": {"taxonomy_name": "Clothing"},
         "taxonomy_aliases": ["Clothing"],
     },
-    "shower": {
-        "name": "ShowerQuery",
-        "description": "Find shower and hygiene facilities",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
-        "optional_filters": [
-            FILTER_BY_CITY,
-            FILTER_BY_PROXIMITY,
-            FILTER_BY_GENDER_ELIGIBILITY,
-            FILTER_BY_WEEKDAY,
-        ],
-        "default_params": {"taxonomy_name": "Shower"},
-        "taxonomy_aliases": ["Shower"],
-    },
     "medical": {
         "name": "HealthcareQuery",
         "description": "Find medical and healthcare services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
-        "default_params": {"taxonomy_name": "Healthcare"},
-        "taxonomy_aliases": ["Healthcare", "Crisis"],
+        "default_params": {"taxonomy_name": "Health"},
+        "taxonomy_aliases": ["Health", "Crisis"],
     },
     "legal": {
         "name": "LegalQuery",
         "description": "Find legal aid and immigration services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
         ],
-        "default_params": {"taxonomy_name": "Legal"},
-        "taxonomy_aliases": ["Legal"],
+        "default_params": {"taxonomy_name": "Legal Services"},
+        "taxonomy_aliases": ["Legal Services", "Advocates / Legal Aid"],
     },
     "employment": {
         "name": "EmploymentQuery",
         "description": "Find job training and employment services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
         "default_params": {"taxonomy_name": "Employment"},
         "taxonomy_aliases": ["Employment"],
+    },
+    "personal_care": {
+        "name": "PersonalCareQuery",
+        "description": "Find showers, laundry, toiletries, and hygiene services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
+            FILTER_BY_PROXIMITY,
+            FILTER_BY_GENDER_ELIGIBILITY,
+            FILTER_BY_WEEKDAY,
+        ],
+        "default_params": {"taxonomy_name": "Personal Care"},
+        "taxonomy_aliases": ["Personal Care", "Shower", "Laundry", "Toiletries"],
+    },
+    "mental_health": {
+        "name": "MentalHealthQuery",
+        "description": "Find mental health, counseling, and substance abuse services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
+            FILTER_BY_PROXIMITY,
+            FILTER_BY_AGE_ELIGIBILITY,
+        ],
+        "default_params": {"taxonomy_name": "Mental Health"},
+        "taxonomy_aliases": ["Mental Health"],
+    },
+    "other": {
+        "name": "OtherServicesQuery",
+        "description": "Find benefits, IDs, mail, phone, and miscellaneous services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
+            FILTER_BY_PROXIMITY,
+        ],
+        "default_params": {"taxonomy_name": "Other service"},
+        "taxonomy_aliases": ["Other service"],
     },
 }
 
@@ -368,11 +430,17 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
 def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict]:
     """
     Build a relaxed version of the query for when the strict version
-    returns zero results. Drops optional filters progressively:
+    returns zero results. Drops filters progressively but KEEPS location
+    boundaries to prevent out-of-area results:
+
     1. Drop time/schedule filters
-    2. Drop eligibility filters
-    3. Broaden location (city LIKE instead of exact match)
-    4. Drop location entirely (city-wide search)
+    2. Drop eligibility filters (age, gender)
+    3. Broaden city match:
+       - Neighborhood search: promote _borough_city_list → city_list
+         (exact "Harlem" → all Manhattan neighborhoods)
+       - Borough search: keep existing city_list
+       - No expansion available: exact city → LIKE pattern
+    4. State filter (NY) is NEVER dropped
 
     Returns the broadest reasonable query. Caller should note to the user
     that results may be less precisely matched.
@@ -387,40 +455,20 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
     for key in ["age", "gender"]:
         relaxed_params.pop(key, None)
 
-    # Try broadened city match
-    if "city" in relaxed_params:
+    # Promote _borough_city_list (from neighborhood searches) to city_list
+    # so the relaxed query broadens from "Harlem" to all of Manhattan.
+    if "_borough_city_list" in relaxed_params:
+        relaxed_params["city_list"] = relaxed_params.pop("_borough_city_list")
+        relaxed_params.pop("city", None)
+    elif "city_list" in relaxed_params:
+        # Borough expansion already covers neighborhoods — drop exact match
+        relaxed_params.pop("city", None)
+    elif "city" in relaxed_params:
+        # No expansion available — broaden to LIKE
         city = relaxed_params.pop("city")
         relaxed_params["city_pattern"] = f"%{city}%"
 
     return build_query(template_key, relaxed_params)
-
-
-# ---------------------------------------------------------------------------
-# SCHEDULE HELPERS
-# ---------------------------------------------------------------------------
-
-SCHEDULES_QUERY = text("""
-    SELECT
-        rs.weekday,
-        rs.opens_at,
-        rs.closes_at
-    FROM regular_schedules rs
-    WHERE rs.service_id = :service_id
-    ORDER BY rs.weekday, rs.opens_at
-""")
-
-HOLIDAY_SCHEDULES_QUERY = text("""
-    SELECT
-        hs.closed,
-        hs.start_date,
-        hs.end_date,
-        hs.opens_at,
-        hs.closes_at
-    FROM holiday_schedules hs
-    WHERE hs.location_id = :location_id
-      AND hs.end_date >= CURRENT_DATE
-    ORDER BY hs.start_date
-""")
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +502,7 @@ def format_service_card(row: dict) -> dict:
 
     return {
         "service_id": str(row.get("service_id", "")),
-        "service_name": row.get("service_name", "Unknown Service"),
+        "service_name": row.get("service_name") or "Unknown Service",
         "organization": row.get("organization_name"),
         "description": row.get("service_description"),
         "address": full_address or None,
@@ -523,9 +571,12 @@ def _compute_schedule_status(opens_at, closes_at) -> dict:
 
 
 def _format_time(t) -> str:
-    """Format a time object as '9:00 AM' style."""
+    """Format a time object as '9:00 AM' style (cross-platform)."""
     from datetime import datetime
-    return datetime.combine(datetime.min, t).strftime("%-I:%M %p")
+    # Use %I (zero-padded) then strip the leading zero manually.
+    # %-I is macOS-only and crashes on Linux.
+    formatted = datetime.combine(datetime.min, t).strftime("%I:%M %p")
+    return formatted.lstrip("0") if formatted.startswith("0") else formatted
 
 
 def deduplicate_results(rows: list[dict]) -> list[dict]:
