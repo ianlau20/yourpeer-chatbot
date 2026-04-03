@@ -123,21 +123,42 @@ def test_llm_failure_returns_empty(mock_get_client):
 
 
 # -----------------------------------------------------------------------
-# UNIT TESTS — SMART EXTRACTOR (tiered)
+# UNIT TESTS — SMART EXTRACTOR (complexity-based routing)
 # -----------------------------------------------------------------------
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
-def test_smart_uses_regex_when_sufficient(mock_llm):
-    """When regex finds both service + location, LLM should NOT be called."""
+def test_smart_uses_regex_for_simple_messages(mock_llm):
+    """Short, clear messages with known location should skip LLM."""
     result = extract_slots_smart("I need food in Brooklyn")
     mock_llm.assert_not_called()
     assert result["service_type"] == "food"
     assert "brooklyn" in result["location"].lower()
-    print("  PASS: smart skips LLM when regex sufficient")
+    print("  PASS: simple message skips LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
-def test_smart_calls_llm_when_regex_partial(mock_llm):
+def test_smart_uses_llm_for_long_messages(mock_llm):
+    """Long messages should always go to LLM even if regex finds slots."""
+    mock_llm.return_value = {
+        "service_type": "shelter",
+        "location": "East New York",
+        "age": None,
+        "urgency": "high",
+        "gender": None,
+    }
+    msg = (
+        "I just got out of the hospital and I have been staying with friends "
+        "in East New York but they can not keep me anymore"
+    )
+    result = extract_slots_smart(msg)
+    mock_llm.assert_called_once()
+    assert result["service_type"] == "shelter"  # LLM gets this right
+    assert "east new york" in result["location"].lower()
+    print("  PASS: long message goes to LLM")
+
+
+@patch("app.services.llm_slot_extractor.extract_slots_llm")
+def test_smart_uses_llm_when_regex_partial(mock_llm):
     """When regex finds service but no location, LLM should be called."""
     mock_llm.return_value = {
         "service_type": "food",
@@ -148,12 +169,12 @@ def test_smart_calls_llm_when_regex_partial(mock_llm):
     }
     result = extract_slots_smart("I need food")
     mock_llm.assert_called_once()
-    print("  PASS: smart calls LLM when regex partial")
+    print("  PASS: partial regex triggers LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
-def test_smart_calls_llm_for_ambiguous_input(mock_llm):
-    """Ambiguous input that regex can't parse should trigger LLM."""
+def test_smart_uses_llm_for_implicit_needs(mock_llm):
+    """Implicit needs that regex can't parse should trigger LLM."""
     mock_llm.return_value = {
         "service_type": "shelter",
         "location": "Bronx",
@@ -166,26 +187,27 @@ def test_smart_calls_llm_for_ambiguous_input(mock_llm):
     assert result["service_type"] == "shelter"
     assert result["urgency"] == "high"
     assert result["gender"] == "female"
-    print("  PASS: smart calls LLM for ambiguous input")
+    print("  PASS: implicit needs go to LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
-def test_smart_merges_regex_and_llm(mock_llm):
-    """Smart extractor should merge regex + LLM, with LLM winning conflicts."""
-    # Regex will find service_type=food from "food" keyword
-    # LLM provides additional context
+def test_smart_llm_supplements_with_regex(mock_llm):
+    """When LLM misses a slot that regex got, regex fills the gap."""
+    # LLM gets service+location but misses urgency
     mock_llm.return_value = {
         "service_type": "food",
         "location": "Harlem",
         "age": None,
-        "urgency": "high",
+        "urgency": None,  # LLM missed this
         "gender": None,
     }
-    result = extract_slots_smart("I need food urgently")
-    assert result["service_type"] == "food"  # both agree
-    assert result["location"] == "Harlem"    # LLM provided
-    assert result["urgency"] == "high"       # LLM provided
-    print("  PASS: smart merges regex + LLM results")
+    # "tonight" would be caught by regex urgency extraction
+    result = extract_slots_smart("I need food tonight in Harlem please help me out")
+    assert result["service_type"] == "food"
+    assert result["location"] == "Harlem"
+    # Regex urgency should supplement the LLM gap
+    assert result["urgency"] == "high"
+    print("  PASS: regex supplements LLM gaps")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -193,6 +215,39 @@ def test_smart_llm_failure_falls_back_to_regex(mock_llm):
     """If LLM fails, smart extractor should return regex results."""
     mock_llm.return_value = _empty_slots()  # LLM failed
     result = extract_slots_smart("I need food")
+    assert result["service_type"] == "food"  # regex still works
+    print("  PASS: LLM failure falls back to regex")
+
+
+@patch("app.services.llm_slot_extractor.extract_slots_llm")
+def test_smart_conflicting_keywords_go_to_llm(mock_llm):
+    """Messages with multiple service keywords should go to LLM."""
+    mock_llm.return_value = {
+        "service_type": "shelter",
+        "location": "Manhattan",
+        "age": None,
+        "urgency": None,
+        "gender": None,
+    }
+    # "hospital" (medical) + "shelter" — conflicting keywords
+    result = extract_slots_smart("hospital near Manhattan for shelter")
+    mock_llm.assert_called_once()
+    print("  PASS: conflicting keywords go to LLM")
+
+
+@patch("app.services.llm_slot_extractor.extract_slots_llm")
+def test_smart_unknown_location_goes_to_llm(mock_llm):
+    """Unknown location (not in known list) should go to LLM."""
+    mock_llm.return_value = {
+        "service_type": "food",
+        "location": "Penn Station",
+        "age": None,
+        "urgency": None,
+        "gender": None,
+    }
+    result = extract_slots_smart("food near Penn Station")
+    mock_llm.assert_called_once()
+    print("  PASS: unknown location goes to LLM")
     assert result["service_type"] == "food"  # regex still got this
     print("  PASS: LLM failure falls back to regex")
 
@@ -264,12 +319,15 @@ if __name__ == "__main__":
     test_llm_handles_empty_message()
     test_llm_failure_returns_empty()
 
-    print("\n--- Smart Extractor (tiered) ---")
-    test_smart_uses_regex_when_sufficient()
-    test_smart_calls_llm_when_regex_partial()
-    test_smart_calls_llm_for_ambiguous_input()
-    test_smart_merges_regex_and_llm()
+    print("\n--- Smart Extractor (complexity routing) ---")
+    test_smart_uses_regex_for_simple_messages()
+    test_smart_uses_llm_for_long_messages()
+    test_smart_uses_llm_when_regex_partial()
+    test_smart_uses_llm_for_implicit_needs()
+    test_smart_llm_supplements_with_regex()
     test_smart_llm_failure_falls_back_to_regex()
+    test_smart_conflicting_keywords_go_to_llm()
+    test_smart_unknown_location_goes_to_llm()
 
     if run_live:
         print("\n--- Integration Tests (LIVE API) ---")
