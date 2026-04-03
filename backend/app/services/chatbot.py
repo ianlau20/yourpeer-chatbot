@@ -16,6 +16,7 @@ from app.services.slot_extractor import (
 )
 from app.rag import query_services
 from app.privacy.pii_redactor import redact_pii
+from app.services.crisis_detector import detect_crisis
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +49,25 @@ _HELP_PHRASES = [
     "how do i use this", "instructions",
 ]
 
+_ESCALATION_PHRASES = [
+    "peer navigator", "talk to a person", "talk to someone",
+    "speak to someone", "speak to a person", "real person",
+    "human", "connect me", "call someone", "live chat",
+    "case manager", "social worker", "counselor",
+]
+
 
 def _classify_message(text: str) -> str:
     """
     Classify a message into a routing category.
 
     Returns one of:
+        "crisis"      — suicide, violence, DV, trafficking, medical emergency
         "reset"       — user wants to start over
         "greeting"    — hi / hello / hey
         "thanks"      — thank you / thx
         "help"        — what can you do / how does this work
+        "escalation"  — user wants to talk to a real person / peer navigator
         "service"     — contains a service-related intent or slot data
         "general"     — everything else (conversational, follow-up, unclear)
     """
@@ -66,10 +76,22 @@ def _classify_message(text: str) -> str:
     # Strip punctuation for matching
     cleaned = re.sub(r"[^\w\s']", "", lower).strip()
 
-    # Check reset first — highest priority
+    # CRISIS — highest priority. Someone typing "I want to kill myself,
+    # start over" MUST get crisis resources, not a session reset.
+    crisis_result = detect_crisis(text)
+    if crisis_result is not None:
+        return "crisis"
+
+    # Check reset
     for phrase in _RESET_PHRASES:
         if phrase in cleaned:
             return "reset"
+
+    # Check escalation — before greetings/thanks so "connect me with
+    # a peer navigator please" doesn't fall through
+    for phrase in _ESCALATION_PHRASES:
+        if phrase in cleaned:
+            return "escalation"
 
     # Check greetings (only if the message is short — "hi where's food"
     # should be classified as a service request, not a greeting)
@@ -130,17 +152,59 @@ _HELP_RESPONSE = (
     "You can also say 'start over' anytime to begin a new search."
 )
 
+_ESCALATION_RESPONSE = (
+    "I can connect you with a peer navigator who can help with your situation.\n\n"
+    "You can reach the Streetlives team at:\n"
+    "• Visit yourpeer.nyc and use the chat feature\n"
+    "• Call 311 and ask for social services referrals\n\n"
+    "If you're in crisis:\n"
+    "• 988 Suicide & Crisis Lifeline — call or text 988\n"
+    "• Crisis Text Line — text HOME to 741741\n\n"
+    "Would you like me to keep searching for services, or is there "
+    "anything else I can help with?"
+)
+
+# Nearby borough suggestions for when a query returns no results
+_NEARBY_BOROUGHS = {
+    "Queens": ["Brooklyn", "Manhattan"],
+    "Brooklyn": ["Manhattan", "Queens"],
+    "Manhattan": ["Brooklyn", "Queens"],
+    "Bronx": ["Manhattan", "Queens"],
+    "Staten Island": ["Brooklyn", "Manhattan"],
+    "New York": ["Brooklyn", "Queens"],  # Manhattan alias
+}
+
 
 def _no_results_message(slots: dict) -> str:
     """Helpful message when no services match the query."""
     service = slots.get("service_type", "services")
     location = slots.get("location", "your area")
-    return (
+
+    # Suggest nearby boroughs if we know the normalized city
+    from app.rag.query_executor import normalize_location
+    normalized = normalize_location(location) if location else None
+    nearby = _NEARBY_BOROUGHS.get(normalized, [])
+
+    parts = [
         f"I wasn't able to find {service} services in {location} "
-        f"matching your criteria. You could try a nearby area, or "
-        f"I can connect you with a peer navigator who may know of "
-        f"other options. Would you like to try a different location?"
+        f"matching your criteria."
+    ]
+
+    if nearby:
+        nearby_str = " or ".join(nearby[:2])
+        parts.append(
+            f"Would you like me to try {nearby_str} instead?"
+        )
+    else:
+        parts.append(
+            "You could try a different neighborhood or borough."
+        )
+
+    parts.append(
+        'You can also say "connect with peer navigator" to talk to a real person.'
     )
+
+    return " ".join(parts)
 
 
 def _build_conversational_prompt(user_message: str, slots: dict) -> str:
@@ -219,6 +283,18 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     existing = get_session_slots(session_id)
     category = _classify_message(message)  # classify on original for accuracy
 
+    # --- Crisis ---
+    # Highest priority. Crisis resources are shown immediately.
+    # The session is NOT cleared — the user may continue afterward.
+    if category == "crisis":
+        crisis_result = detect_crisis(message)
+        crisis_category, crisis_response = crisis_result
+        logger.warning(
+            f"Session {session_id}: crisis detected, "
+            f"category='{crisis_category}'"
+        )
+        return _empty_reply(session_id, crisis_response, existing)
+
     # --- Reset ---
     if category == "reset":
         clear_session(session_id)
@@ -242,6 +318,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # --- Help ---
     if category == "help":
         return _empty_reply(session_id, _HELP_RESPONSE, existing)
+
+    # --- Escalation ---
+    if category == "escalation":
+        return _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
 
     # --- Service request or general conversation ---
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).

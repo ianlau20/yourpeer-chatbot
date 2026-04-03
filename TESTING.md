@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 180 tests across six files, validating the slot extraction pipeline, PII redaction, conversational routing, location boundary enforcement, query template correctness, and cross-cutting edge cases. All tests run without external services — the Streetlives database and Gemini LLM are mocked where needed.
+The test suite covers 201 tests across seven files, validating the slot extraction pipeline, PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, and cross-cutting edge cases. All tests run without external services — the Streetlives database and Gemini LLM are mocked where needed.
 
 ## Running Tests
 
@@ -16,7 +16,7 @@ source backend/venv/bin/activate
 
 ```
 cd tests
-python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py
+python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py && python test_crisis_detector.py
 ```
 
 **Run a single suite:**
@@ -122,6 +122,20 @@ Validates query template correctness — taxonomy names against the real DB, SQL
 | Time formatting | 6 | Morning, afternoon, noon, midnight, 12:30 AM, no leading zeros (cross-platform fix) |
 | Deduplication | 5 | Removes duplicates by service_id, keeps first occurrence, empty list, rows without service_id skipped, all-unique passthrough |
 | Generated SQL | 4 | All SQL uses :param placeholders (no raw values), strict has city not city_pattern, relaxed swaps to city_pattern, unknown template raises ValueError |
+
+### `test_crisis_detector.py` — 21 tests
+
+Validates crisis language detection across five categories from the architecture spec §5.3, verifies each response includes the correct hotline numbers, and prevents false positives on normal messages.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Suicide / self-harm | 4 | Direct statements ("kill myself," "want to die," 7 phrases), self-harm language (4 phrases), response includes 988 + Crisis Text Line, response includes Trevor Project |
+| Violence | 2 | Threats to others (3 phrases including pronoun variations), response includes 911 |
+| Domestic violence | 3 | Abuse language (8 phrases including partner/boyfriend/girlfriend variants), response includes National DV Hotline (1-800-799-7233), response includes NYC DV Hotline |
+| Trafficking | 2 | Exploitation language (6 phrases covering labor and sex trafficking), response includes National Trafficking Hotline (1-888-373-7888) |
+| Medical emergency | 3 | Emergency language (6 phrases), response includes 911, response includes Poison Control |
+| No false positives | 3 | Service requests (9 phrases), conversational messages (8 phrases), "hurt" in non-crisis context ("my foot hurts") |
+| Priority / integration | 3 | `is_crisis()` helper, crisis detected in longer messages, crisis detected alongside service requests |
 
 ## Known Limitations
 
