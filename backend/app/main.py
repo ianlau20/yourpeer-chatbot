@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.routes.chat import router as chat_router
+from app.routes.admin import router as admin_router
 
 app = FastAPI(
     title="YourPeer Chatbot API",
@@ -24,6 +25,7 @@ app.add_middleware(
 
 # --- API routes (registered FIRST so they take priority) ---
 app.include_router(chat_router)
+app.include_router(admin_router)
 
 
 @app.get("/api/health")
@@ -37,7 +39,7 @@ def health():
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
 # Known API path prefixes that should never be handled by the static file server.
-_API_PREFIXES = {"chat", "api", "docs", "redoc", "openapi.json"}
+_API_PREFIXES = {"chat", "api", "admin", "docs", "redoc", "openapi.json"}
 
 if FRONTEND_DIR.exists():
     # Serve index.html at the root

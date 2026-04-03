@@ -18,6 +18,12 @@ from app.services.slot_extractor import (
 from app.rag import query_services
 from app.privacy.pii_redactor import redact_pii
 from app.services.crisis_detector import detect_crisis
+from app.services.audit_log import (
+    log_conversation_turn,
+    log_query_execution,
+    log_crisis_detected,
+    log_session_reset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +47,12 @@ else:
 
 _RESET_PHRASES = [
     "start over", "reset", "clear", "new search", "begin again",
-    "restart", "start again", "nevermind", "never mind", "cancel",
+    "restart", "start again", "nevermind", "never mind",
 ]
+
+# Short reset words that need exact-match to avoid false positives
+# ("cancel" inside "I can't cancel my appointment" should not reset)
+_RESET_EXACT = ["cancel"]
 
 _GREETING_PHRASES = [
     "hi", "hey", "hello", "sup", "yo", "good morning", "good afternoon",
@@ -102,20 +112,19 @@ _CONFIRM_YES = [
     "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "correct",
     "right", "that's right", "thats right", "go ahead", "search",
     "yes search", "do it", "find", "go", "please", "looks good",
-    "yes, search", "yes search", "yes please",
+    "yes please",
 ]
 
 _CONFIRM_CHANGE_SERVICE = [
-    "change service", "different service", "not that",
-    "wrong service", "change what i need", "something else",
+    "change service", "different service",
+    "wrong service", "change what i need",
     "change service type",
 ]
 
 _CONFIRM_CHANGE_LOCATION = [
     "change location", "different location", "wrong location",
-    "not there", "different area", "different borough",
+    "different area", "different borough",
     "change borough", "change neighborhood",
-    "change location",
 ]
 
 
@@ -147,9 +156,12 @@ def _classify_message(text: str) -> str:
     if crisis_result is not None:
         return "crisis"
 
-    # Check reset
+    # Check reset (substring match for phrases, exact for short words)
     for phrase in _RESET_PHRASES:
         if phrase in cleaned:
+            return "reset"
+    for phrase in _RESET_EXACT:
+        if cleaned == phrase:
             return "reset"
 
     # Check escalation — before greetings/thanks so "connect me with
@@ -424,15 +436,21 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
             f"Session {session_id}: crisis detected, "
             f"category='{crisis_category}'"
         )
-        return _empty_reply(session_id, crisis_response, existing)
+        log_crisis_detected(session_id, crisis_category, redacted_message)
+        result = _empty_reply(session_id, crisis_response, existing)
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # --- Reset ---
     if category == "reset":
         clear_session(session_id)
-        return _empty_reply(
+        log_session_reset(session_id)
+        result = _empty_reply(
             session_id, _RESET_RESPONSE, {},
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # --- Greeting ---
     if category == "greeting":
@@ -442,29 +460,38 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
                 "Hey again! I still have your earlier search info. "
                 "Want to keep going, or would you like to start over?"
             )
-            return _empty_reply(session_id, response, existing)
-        return _empty_reply(
-            session_id, _GREETING_RESPONSE, existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
-        )
+            result = _empty_reply(session_id, response, existing)
+        else:
+            result = _empty_reply(
+                session_id, _GREETING_RESPONSE, existing,
+                quick_replies=list(_WELCOME_QUICK_REPLIES),
+            )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # --- Thanks ---
     if category == "thanks":
-        return _empty_reply(
+        result = _empty_reply(
             session_id, _THANKS_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # --- Help ---
     if category == "help":
-        return _empty_reply(
+        result = _empty_reply(
             session_id, _HELP_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # --- Escalation ---
     if category == "escalation":
-        return _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # --- Handle confirmation responses ---
     pending = existing.get("_pending_confirmation")
@@ -473,26 +500,30 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         # User confirmed — clear the flag and execute the query
         existing.pop("_pending_confirmation", None)
         save_session_slots(session_id, existing)
-        return _execute_and_respond(session_id, message, existing)
+        result = _execute_and_respond(session_id, message, existing)
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     if pending and category == "confirm_change_service":
         # User wants to change service type — clear it and ask
         existing.pop("_pending_confirmation", None)
         existing["service_type"] = None
         save_session_slots(session_id, existing)
-        return _empty_reply(
+        result = _empty_reply(
             session_id,
             "No problem! What kind of help do you need?",
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     if pending and category == "confirm_change_location":
         # User wants to change location — clear it and ask
         existing.pop("_pending_confirmation", None)
         existing["location"] = None
         save_session_slots(session_id, existing)
-        return _empty_reply(
+        result = _empty_reply(
             session_id,
             "Sure! What neighborhood or borough should I search in?",
             existing,
@@ -504,6 +535,8 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
                 {"label": "Staten Island", "value": "Staten Island"},
             ],
         )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # If pending confirmation but user typed something new (not a
     # confirmation action), treat it as new input — clear the flag
@@ -543,7 +576,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         confirm_msg = _build_confirmation_message(merged)
         confirm_qr = _confirmation_quick_replies(merged)
 
-        return {
+        result = {
             "session_id": session_id,
             "response": confirm_msg,
             "follow_up_needed": True,
@@ -553,13 +586,15 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
             "relaxed_search": False,
             "quick_replies": confirm_qr,
         }
+        _log_turn(session_id, redacted_message, result, "confirmation")
+        return result
 
     # Not enough slots yet — but is this a service request or just conversation?
     if category == "service":
         # They mentioned something service-related but we need more info
         follow_up = next_follow_up_question(merged)
         follow_up_qr = _follow_up_quick_replies(merged)
-        return {
+        result = {
             "session_id": session_id,
             "response": follow_up,
             "follow_up_needed": True,
@@ -569,16 +604,20 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
             "relaxed_search": False,
             "quick_replies": follow_up_qr,
         }
+        _log_turn(session_id, redacted_message, result, category)
+        return result
 
     # --- General conversation ---
     # The message didn't match any service keywords and isn't a greeting/reset.
     # Use Gemini for a natural conversational response that gently steers
     # the user back toward telling us what they need.
     response = _fallback_response(message, merged)
-    return _empty_reply(
+    result = _empty_reply(
         session_id, response, merged,
         quick_replies=list(_WELCOME_QUICK_REPLIES),
     )
+    _log_turn(session_id, redacted_message, result, "general")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +636,16 @@ def _execute_and_respond(session_id: str, message: str, slots: dict) -> dict:
             service_type=slots.get("service_type"),
             location=slots.get("location"),
             age=slots.get("age"),
+        )
+
+        # Log the query execution
+        log_query_execution(
+            session_id=session_id,
+            template_name=results.get("template_used", "unknown"),
+            params=results.get("params_applied", {}),
+            result_count=results.get("result_count", 0),
+            relaxed=results.get("relaxed", False),
+            execution_ms=results.get("execution_ms", 0),
         )
 
         if results.get("error"):
@@ -642,3 +691,24 @@ def _execute_and_respond(session_id: str, message: str, slots: dict) -> dict:
         "relaxed_search": relaxed,
         "quick_replies": after_results_qr if services_list else list(_WELCOME_QUICK_REPLIES),
     }
+
+
+# ---------------------------------------------------------------------------
+# AUDIT LOG HELPER
+# ---------------------------------------------------------------------------
+
+def _log_turn(session_id: str, user_msg: str, result: dict, category: str):
+    """Log a conversation turn to the audit log."""
+    try:
+        log_conversation_turn(
+            session_id=session_id,
+            user_message_redacted=user_msg,
+            bot_response=result.get("response", ""),
+            slots=result.get("slots", {}),
+            category=category,
+            services_count=result.get("result_count", 0),
+            quick_replies=result.get("quick_replies", []),
+            follow_up_needed=result.get("follow_up_needed", False),
+        )
+    except Exception as e:
+        logger.error(f"Failed to log conversation turn: {e}")

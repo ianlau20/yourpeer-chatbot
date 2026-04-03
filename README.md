@@ -31,6 +31,10 @@ User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Conf
                           Confirmation ←         Gemini LLM (fallback
                           handling               for general conversation
                                                  and DB failures only)
+
+Staff → Admin Console (/admin/) → Audit Log API → Anonymized transcripts, query logs, crisis events, stats
+                                       ↓
+                                  Eval Results → LLM-as-judge scores (from eval_llm_judge.py)
 ```
 
 The system follows a **Safer, Limited RAG** pattern with four phases:
@@ -59,6 +63,9 @@ The system follows a **Safer, Limited RAG** pattern with four phases:
 - **Conversational routing** — greetings, thanks, help requests, and "start over" are handled naturally without triggering database queries
 - **Graceful degradation** — if the database is unreachable, falls back to LLM; if LLM also fails, returns a safe static message
 - **URL normalization** — website links from the database are normalized to include `https://` so they open correctly in all browsers
+- **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin/`. Includes a full transcript viewer with slot metadata and crisis flags. Data is stored in-memory for the pilot and resets on server restart; swap to PostgreSQL or Redis for production persistence
+- **Audit log** — every conversation turn, database query, crisis detection, and session reset is recorded in a thread-safe in-memory ring buffer (capped at 2,000 events) for staff review. No PII is stored
+- **LLM-as-judge evaluation** — 29-scenario automated evaluation framework that simulates conversations and uses Claude to score the system across 8 quality dimensions. Outputs a structured report with per-scenario detail and critical failure tracking
 
 ## Tech Stack
 
@@ -90,7 +97,8 @@ cp .env.example .env
 cd backend
 uvicorn app.main:app --reload
 
-# Open http://127.0.0.1:8000
+# Open http://127.0.0.1:8000        (chat interface)
+# Open http://127.0.0.1:8000/admin/  (staff review console)
 ```
 
 See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration and troubleshooting.

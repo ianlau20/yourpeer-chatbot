@@ -546,7 +546,7 @@ def test_classify_confirmation_phrases():
         assert _classify_message(phrase) == "confirm_change_location", \
             f"'{phrase}' should be confirm_change_location"
 
-    for phrase in ["change service", "different service", "something else"]:
+    for phrase in ["change service", "different service", "wrong service"]:
         assert _classify_message(phrase) == "confirm_change_service", \
             f"'{phrase}' should be confirm_change_service"
 

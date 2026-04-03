@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YourPeer — Staff Console</title>
+  <style>
+    :root {
+      --bg: #0F1117;
+      --surface: #1A1D27;
+      --surface-2: #232733;
+      --border: #2E3340;
+      --text: #E2E4E9;
+      --text-dim: #8B8F9E;
+      --accent: #FED550;
+      --accent-dim: rgba(254,213,80,0.15);
+      --green: #34D399;
+      --green-dim: rgba(52,211,153,0.15);
+      --red: #F87171;
+      --red-dim: rgba(248,113,113,0.15);
+      --orange: #FB923C;
+      --orange-dim: rgba(251,146,60,0.15);
+      --blue: #60A5FA;
+      --blue-dim: rgba(96,165,250,0.15);
+      --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --radius: 10px;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+    }
+
+    /* --- Layout --- */
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 28px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+    }
+
+    header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: var(--accent);
+    }
+
+    header .subtitle {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      margin-left: 12px;
+    }
+
+    header .refresh-btn {
+      padding: 7px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+
+    header .refresh-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* --- Tabs --- */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+
+    .tab {
+      padding: 10px 20px;
+      border: none;
+      background: none;
+      color: var(--text-dim);
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      font-family: inherit;
+      margin-bottom: -1px;
+    }
+
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* --- Stats cards --- */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+
+    .stat-card .label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .stat-card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+
+    .stat-card .value.green { color: var(--green); }
+    .stat-card .value.red { color: var(--red); }
+    .stat-card .value.orange { color: var(--orange); }
+    .stat-card .value.accent { color: var(--accent); }
+
+    /* --- Tables --- */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+
+    th {
+      text-align: left;
+      padding: 12px 16px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .clickable { cursor: pointer; }
+    .clickable:hover td { background: var(--accent-dim); }
+
+    /* --- Badges --- */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge-green { background: var(--green-dim); color: var(--green); }
+    .badge-red { background: var(--red-dim); color: var(--red); }
+    .badge-orange { background: var(--orange-dim); color: var(--orange); }
+    .badge-blue { background: var(--blue-dim); color: var(--blue); }
+    .badge-dim { background: var(--surface-2); color: var(--text-dim); }
+
+    /* --- Transcript view --- */
+    .transcript-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .transcript-modal.open { display: flex; }
+
+    .transcript-body {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      max-width: 700px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 28px;
+    }
+
+    .transcript-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .transcript-header h2 {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .close-btn {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .close-btn:hover {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .turn {
+      margin-bottom: 16px;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .turn-user {
+      background: var(--accent-dim);
+      border-left: 3px solid var(--accent);
+      padding: 10px 14px;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .turn-bot {
+      background: var(--surface-2);
+      border-left: 3px solid var(--text-dim);
+      padding: 10px 14px;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .turn-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+
+    .turn-user .turn-label { color: var(--accent); }
+    .turn-bot .turn-label { color: var(--text-dim); }
+
+    .turn-text {
+      font-size: 0.86rem;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .turn-meta {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-top: 6px;
+      font-family: var(--font-mono);
+    }
+
+    /* --- Eval view --- */
+    .eval-bar-track {
+      width: 100%;
+      height: 8px;
+      background: var(--surface-2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .eval-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.5s ease;
+    }
+
+    .eval-score-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 10px 0;
+    }
+
+    .eval-score-row .dim-label {
+      width: 220px;
+      flex-shrink: 0;
+      font-size: 0.84rem;
+      font-weight: 500;
+    }
+
+    .eval-score-row .bar-container {
+      flex: 1;
+    }
+
+    .eval-score-row .score-value {
+      width: 60px;
+      text-align: right;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: 0.88rem;
+    }
+
+    .eval-scenario-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 10px;
+    }
+
+    .eval-scenario-card .scenario-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .eval-scenario-card .scenario-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .eval-scenario-card .scenario-notes {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .eval-scenario-card .low-score {
+      font-size: 0.78rem;
+      color: var(--orange);
+      margin-top: 6px;
+      padding-left: 12px;
+      border-left: 2px solid var(--orange);
+    }
+
+    /* --- Empty state --- */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-dim);
+    }
+
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .empty-state p { font-size: 0.9rem; max-width: 400px; margin: 0 auto; }
+    .empty-state code {
+      display: block;
+      margin-top: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--accent);
+      background: var(--surface);
+      padding: 10px 16px;
+      border-radius: 8px;
+      text-align: left;
+      max-width: 500px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* --- Misc --- */
+    .mono { font-family: var(--font-mono); font-size: 0.78rem; }
+    .truncate { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 16px; }
+    .section-gap { margin-bottom: 28px; }
+    .flex-gap { display: flex; gap: 8px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div style="display:flex;align-items:baseline;">
+        <h1>YourPeer</h1>
+        <span class="subtitle">Staff Review Console</span>
+      </div>
+      <button class="refresh-btn" onclick="loadActiveTab()">↻ Refresh</button>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="conversations">Conversations</button>
+      <button class="tab" data-tab="queries">Query Log</button>
+      <button class="tab" data-tab="eval">Eval Results</button>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div id="tab-overview" class="tab-panel active">
+      <div id="stats-cards" class="stats-row"></div>
+      <div class="section-gap">
+        <div class="section-title">Recent Activity</div>
+        <div id="recent-events" class="table-wrap"></div>
+      </div>
+    </div>
+
+    <!-- CONVERSATIONS -->
+    <div id="tab-conversations" class="tab-panel">
+      <div id="conversations-table" class="table-wrap"></div>
+    </div>
+
+    <!-- QUERIES -->
+    <div id="tab-queries" class="tab-panel">
+      <div id="queries-table" class="table-wrap"></div>
+    </div>
+
+    <!-- EVAL -->
+    <div id="tab-eval" class="tab-panel">
+      <div id="eval-content"></div>
+    </div>
+  </div>
+
+  <!-- Transcript Modal -->
+  <div id="transcript-modal" class="transcript-modal" onclick="if(event.target===this)closeTranscript()">
+    <div class="transcript-body">
+      <div class="transcript-header">
+        <h2 id="transcript-title">Conversation</h2>
+        <button class="close-btn" onclick="closeTranscript()">✕</button>
+      </div>
+      <div id="transcript-content"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = '/admin/api';
+
+    // --- Tab switching ---
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+        loadActiveTab();
+      });
+    });
+
+    function loadActiveTab() {
+      const active = document.querySelector('.tab.active').dataset.tab;
+      if (active === 'overview') loadOverview();
+      else if (active === 'conversations') loadConversations();
+      else if (active === 'queries') loadQueries();
+      else if (active === 'eval') loadEval();
+    }
+
+    // --- Overview ---
+    async function loadOverview() {
+      try {
+        const [stats, events] = await Promise.all([
+          fetch(`${API}/stats`).then(r => r.json()),
+          fetch(`${API}/events?limit=20`).then(r => r.json()),
+        ]);
+        renderStats(stats);
+        renderRecentEvents(events);
+      } catch (e) {
+        document.getElementById('stats-cards').innerHTML = renderEmpty('📊', 'No data yet. Start chatting to generate activity.');
+      }
+    }
+
+    function renderStats(stats) {
+      const cards = [
+        { label: 'Sessions', value: stats.unique_sessions, cls: 'accent' },
+        { label: 'Turns', value: stats.total_turns, cls: '' },
+        { label: 'Queries Executed', value: stats.total_queries, cls: '' },
+        { label: 'Crises Detected', value: stats.total_crises, cls: stats.total_crises > 0 ? 'red' : 'green' },
+        { label: 'Session Resets', value: stats.total_resets, cls: '' },
+        { label: 'Relaxed Query Rate', value: (stats.relaxed_query_rate * 100).toFixed(0) + '%', cls: stats.relaxed_query_rate > 0.3 ? 'orange' : '' },
+      ];
+
+      document.getElementById('stats-cards').innerHTML = cards.map(c => `
+        <div class="stat-card">
+          <div class="label">${c.label}</div>
+          <div class="value ${c.cls}">${c.value}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderRecentEvents(events) {
+      if (!events.length) {
+        document.getElementById('recent-events').innerHTML = renderEmpty('💬', 'No events yet.');
+        return;
+      }
+
+      const rows = events.reverse().map(e => {
+        const time = new Date(e.timestamp).toLocaleTimeString();
+        let type = badge(e.type.replace('_', ' '), typeBadgeClass(e.type));
+        let detail = '';
+
+        if (e.type === 'conversation_turn') {
+          detail = `<span class="truncate">${esc(e.user_message)}</span>`;
+        } else if (e.type === 'query_execution') {
+          detail = `${e.template_name} → ${e.result_count} results (${e.execution_ms}ms)`;
+          if (e.relaxed) detail += ' ' + badge('relaxed', 'orange');
+        } else if (e.type === 'crisis_detected') {
+          detail = badge(e.crisis_category, 'red');
+        } else if (e.type === 'session_reset') {
+          detail = 'Session cleared';
+        }
+
+        return `<tr>
+          <td class="mono">${time}</td>
+          <td>${type}</td>
+          <td>${detail}</td>
+          <td class="mono" style="color:var(--text-dim);font-size:0.72rem;">${e.session_id ? e.session_id.slice(0,8) + '…' : ''}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('recent-events').innerHTML = `
+        <table>
+          <thead><tr><th>Time</th><th>Type</th><th>Detail</th><th>Session</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    // --- Conversations ---
+    async function loadConversations() {
+      try {
+        const data = await fetch(`${API}/conversations?limit=100`).then(r => r.json());
+        renderConversations(data);
+      } catch (e) {
+        document.getElementById('conversations-table').innerHTML = renderEmpty('💬', 'No conversations recorded yet.');
+      }
+    }
+
+    function renderConversations(convos) {
+      if (!convos.length) {
+        document.getElementById('conversations-table').innerHTML = renderEmpty('💬', 'No conversations yet. Start chatting to see them here.');
+        return;
+      }
+
+      const rows = convos.map(c => {
+        const slots = Object.entries(c.final_slots || {}).map(([k,v]) => `${k}=${v}`).join(', ') || '—';
+        const crisis = c.crisis_detected ? badge('crisis', 'red') : '';
+        const services = c.services_delivered > 0 ? badge(`${c.services_delivered} results`, 'green') : badge('no results', 'dim');
+
+        return `<tr class="clickable" onclick="openTranscript('${c.session_id}')">
+          <td class="mono" style="font-size:0.72rem;">${c.session_id.slice(0,12)}…</td>
+          <td>${c.turn_count}</td>
+          <td>${services} ${crisis}</td>
+          <td style="font-size:0.82rem;">${slots}</td>
+          <td class="mono" style="font-size:0.72rem;color:var(--text-dim);">${new Date(c.last_seen).toLocaleString()}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('conversations-table').innerHTML = `
+        <table>
+          <thead><tr><th>Session</th><th>Turns</th><th>Outcome</th><th>Slots</th><th>Last Active</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    // --- Transcript modal ---
+    async function openTranscript(sessionId) {
+      document.getElementById('transcript-title').textContent = `Session ${sessionId.slice(0,12)}…`;
+      document.getElementById('transcript-content').innerHTML = '<p style="color:var(--text-dim)">Loading…</p>';
+      document.getElementById('transcript-modal').classList.add('open');
+
+      try {
+        const events = await fetch(`${API}/conversations/${sessionId}`).then(r => r.json());
+        renderTranscript(events);
+      } catch (e) {
+        document.getElementById('transcript-content').innerHTML = '<p style="color:var(--red)">Failed to load transcript.</p>';
+      }
+    }
+
+    function renderTranscript(events) {
+      const turns = events
+        .filter(e => e.type === 'conversation_turn')
+        .map(e => {
+          const slotStr = Object.entries(e.slots || {}).filter(([k,v]) => v != null).map(([k,v]) => `${k}=${v}`).join(', ');
+          const meta = [];
+          if (slotStr) meta.push(`slots: {${slotStr}}`);
+          if (e.services_count) meta.push(`${e.services_count} service(s) delivered`);
+          if (e.quick_replies?.length) meta.push(`buttons: ${e.quick_replies.join(', ')}`);
+
+          return `
+            <div class="turn turn-user">
+              <div class="turn-label">User</div>
+              <div class="turn-text">${esc(e.user_message)}</div>
+            </div>
+            <div class="turn turn-bot">
+              <div class="turn-label">Bot</div>
+              <div class="turn-text">${esc(e.bot_response)}</div>
+              ${meta.length ? `<div class="turn-meta">${meta.join(' · ')}</div>` : ''}
+            </div>`;
+        }).join('');
+
+      const crises = events.filter(e => e.type === 'crisis_detected');
+      const crisisHtml = crises.map(e => `
+        <div class="turn" style="background:var(--red-dim);border-left:3px solid var(--red);padding:10px 14px;border-radius:0 8px 8px 0;">
+          <div class="turn-label" style="color:var(--red)">⚠ Crisis Detected</div>
+          <div class="turn-text" style="font-size:0.82rem;">${esc(e.crisis_category)}: ${esc(e.user_message)}</div>
+        </div>`).join('');
+
+      document.getElementById('transcript-content').innerHTML = turns + crisisHtml || '<p style="color:var(--text-dim)">No conversation turns found.</p>';
+    }
+
+    function closeTranscript() {
+      document.getElementById('transcript-modal').classList.remove('open');
+    }
+
+    // --- Queries ---
+    async function loadQueries() {
+      try {
+        const data = await fetch(`${API}/queries?limit=200`).then(r => r.json());
+        renderQueries(data);
+      } catch (e) {
+        document.getElementById('queries-table').innerHTML = renderEmpty('🔍', 'No queries executed yet.');
+      }
+    }
+
+    function renderQueries(queries) {
+      if (!queries.length) {
+        document.getElementById('queries-table').innerHTML = renderEmpty('🔍', 'No database queries executed yet. Complete a search to see query logs.');
+        return;
+      }
+
+      const rows = queries.reverse().map(q => {
+        const params = Object.entries(q.params || {}).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ');
+        const relaxed = q.relaxed ? badge('relaxed', 'orange') : '';
+
+        return `<tr>
+          <td class="mono" style="font-size:0.72rem;">${new Date(q.timestamp).toLocaleTimeString()}</td>
+          <td>${badge(q.template_name, 'blue')}</td>
+          <td class="mono" style="font-size:0.76rem;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(params)}</td>
+          <td>${q.result_count} ${relaxed}</td>
+          <td class="mono">${q.execution_ms}ms</td>
+          <td class="mono" style="font-size:0.72rem;color:var(--text-dim);">${q.session_id ? q.session_id.slice(0,8) + '…' : ''}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('queries-table').innerHTML = `
+        <table>
+          <thead><tr><th>Time</th><th>Template</th><th>Params</th><th>Results</th><th>Latency</th><th>Session</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    // --- Eval Results ---
+    async function loadEval() {
+      try {
+        const res = await fetch(`${API}/eval`);
+        if (!res.ok) {
+          const err = await res.json();
+          document.getElementById('eval-content').innerHTML = renderEmpty('🧪',
+            'No evaluation results found.',
+            'ANTHROPIC_API_KEY=sk-... python tests/eval_llm_judge.py --output tests/eval_report.json'
+          );
+          return;
+        }
+        const data = await res.json();
+        renderEval(data);
+      } catch (e) {
+        document.getElementById('eval-content').innerHTML = renderEmpty('🧪', 'Failed to load evaluation results.');
+      }
+    }
+
+    function renderEval(data) {
+      const summary = data.summary;
+      const dimLabels = {
+        slot_extraction: 'Slot Extraction',
+        dialog_efficiency: 'Dialog Efficiency',
+        response_tone: 'Response Tone',
+        safety_crisis: 'Safety & Crisis',
+        confirmation_ux: 'Confirmation UX',
+        privacy: 'Privacy',
+        hallucination_resistance: 'Hallucination Resistance',
+        error_recovery: 'Error Recovery',
+      };
+
+      // Overall score card
+      const overallColor = summary.overall_average >= 4 ? 'green' : summary.overall_average >= 3 ? 'orange' : 'red';
+
+      let html = `
+        <div class="stats-row" style="margin-bottom:28px;">
+          <div class="stat-card">
+            <div class="label">Overall Score</div>
+            <div class="value ${overallColor}">${summary.overall_average.toFixed(2)} / 5.00</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Scenarios</div>
+            <div class="value accent">${summary.scenarios_evaluated}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Critical Failures</div>
+            <div class="value ${summary.critical_failure_count > 0 ? 'red' : 'green'}">${summary.critical_failure_count}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Eval Errors</div>
+            <div class="value ${summary.scenarios_with_errors > 0 ? 'orange' : 'green'}">${summary.scenarios_with_errors}</div>
+          </div>
+        </div>`;
+
+      // Dimension scores
+      html += `<div class="section-gap"><div class="section-title">Dimension Scores</div>`;
+      for (const [key, label] of Object.entries(dimLabels)) {
+        const d = summary.dimension_averages[key];
+        if (!d) continue;
+        const pct = (d.average / 5) * 100;
+        const color = d.average >= 4 ? 'var(--green)' : d.average >= 3 ? 'var(--orange)' : 'var(--red)';
+
+        html += `
+          <div class="eval-score-row">
+            <div class="dim-label">${label}</div>
+            <div class="bar-container">
+              <div class="eval-bar-track">
+                <div class="eval-bar-fill" style="width:${pct}%;background:${color};"></div>
+              </div>
+            </div>
+            <div class="score-value" style="color:${color}">${d.average.toFixed(2)}</div>
+          </div>`;
+      }
+      html += `</div>`;
+
+      // Category averages
+      html += `<div class="section-gap"><div class="section-title">Category Averages</div><div class="flex-gap" style="margin-bottom:16px;">`;
+      for (const [cat, avg] of Object.entries(summary.category_averages || {}).sort()) {
+        const cls = avg >= 4 ? 'green' : avg >= 3 ? 'orange' : 'red';
+        html += badge(`${cat}: ${avg.toFixed(1)}`, cls);
+      }
+      html += `</div></div>`;
+
+      // Critical failures
+      if (data.critical_failures?.length) {
+        html += `<div class="section-gap"><div class="section-title" style="color:var(--red);">⚠ Critical Failures</div>`;
+        data.critical_failures.forEach(cf => {
+          html += `<div style="padding:8px 14px;background:var(--red-dim);border-radius:8px;margin-bottom:6px;font-size:0.84rem;">
+            <strong>${cf.scenario}</strong>: ${esc(cf.failure)}</div>`;
+        });
+        html += `</div>`;
+      }
+
+      // Per-scenario details
+      html += `<div class="section-title">Scenario Details</div>`;
+      (data.scenarios || []).forEach(s => {
+        if (s.error) {
+          html += `<div class="eval-scenario-card" style="border-color:var(--red);">
+            <div class="scenario-header"><span class="scenario-name">❌ ${esc(s.name)}</span></div>
+            <div class="scenario-notes" style="color:var(--red);">Error: ${esc(s.error)}</div>
+          </div>`;
+          return;
+        }
+
+        const emoji = s.average_score >= 4 ? '✅' : s.average_score >= 3 ? '⚠️' : '❌';
+        const scoreColor = s.average_score >= 4 ? 'var(--green)' : s.average_score >= 3 ? 'var(--orange)' : 'var(--red)';
+
+        html += `<div class="eval-scenario-card">
+          <div class="scenario-header">
+            <span class="scenario-name">${emoji} ${esc(s.name)}</span>
+            <span style="font-family:var(--font-mono);font-weight:700;color:${scoreColor}">${s.average_score.toFixed(1)}/5.0</span>
+          </div>
+          ${s.overall_notes ? `<div class="scenario-notes">${esc(s.overall_notes)}</div>` : ''}`;
+
+        // Show low scores
+        for (const [dim, d] of Object.entries(s.scores || {})) {
+          if (d.score <= 3) {
+            html += `<div class="low-score">${dimLabels[dim] || dim}: ${d.score}/5 — ${esc(d.justification)}</div>`;
+          }
+        }
+
+        html += `</div>`;
+      });
+
+      document.getElementById('eval-content').innerHTML = html;
+    }
+
+    // --- Helpers ---
+    function badge(text, cls) {
+      return `<span class="badge badge-${cls}">${text}</span>`;
+    }
+
+    function typeBadgeClass(type) {
+      if (type === 'crisis_detected') return 'red';
+      if (type === 'query_execution') return 'blue';
+      if (type === 'session_reset') return 'orange';
+      return 'dim';
+    }
+
+    function esc(s) {
+      if (!s) return '';
+      const div = document.createElement('div');
+      div.textContent = String(s);
+      return div.innerHTML;
+    }
+
+    function renderEmpty(icon, text, code) {
+      return `<div class="empty-state">
+        <div class="icon">${icon}</div>
+        <p>${text}</p>
+        ${code ? `<code>${esc(code)}</code>` : ''}
+      </div>`;
+    }
+
+    // --- Initial load ---
+    loadOverview();
+  </script>
+</body>
+</html>

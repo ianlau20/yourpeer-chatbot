@@ -266,6 +266,8 @@ These are documented behaviors, not bugs:
 - **Borough typos (regex only):** Misspellings like "brookyln" or "quens" are not corrected by the regex extractor. When LLM extraction is enabled, these are handled correctly.
 - **Two boroughs in one message (regex only):** "I'm in Queens but looking for food in Brooklyn" extracts the first preposition match ("Queens"), not the intended one. When LLM extraction is enabled, Claude correctly picks the intended location.
 - **Manhattan / "New York" ambiguity:** Manhattan normalizes to the DB city value "New York," which could theoretically match non-Manhattan locations that also use "New York" as their city. The state filter (NY) prevents out-of-state results, but within-state ambiguity remains. Proper fix would use PostGIS proximity or the `nyc_neighborhoods` table.
+- **Confirmation phrase matching:** Short confirmation phrases like "cancel" use exact-match only (not substring) to avoid false positives on sentences like "I can't cancel my appointment." Phrases like "not there" and "something else" were removed from confirmation lists for the same reason — they matched too broadly in natural conversation. Users can still change location/service using the quick-reply buttons or explicit phrases like "change location" / "change service."
+- **Audit log is in-memory:** The staff review console's audit log uses an in-memory ring buffer (capped at 2,000 events). Data is lost on server restart. For production, this should be replaced with a persistent store (PostgreSQL, Redis, etc.).
 
 ## Adding New Tests
 
