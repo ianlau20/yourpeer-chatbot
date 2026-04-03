@@ -450,15 +450,109 @@ def _follow_up_quick_replies(slots: dict) -> list:
 
     return []
 
-# Nearby borough suggestions for when a query returns no results
-_NEARBY_BOROUGHS = {
-    "Queens": ["Brooklyn", "Manhattan"],
-    "Brooklyn": ["Manhattan", "Queens"],
-    "Manhattan": ["Brooklyn", "Queens"],
-    "Bronx": ["Manhattan", "Queens"],
-    "Staten Island": ["Brooklyn", "Manhattan"],
-    "New York": ["Brooklyn", "Queens"],  # Manhattan alias
+# Borough suggestions when a query returns no results.
+# Ordered by actual service availability from DB audit (Apr 2026),
+# not just geographic proximity. Each service type lists boroughs
+# from highest to lowest service count, excluding the user's own borough.
+#
+# Format: { service_type: { borough: [suggestion1, suggestion2] } }
+# Falls back to _NEARBY_BOROUGHS_DEFAULT for unknown service types.
+
+_NEARBY_BOROUGHS_BY_SERVICE = {
+    "food": {
+        "Manhattan":    ["Brooklyn", "Queens"],
+        "Brooklyn":     ["Queens", "Bronx"],
+        "Queens":       ["Brooklyn", "Bronx"],
+        "Bronx":        ["Brooklyn", "Queens"],
+        "Staten Island": ["Brooklyn", "Queens"],
+    },
+    "shelter": {
+        # Shelter is thin everywhere — Manhattan has most (14), suggest it first
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "clothing": {
+        # Manhattan-heavy (34). Queens only has 3 — always suggest Manhattan
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "personal_care": {
+        # Shower: Manhattan (14), Bronx (5), Queens (4). Brooklyn only has 2
+        "Manhattan":    ["Bronx", "Queens"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Bronx"],
+        "Bronx":        ["Manhattan", "Queens"],
+        "Staten Island": ["Manhattan", "Queens"],
+    },
+    "medical": {
+        # Health: Manhattan (237), Brooklyn (158), Bronx (118)
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "mental_health": {
+        # Mental Health: Manhattan (40), Brooklyn (36), Queens (18)
+        "Manhattan":    ["Brooklyn", "Queens"],
+        "Brooklyn":     ["Manhattan", "Queens"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "legal": {
+        # Legal: Manhattan (19), Brooklyn (9), Bronx (6)
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "employment": {
+        # Employment: Manhattan (9), Brooklyn (6), Queens (2)
+        "Manhattan":    ["Brooklyn", "Queens"],
+        "Brooklyn":     ["Manhattan", "Queens"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
 }
+
+# Default fallback — geographic proximity when no service-specific data
+_NEARBY_BOROUGHS_DEFAULT = {
+    "Manhattan":    ["Brooklyn", "Queens"],
+    "Brooklyn":     ["Manhattan", "Queens"],
+    "Queens":       ["Brooklyn", "Manhattan"],
+    "Bronx":        ["Manhattan", "Queens"],
+    "Staten Island": ["Brooklyn", "Manhattan"],
+    "New York":     ["Brooklyn", "Queens"],  # Manhattan alias
+}
+
+# Service types that map to each template key (mirrors SLOT_SERVICE_TO_TEMPLATE)
+_SERVICE_TO_BOROUGH_KEY = {
+    "food": "food",
+    "shelter": "shelter", "housing": "shelter",
+    "clothing": "clothing",
+    "personal_care": "personal_care", "shower": "personal_care",
+    "medical": "medical", "healthcare": "medical", "health": "medical",
+    "mental_health": "mental_health",
+    "legal": "legal",
+    "employment": "employment", "job": "employment",
+}
+
+
+def _get_nearby_boroughs(service_type: str | None, borough: str) -> list[str]:
+    """Return the best nearby boroughs to suggest for a given service + borough combo."""
+    service_key = _SERVICE_TO_BOROUGH_KEY.get((service_type or "").lower())
+    if service_key and service_key in _NEARBY_BOROUGHS_BY_SERVICE:
+        return _NEARBY_BOROUGHS_BY_SERVICE[service_key].get(borough, [])
+    return _NEARBY_BOROUGHS_DEFAULT.get(borough, [])
 
 
 def _no_results_message(slots: dict) -> str:
@@ -466,10 +560,13 @@ def _no_results_message(slots: dict) -> str:
     service = slots.get("service_type", "services")
     location = slots.get("location", "your area")
 
-    # Suggest nearby boroughs if we know the normalized city
-    from app.rag.query_executor import normalize_location
+    from app.rag.query_executor import normalize_location, is_borough
     normalized = normalize_location(location) if location else None
-    nearby = _NEARBY_BOROUGHS.get(normalized, [])
+
+    # Only suggest nearby boroughs if the user searched at the borough level
+    nearby = []
+    if normalized and is_borough(location):
+        nearby = _get_nearby_boroughs(service, normalized)
 
     parts = [
         f"I wasn't able to find {service} services in {location} "
@@ -478,13 +575,9 @@ def _no_results_message(slots: dict) -> str:
 
     if nearby:
         nearby_str = " or ".join(nearby[:2])
-        parts.append(
-            f"Would you like me to try {nearby_str} instead?"
-        )
+        parts.append(f"Would you like me to try {nearby_str} instead?")
     else:
-        parts.append(
-            "You could try a different neighborhood or borough."
-        )
+        parts.append("You could try a different neighborhood or borough.")
 
     parts.append(
         'You can also say "connect with peer navigator" to talk to a real person.'

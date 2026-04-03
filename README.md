@@ -104,6 +104,18 @@ uvicorn app.main:app --reload
 
 See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration and troubleshooting.
 
+## Known Limitations & Future Work
+
+These are tracked issues identified during DB audits and pilot testing, deferred for post-pilot resolution.
+
+**Result ordering favors large organizations.** The base query orders results alphabetically by `o.name, s.name`. Large systems like NYC Health + Hospitals or CAMBA have many services per borough and will consistently appear at the top of results, crowding out smaller community organizations. A better ordering strategy — randomized within results, or weighted by data completeness (has phone, has hours, recently verified) — would give users more varied and actionable results.
+
+**`additional_info` field is effectively empty.** DB audit (Apr 2026) shows 3,240 of 3,251 services (99.7%) have no `additional_info`. The field is selected in the base query and rendered conditionally in the card, but it adds negligible value. Consider removing it from the SELECT in a future query optimization pass to reduce payload size.
+
+**Schedule data is sparse for most categories.** Only walk-in service types (Soup Kitchen 81%, Shower 55%, Clothing Pantry 64%, Food Pantry 40%) have meaningful schedule coverage. All other categories show 0% coverage. The `FILTER_BY_OPEN_NOW` and `FILTER_BY_WEEKDAY` query filters exist but are intentionally not passed from the chatbot — enabling them would silently exclude the majority of services. See `METRICS.md` section 2.4 for detail.
+
+**Eval background task runs in the web server process.** The "Run Evals" button in the admin console triggers the LLM-as-judge suite as a FastAPI background task in the same process. Acceptable for the pilot; for production, isolate into a separate worker or task queue (Celery + Redis, or a Render background worker service) to avoid impacting request latency during long runs.
+
 ## Documentation
 
 | Document | Description |
@@ -112,6 +124,7 @@ See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration a
 | [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
 | [TESTING.md](TESTING.md) | Test suite guide — 247 unit tests across 8 suites + 29-scenario LLM-as-judge evaluation framework |
 | [METRICS.md](METRICS.md) | Success metrics — definitions, targets, measurement methods, and pilot vs. post-pilot phasing across intake quality, answer quality, safety, system eval, and closed-loop outcomes |
+| [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories
 
