@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 201 tests across seven files, validating the slot extraction pipeline, PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, and cross-cutting edge cases. All tests run without external services — the Streetlives database and Gemini LLM are mocked where needed.
+The test suite covers 221 tests across eight files, validating the slot extraction pipeline (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, and cross-cutting edge cases. All tests run without external services — the Streetlives database, Gemini LLM, and Anthropic API are mocked where needed.
 
 ## Running Tests
 
@@ -16,7 +16,13 @@ source backend/venv/bin/activate
 
 ```
 cd tests
-python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py && python test_crisis_detector.py
+python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py && python test_crisis_detector.py && python test_llm_slot_extractor.py
+```
+
+**Run LLM integration tests (requires API key):**
+
+```
+ANTHROPIC_API_KEY=sk-ant-... python tests/test_llm_slot_extractor.py --live
 ```
 
 **Run a single suite:**
@@ -95,9 +101,9 @@ Validates the main chatbot module — the central routing logic that ties togeth
 | Session ID | 2 | Auto-generated when none provided. Preserved when provided |
 | Response structure | 2 | All 7 required keys present in every response. Relaxed search flag correctly set |
 
-### `test_location_boundaries.py` — 30 tests
+### `test_location_boundaries.py` — 37 tests
 
-Validates that queries stay within NYC boundaries, location normalization maps correctly, the state filter is never dropped, and the relaxed fallback doesn't leak out-of-area results. Tests inspect generated SQL and parameters without requiring a database connection.
+Validates that queries stay within NYC boundaries, location normalization maps correctly, the state filter is never dropped, the relaxed fallback doesn't leak out-of-area results, and borough-level queries expand to include neighborhood city values.
 
 | Category | Tests | What's covered |
 |---|---|---|
@@ -108,14 +114,15 @@ Validates that queries stay within NYC boundaries, location normalization maps c
 | Location extraction edge cases | 6 | Boroughs and neighborhoods in full sentences, non-NYC locations don't normalize to NYC boroughs, "near me in Brooklyn" extracts Brooklyn, two-borough messages (documented), typos (documented) |
 | Query builder filters | 6 | City filter present/absent based on params, age triggering eligibility, hidden filter always present, taxonomy filter always present, max_results default and override |
 | Relaxed query parameters | 2 | Strict vs relaxed param side-by-side comparison. Relaxed without city still has state filter |
+| Borough expansion | 7 | Queens/Brooklyn/Manhattan expand to neighborhood city values, non-borough returns single item, expansion generates ANY() SQL, relaxed keeps expansion instead of LIKE, non-expanded falls back to LIKE |
 
-### `test_query_templates.py` — 47 tests
+### `test_query_templates.py` — 49 tests
 
 Validates query template correctness — taxonomy names against the real DB, SQL structure, service card formatting, schedule computation, time formatting, deduplication, and generated SQL safety.
 
 | Category | Tests | What's covered |
 |---|---|---|
-| Taxonomy names | 8 | Every template's taxonomy_name validated against actual DB values. Explicit checks for Healthcare → Health and Legal → Legal Services fixes. All 7 templates verified |
+| Taxonomy names | 10 | Every template's taxonomy_name validated against actual DB values. Explicit checks for Healthcare → Health and Legal → Legal Services fixes. All 9 templates verified including personal_care, mental_health, other |
 | Base query structure | 5 | All required JOINs present. Phone uses LATERAL with LIMIT 1 and location > service > org priority. Schedule uses LATERAL with ISODOW. Location slug selected |
 | Service card formatting | 9 | All fields populated, YourPeer URL from slug (present and absent), missing optional fields, website fallback (service → org URL), empty/partial address, None service_name defaults to "Unknown Service" |
 | Schedule status | 9 | None values, partial None, string times, time objects, midnight wrap (8 PM – 6 AM), invalid strings, mixed types, schedule flowing through to cards, no-data cards |
@@ -137,16 +144,26 @@ Validates crisis language detection across five categories from the architecture
 | No false positives | 3 | Service requests (9 phrases), conversational messages (8 phrases), "hurt" in non-crisis context ("my foot hurts") |
 | Priority / integration | 3 | `is_crisis()` helper, crisis detected in longer messages, crisis detected alongside service requests |
 
+### `test_llm_slot_extractor.py` — 11 unit + 5 live tests
+
+Validates the LLM-based slot extractor that uses Claude function calling for nuanced inputs. Unit tests mock the Anthropic API. Integration tests (run with `--live` flag) hit the real API to verify end-to-end extraction.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| LLM extraction (mocked) | 6 | Service + location, age + gender + urgency, third-person ("my son is 12"), contradicting locations ("in Queens but looking in Bronx"), empty messages, API failure returns empty slots |
+| Smart extractor (tiered) | 5 | Regex sufficient → LLM skipped, regex partial → LLM called, ambiguous input → LLM called, merge logic (LLM wins conflicts), LLM failure falls back to regex |
+| Integration (live, optional) | 5 | Simple extraction, third-person, contradicting locations, implicit needs ("somewhere safe for tonight"), complex multi-slot sentence. Run with `--live` flag |
+
 ## Known Limitations
 
 These are documented behaviors, not bugs:
 
-- **Bare numbers:** Replying with just "17" (no context like "I am" or "age") does not extract age. The regex patterns require an intro phrase. LLM-based extraction would handle this.
+- **Bare numbers (regex only):** Replying with just "17" (no context like "I am" or "age") does not extract age with the regex extractor. When LLM extraction is enabled (`ANTHROPIC_API_KEY` set), this is handled correctly.
 - **Multi-intent:** "I need food and shelter" extracts only the first matching service type. The system handles one service per query.
 - **Substring keyword matches:** The `other` category keyword `"id"` can false-match on words like "cold" or "did." Should be changed to a phrase like `"need an id"`.
 - **Name detection:** Heuristic-based (intro phrases like "my name is"). Won't catch names mentioned without an intro phrase. Acceptable tradeoff to avoid false positives on location names.
-- **Borough typos:** Misspellings like "brookyln" or "quens" are not corrected by the regex extractor. LLM-based extraction would handle this.
-- **Two boroughs in one message:** "I'm in Queens but looking for food in Brooklyn" extracts the first preposition match ("Queens"), not the intended one. A known limitation of regex-based extraction.
+- **Borough typos (regex only):** Misspellings like "brookyln" or "quens" are not corrected by the regex extractor. When LLM extraction is enabled, these are handled correctly.
+- **Two boroughs in one message (regex only):** "I'm in Queens but looking for food in Brooklyn" extracts the first preposition match ("Queens"), not the intended one. When LLM extraction is enabled, Claude correctly picks the intended location.
 - **Manhattan / "New York" ambiguity:** Manhattan normalizes to the DB city value "New York," which could theoretically match non-Manhattan locations that also use "New York" as their city. The state filter (NY) prevents out-of-state results, but within-state ambiguity remains. Proper fix would use PostGIS proximity or the `nyc_neighborhoods` table.
 
 ## Adding New Tests

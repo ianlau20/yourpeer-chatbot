@@ -22,32 +22,36 @@ Bot:   extracts → service_type=food, location=Brooklyn
 ```
 User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Query Templates → Streetlives DB
                                  ↓                     ↓                                    ↓
-                          Greeting / Reset        PII Redaction                       Service Cards
-                          Thanks / Help                ↓                                    ↓
-                                ↓                Session Store                      YourPeer links
-                         Static responses              ↓
-                                               Gemini LLM (fallback
-                                               for general conversation
-                                               and DB failures only)
+                          Crisis Detection        PII Redaction                       Service Cards
+                          Greeting / Reset             ↓                                    ↓
+                          Thanks / Help          Session Store                      YourPeer links
+                          Escalation                   ↓
+                                ↓                Gemini LLM (fallback
+                         Static responses +      for general conversation
+                         crisis resources        and DB failures only)
 ```
 
 The system follows a **Safer, Limited RAG** pattern with three phases:
 
-1. **Intake** — Regex-based slot extraction collects structured fields (service type, location, age, urgency) through multi-turn conversation. The message classifier routes greetings, resets, and help requests before slot extraction runs. PII is redacted from stored transcripts.
-2. **Query** — Pre-defined, parameterized SQL templates run against the Streetlives PostgreSQL database. If the strict query returns no results, filters are automatically relaxed.
+1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude for ambiguous inputs. The message classifier routes crisis language, greetings, resets, escalation requests, and help before slot extraction runs. PII is redacted from stored transcripts.
+2. **Query** — Pre-defined, parameterized SQL templates run against the Streetlives PostgreSQL database. Borough-level queries expand to include all neighborhood city values. If the strict query returns no results, filters are automatically relaxed while keeping location boundaries.
 3. **Rendering** — Results are returned as structured service cards with open/closed status, never as LLM-generated text. The LLM is only used for general conversational messages and as a fallback when the database is unreachable.
 
 ## Features
 
 - **9 service categories** — food, shelter, clothing, personal care, health care, mental health, legal, employment, and other services (benefits, IDs, etc.)
 - **Conversational slot-filling** — multi-turn dialog that asks only what's needed, one question at a time
+- **LLM-enhanced extraction** — optional Claude-powered slot extraction handles nuanced inputs like "my son is 12 and needs a coat" or "I'm in Queens but looking for food in the Bronx." Activates automatically when `ANTHROPIC_API_KEY` is set; falls back to regex-only otherwise
+- **Crisis detection** — detects suicide/self-harm, violence, domestic violence, trafficking, and medical emergency language and immediately surfaces category-specific resources (988 Lifeline, Trevor Project, National DV Hotline, Trafficking Hotline, 911)
+- **Escalation to peer navigators** — "connect with peer navigator" or "talk to a person" routes to human support contact info
 - **Service cards with actions** — call, get directions, visit website, or learn more on YourPeer
 - **Open/closed status** — real-time hours from the database displayed on each card
-- **PII redaction** — names, phone numbers, SSNs, emails, and addresses are scrubbed from stored transcripts
+- **PII redaction** — names, phone numbers, SSNs, emails, and addresses are scrubbed from stored transcripts before storage
+- **Borough-level search** — "shelter in Queens" searches across all Queens neighborhoods (Astoria, Flushing, Jamaica, etc.), not just entries with `city = "Queens"`
 - **Near-me handling** — detects "food near me" and asks for a real neighborhood instead of failing
 - **Location normalization** — maps boroughs and 30+ NYC neighborhoods to database-compatible values
-- **Relaxed fallback** — if strict filters return no results, automatically broadens the search
-- **Conversational routing** — greetings, thanks, help requests, and "start over" are handled naturally
+- **Relaxed fallback** — if strict filters return no results, automatically broadens the search while keeping location boundaries
+- **Conversational routing** — greetings, thanks, help requests, and "start over" are handled naturally without triggering database queries
 - **Graceful degradation** — if the database is unreachable, falls back to LLM; if LLM also fails, returns a safe static message
 
 ## Tech Stack
@@ -55,7 +59,8 @@ The system follows a **Safer, Limited RAG** pattern with three phases:
 | Layer | Technology |
 |---|---|
 | Backend | Python, FastAPI, SQLAlchemy |
-| LLM | Google Gemini (dialog only, not for service data) |
+| Slot Extraction | Regex (default) + Claude Sonnet via Anthropic API (optional, for nuanced inputs) |
+| Conversational Fallback | Google Gemini (dialog only, not for service data) |
 | Database | Streetlives PostgreSQL on AWS RDS (read-only) |
 | Frontend | Vanilla HTML/CSS/JS with service card carousel |
 | Deployment | Render (free tier) |
@@ -73,6 +78,7 @@ pip install -r backend/requirements.txt
 # Configure environment
 cp .env.example .env
 # Edit .env with your GEMINI_API_KEY and DATABASE_URL
+# Optional: add ANTHROPIC_API_KEY for LLM-enhanced slot extraction
 
 # Run
 cd backend
@@ -89,7 +95,7 @@ See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration a
 |---|---|
 | [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
-| [TESTING.md](TESTING.md) | Test suite guide — 103 tests across 4 suites, how to run, what's covered, how to add tests |
+| [TESTING.md](TESTING.md) | Test suite guide — 221 tests across 8 suites, how to run, what's covered, how to add tests |
 
 ## Related Repositories
 
