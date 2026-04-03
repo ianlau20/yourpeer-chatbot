@@ -73,10 +73,12 @@ SERVICE_KEYWORDS = {
 
     # --- Employment (taxonomy: Employment) ---
     "employment": [
-        "job", "jobs", "work", "employment", "hiring", "career",
+        "job", "jobs", "employment", "hiring", "career",
         "resume", "interview", "job training", "vocational",
         "workforce", "job placement", "temp work", "day labor",
-        "job search", "job help",
+        "job search", "job help", "find work", "need work",
+        "looking for work",
+        # "work" removed — collides with "how does this work", "outreach worker", etc.
     ],
 
     # --- Other Services (taxonomy: Other service) ---

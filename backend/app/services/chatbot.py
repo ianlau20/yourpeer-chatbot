@@ -496,12 +496,21 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
     # --- Help ---
     if category == "help":
-        result = _empty_reply(
-            session_id, _HELP_RESPONSE, existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
-        )
-        _log_turn(session_id, redacted_message, result, category)
-        return result
+        # Check if the message actually contains a service request despite
+        # being classified as "help" (e.g., "I need help with my immigration
+        # case in the Bronx" contains "help" but is really a legal request).
+        # If slots have a service_type, treat as a service request instead.
+        # Uses fast regex only — no LLM call needed for this check.
+        help_slots = extract_slots(message)
+        if help_slots.get("service_type"):
+            category = "service"  # re-classify and fall through to slot handling
+        else:
+            result = _empty_reply(
+                session_id, _HELP_RESPONSE, existing,
+                quick_replies=list(_WELCOME_QUICK_REPLIES),
+            )
+            _log_turn(session_id, redacted_message, result, category)
+            return result
 
     # --- Escalation ---
     if category == "escalation":
