@@ -75,6 +75,29 @@ _DOMESTIC_VIOLENCE_PHRASES = [
     "partner hurts me", "violent partner",
     "stalking me", "being stalked", "restraining order",
     "order of protection",
+    # Fleeing / implicit DV
+    "he's going to come back", "she's going to come back",
+    "going to come back", "coming back soon",
+    "he's going to hurt me", "she's going to hurt me",
+    "going to hurt me",
+    "need to leave before", "have to leave before",
+    "kicked me out", "threw me out", "locked me out",
+]
+
+# General safety concerns — not clearly DV or suicidal, but the person
+# feels unsafe and needs immediate resources. Errs on the side of providing
+# crisis resources rather than routine slot-filling.
+_SAFETY_CONCERN_PHRASES = [
+    "don't feel safe", "dont feel safe", "not safe here",
+    "not safe where i am", "i'm not safe", "im not safe",
+    "need to get out", "need to leave now", "have to get out",
+    "can't stay here", "cant stay here",
+    "in danger", "i'm in danger", "im in danger",
+    "someone is threatening me", "being threatened",
+    "someone is following me", "being followed",
+    "need to get away",
+    "afraid for my life", "fear for my life",
+    "they're going to find me", "going to find me",
 ]
 
 _TRAFFICKING_PHRASES = [
@@ -159,6 +182,18 @@ _MEDICAL_EMERGENCY_RESPONSE = (
     "Once you're safe, I can help you find nearby clinics or health services."
 )
 
+_SAFETY_CONCERN_RESPONSE = (
+    "Your safety comes first. If you're in immediate danger, please call 911.\n\n"
+    "Here are resources that can help right now:\n"
+    "• National Domestic Violence Hotline — 1-800-799-7233 (24/7) "
+    "or text START to 88788\n"
+    "• NYC Domestic Violence Hotline — 1-800-621-4673 (24/7, multilingual)\n"
+    "• NYC Safe Horizons — 1-800-621-HOPE (4673)\n"
+    "• 988 Suicide & Crisis Lifeline — call or text 988\n\n"
+    "If you need shelter right away, I can help you find somewhere safe. "
+    "Just let me know what area you're in."
+)
+
 
 # ---------------------------------------------------------------------------
 # DETECTION
@@ -169,6 +204,7 @@ _CRISIS_CATEGORIES = [
     ("suicide_self_harm", _SUICIDE_SELF_HARM_PHRASES, _SUICIDE_RESPONSE),
     ("medical_emergency", _MEDICAL_EMERGENCY_PHRASES, _MEDICAL_EMERGENCY_RESPONSE),
     ("domestic_violence", _DOMESTIC_VIOLENCE_PHRASES, _DOMESTIC_VIOLENCE_RESPONSE),
+    ("safety_concern", _SAFETY_CONCERN_PHRASES, _SAFETY_CONCERN_RESPONSE),
     ("trafficking", _TRAFFICKING_PHRASES, _TRAFFICKING_RESPONSE),
     ("violence", _VIOLENCE_PHRASES, _VIOLENCE_RESPONSE),
 ]

@@ -80,6 +80,26 @@ _ESCALATION_PHRASES = [
     "case manager", "social worker", "counselor",
 ]
 
+_FRUSTRATION_PHRASES = [
+    "not helpful", "isn't helpful", "isnt helpful",
+    "doesn't help", "doesnt help", "didn't help", "didnt help",
+    "already tried", "tried that", "tried those",
+    "none of those", "none of them", "doesn't work",
+    "doesnt work", "didn't work", "didnt work",
+    "useless", "waste of time", "not working",
+    "can't find anything", "cant find anything",
+]
+
+_BOT_IDENTITY_PHRASES = [
+    "are you a robot", "are you a bot", "are you ai",
+    "are you a real person", "are you human",
+    "am i talking to a person", "am i talking to a human",
+    "is this a bot", "is this ai", "is this a chatbot",
+    "is this a real person", "who am i talking to",
+    "are you a computer", "are you a machine",
+    "talking to a robot",
+]
+
 # ---------------------------------------------------------------------------
 # QUICK REPLY DEFINITIONS
 # ---------------------------------------------------------------------------
@@ -147,8 +167,10 @@ def _classify_message(text: str) -> str:
     Returns one of:
         "crisis"           — suicide, violence, DV, trafficking, medical emergency
         "reset"            — user wants to start over
+        "bot_identity"     — user asking if they're talking to AI or a person
         "greeting"         — hi / hello / hey
         "thanks"           — thank you / thx
+        "frustration"      — user frustrated with results or bot
         "help"             — what can you do / how does this work
         "escalation"       — user wants to talk to a real person / peer navigator
         "confirm_yes"      — user confirmed a pending search
@@ -175,6 +197,13 @@ def _classify_message(text: str) -> str:
     for phrase in _RESET_EXACT:
         if cleaned == phrase:
             return "reset"
+
+    # Check bot identity — before escalation since "real person" would
+    # otherwise match escalation. Bot identity questions are distinct from
+    # requests to talk to a person.
+    for phrase in _BOT_IDENTITY_PHRASES:
+        if phrase in cleaned:
+            return "bot_identity"
 
     # Check escalation — before greetings/thanks so "connect me with
     # a peer navigator please" doesn't fall through
@@ -211,6 +240,11 @@ def _classify_message(text: str) -> str:
     for phrase in _THANKS_PHRASES:
         if phrase in cleaned:
             return "thanks"
+
+    # Check frustration — before help since "isn't helpful" contains "help"
+    for phrase in _FRUSTRATION_PHRASES:
+        if phrase in cleaned:
+            return "frustration"
 
     # Check help
     for phrase in _HELP_PHRASES:
@@ -269,6 +303,27 @@ _ESCALATION_RESPONSE = (
     "• Crisis Text Line — text HOME to 741741\n\n"
     "Would you like me to keep searching for services, or is there "
     "anything else I can help with?"
+)
+
+_FRUSTRATION_RESPONSE = (
+    "I'm sorry this hasn't been what you needed. I understand how "
+    "frustrating it can be when you've already tried places and they "
+    "didn't work out.\n\n"
+    "Here are some options:\n"
+    "• I can search a different area or service type\n"
+    "• I can connect you with a peer navigator who knows the system well\n"
+    "• Call 311 for live social services help\n\n"
+    "What would be most helpful for you right now?"
+)
+
+_BOT_IDENTITY_RESPONSE = (
+    "I'm an AI assistant for YourPeer. I help you find free services in "
+    "NYC — things like food, shelter, clothing, and more — using verified "
+    "information from our database.\n\n"
+    "I don't make up information. All the services I show you come from "
+    "real locations that have been checked by people who've used them.\n\n"
+    "If you'd like to talk to a real person, I can connect you with a "
+    "peer navigator. Otherwise, just tell me what you need help with!"
 )
 
 
@@ -512,11 +567,40 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
             _log_turn(session_id, redacted_message, result, category)
             return result
 
-    # --- Escalation ---
-    if category == "escalation":
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+    # --- Bot Identity ---
+    if category == "bot_identity":
+        result = _empty_reply(
+            session_id, _BOT_IDENTITY_RESPONSE, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
         _log_turn(session_id, redacted_message, result, category)
         return result
+
+    # --- Frustration ---
+    if category == "frustration":
+        result = _empty_reply(
+            session_id, _FRUSTRATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 Try different search", "value": "Start over"},
+                {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
+    # --- Escalation ---
+    if category == "escalation":
+        # Check if the message also has service slots — if so, the user
+        # is probably an outreach worker making a request (e.g., "I'm a
+        # peer navigator. I have a client who needs shelter in East Harlem.")
+        # not someone asking to talk to a person.
+        esc_slots = extract_slots(message)
+        if esc_slots.get("service_type") and esc_slots.get("location"):
+            category = "service"  # re-classify and fall through to slot handling
+        else:
+            result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+            _log_turn(session_id, redacted_message, result, category)
+            return result
 
     # --- Handle confirmation responses ---
     pending = existing.get("_pending_confirmation")
