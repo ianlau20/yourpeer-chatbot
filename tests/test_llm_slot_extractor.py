@@ -240,12 +240,12 @@ def test_smart_unknown_location_goes_to_llm(mock_llm):
     """Unknown location (not in known list) should go to LLM."""
     mock_llm.return_value = {
         "service_type": "food",
-        "location": "Penn Station",
+        "location": "City Hall",
         "age": None,
         "urgency": None,
         "gender": None,
     }
-    result = extract_slots_smart("food near Penn Station")
+    result = extract_slots_smart("food near City Hall")
     mock_llm.assert_called_once()
     print("  PASS: unknown location goes to LLM")
     assert result["service_type"] == "food"  # regex still got this

@@ -61,6 +61,7 @@ import anthropic
 
 from app.services.chatbot import generate_reply
 from app.services.session_store import clear_session
+from app.privacy.pii_redactor import redact_pii
 
 
 # ---------------------------------------------------------------------------
@@ -754,9 +755,14 @@ def simulate_conversation(
         ):
             result = generate_reply(user_msg, session_id=session_id)
 
+        # Store the REDACTED user message in the transcript, matching what
+        # the real system stores. This lets the judge verify that PII is
+        # not present in stored transcripts.
+        redacted_user_msg, _ = redact_pii(user_msg)
+
         transcript.append({
             "role": "user",
-            "text": user_msg,
+            "text": redacted_user_msg,
         })
         transcript.append({
             "role": "bot",

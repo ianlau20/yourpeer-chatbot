@@ -197,6 +197,7 @@ _KNOWN_LOCATIONS = [
     "lower east side", "upper west side", "upper east side",
     "east new york", "east village", "west village", "east harlem",
     "midtown east", "midtown west", "times square",
+    "port authority", "penn station", "grand central",
     "crown heights", "cobble hill", "sunset park",
     "bay ridge", "far rockaway", "fort greene",
     "park slope", "red hook", "south bronx", "mott haven",

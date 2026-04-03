@@ -60,8 +60,14 @@ _GREETING_PHRASES = [
 ]
 
 _THANKS_PHRASES = [
-    "thanks", "thank you", "thx", "ty", "appreciate it",
+    "thanks", "thank you", "appreciate it",
     "that helps", "perfect", "great thanks", "awesome",
+]
+
+# Short thanks words that need exact match to avoid substring collisions
+# (e.g., "ty" in "city", "Port Authority"; "thx" unlikely to collide but safe)
+_THANKS_EXACT = [
+    "thx", "ty",
 ]
 
 _HELP_PHRASES = [
@@ -239,6 +245,9 @@ def _classify_message(text: str) -> str:
     # Check thanks
     for phrase in _THANKS_PHRASES:
         if phrase in cleaned:
+            return "thanks"
+    for phrase in _THANKS_EXACT:
+        if cleaned == phrase:
             return "thanks"
 
     # Check frustration — before help since "isn't helpful" contains "help"

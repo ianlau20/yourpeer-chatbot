@@ -288,6 +288,9 @@ NYC_LOCATION_ALIASES = {
     "nolita":         "New York",
     "noho":           "New York",
     "times square":   "New York",
+    "port authority":  "New York",
+    "penn station":   "New York",
+    "grand central":  "New York",
 
     "williamsburg":   "Brooklyn",
     "bushwick":       "Brooklyn",
@@ -429,6 +432,9 @@ NEIGHBORHOOD_CENTERS = {
     "nolita":            (40.7231, -73.9946),
     "noho":              (40.7265, -73.9927),
     "times square":      (40.7580, -73.9855),
+    "port authority":    (40.7569, -73.9900),
+    "penn station":      (40.7506, -73.9935),
+    "grand central":     (40.7527, -73.9772),
 
     # Brooklyn
     "williamsburg":      (40.7081, -73.9571),
