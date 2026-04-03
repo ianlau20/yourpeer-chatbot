@@ -84,9 +84,19 @@ def test_employment_taxonomy():
     print("  PASS: employment template taxonomy correct")
 
 
-def test_shower_taxonomy():
-    assert TEMPLATES["shower"]["default_params"]["taxonomy_name"] == "Shower"
-    print("  PASS: shower template taxonomy correct")
+def test_personal_care_taxonomy():
+    assert TEMPLATES["personal_care"]["default_params"]["taxonomy_name"] == "Personal Care"
+    print("  PASS: personal_care template taxonomy correct")
+
+
+def test_mental_health_taxonomy():
+    assert TEMPLATES["mental_health"]["default_params"]["taxonomy_name"] == "Mental Health"
+    print("  PASS: mental_health template taxonomy correct")
+
+
+def test_other_taxonomy():
+    assert TEMPLATES["other"]["default_params"]["taxonomy_name"] == "Other service"
+    print("  PASS: other template taxonomy correct")
 
 
 # -----------------------------------------------------------------------
@@ -494,7 +504,9 @@ if __name__ == "__main__":
     test_shelter_taxonomy()
     test_clothing_taxonomy()
     test_employment_taxonomy()
-    test_shower_taxonomy()
+    test_personal_care_taxonomy()
+    test_mental_health_taxonomy()
+    test_other_taxonomy()
 
     print("\n--- Base Query Structure ---")
     test_base_query_joins()

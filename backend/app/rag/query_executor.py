@@ -310,3 +310,41 @@ def normalize_location(raw_location: str) -> str:
     if not raw_location:
         return raw_location
     return NYC_LOCATION_ALIASES.get(raw_location.lower().strip(), raw_location.strip())
+
+
+# ---------------------------------------------------------------------------
+# BOROUGH EXPANSION
+# ---------------------------------------------------------------------------
+# When a user says "Queens", the DB might store the location's city as
+# "Jamaica", "Flushing", "Astoria", etc. This reverse map lets us search
+# for ALL city values that belong to a borough.
+
+def _build_borough_to_cities() -> dict:
+    """Build a reverse map from borough DB city → all city values in that borough."""
+    borough_cities = {}
+    for alias, city in NYC_LOCATION_ALIASES.items():
+        if city not in borough_cities:
+            borough_cities[city] = {city}
+        # The alias might be a neighborhood name that the DB uses as a city value
+        alias_city = alias.title()
+        borough_cities[city].add(alias_city)
+    return {k: sorted(v) for k, v in borough_cities.items()}
+
+
+BOROUGH_TO_CITIES = _build_borough_to_cities()
+
+
+def get_borough_city_names(city: str) -> list[str]:
+    """
+    Given a normalized borough city value (e.g. "Queens"), return all
+    city values that might appear in the DB for that borough.
+
+    Returns a lowercased list for case-insensitive SQL matching.
+
+    Example:
+        get_borough_city_names("Queens")
+        → ["astoria", "far rockaway", "flushing", "jackson heights",
+           "jamaica", "long island city", "queens"]
+    """
+    cities = BOROUGH_TO_CITIES.get(city, [city])
+    return [c.lower() for c in cities]

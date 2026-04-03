@@ -1,5 +1,6 @@
 import uuid
 import re
+import os
 import logging
 
 from app.llm.gemini_client import gemini_reply
@@ -19,6 +20,16 @@ from app.privacy.pii_redactor import redact_pii
 from app.services.crisis_detector import detect_crisis
 
 logger = logging.getLogger(__name__)
+
+# Use LLM-based slot extraction when ANTHROPIC_API_KEY is available.
+# Falls back to regex-only if the key is not set.
+_USE_LLM_EXTRACTION = bool(os.getenv("ANTHROPIC_API_KEY"))
+
+if _USE_LLM_EXTRACTION:
+    from app.services.llm_slot_extractor import extract_slots_smart
+    logger.info("LLM slot extraction enabled (ANTHROPIC_API_KEY found)")
+else:
+    logger.info("LLM slot extraction disabled — using regex only")
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +337,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # --- Service request or general conversation ---
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
     # Store the REDACTED version in the session transcript.
-    extracted = extract_slots(message)
+    if _USE_LLM_EXTRACTION:
+        extracted = extract_slots_smart(message)
+    else:
+        extracted = extract_slots(message)
     merged = merge_slots(existing, extracted)
 
     # Store the redacted message in transcript history (not the original)

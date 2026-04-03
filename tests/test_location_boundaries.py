@@ -16,7 +16,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.rag.query_templates import build_query, build_relaxed_query, TEMPLATES
-from app.rag.query_executor import normalize_location, NYC_LOCATION_ALIASES
+from app.rag.query_executor import normalize_location, NYC_LOCATION_ALIASES, get_borough_city_names
 from app.services.slot_extractor import extract_slots, NEAR_ME_SENTINEL
 
 
@@ -394,6 +394,91 @@ def test_relaxed_without_city_still_has_state():
 
 
 # -----------------------------------------------------------------------
+# BOROUGH EXPANSION (Queens fix)
+# -----------------------------------------------------------------------
+
+def test_queens_expands_to_neighborhoods():
+    """Queens should expand to include all Queens neighborhoods."""
+    cities = get_borough_city_names("Queens")
+    assert "queens" in cities
+    assert "astoria" in cities
+    assert "flushing" in cities
+    assert "jamaica" in cities
+    assert "long island city" in cities
+    assert "jackson heights" in cities
+    assert "far rockaway" in cities
+    print("  PASS: Queens expands to neighborhoods")
+
+
+def test_brooklyn_expands_to_neighborhoods():
+    """Brooklyn should expand to include all Brooklyn neighborhoods."""
+    cities = get_borough_city_names("Brooklyn")
+    assert "brooklyn" in cities
+    assert "williamsburg" in cities
+    assert "bushwick" in cities
+    assert "flatbush" in cities
+    assert "crown heights" in cities
+    print("  PASS: Brooklyn expands to neighborhoods")
+
+
+def test_manhattan_expands_to_neighborhoods():
+    """Manhattan (New York) should expand to include Manhattan neighborhoods."""
+    cities = get_borough_city_names("New York")
+    assert "new york" in cities
+    assert "harlem" in cities
+    assert "midtown" in cities
+    assert "chelsea" in cities
+    assert "soho" in cities
+    print("  PASS: Manhattan expands to neighborhoods")
+
+
+def test_non_borough_does_not_expand():
+    """Non-borough locations should return a single-item list."""
+    cities = get_borough_city_names("Springfield")
+    assert cities == ["springfield"]
+    print("  PASS: non-borough returns single item")
+
+
+def test_borough_expansion_in_query():
+    """When city_list is provided, SQL should use ANY(:city_list)."""
+    city_list = get_borough_city_names("Queens")
+    sql, params = build_query("shelter", {
+        "city": "Queens",
+        "city_list": city_list,
+        "max_results": 5,
+    })
+    assert "any(:city_list)" in sql.lower(), \
+        "SQL should contain ANY(:city_list) for borough expansion"
+    assert params["city_list"] == city_list
+    print("  PASS: borough expansion generates ANY() SQL")
+
+
+def test_borough_expansion_in_relaxed_query():
+    """Relaxed query with city_list should keep the list, not fall back to LIKE."""
+    city_list = get_borough_city_names("Queens")
+    sql, params = build_relaxed_query("shelter", {
+        "city": "Queens",
+        "city_list": city_list,
+        "max_results": 5,
+    })
+    assert "city_list" in params, "Relaxed query should keep city_list"
+    assert "city" not in params, "Relaxed query should drop exact city when city_list present"
+    assert "city_pattern" not in params, "Relaxed query should not add LIKE when city_list present"
+    print("  PASS: relaxed query keeps borough expansion")
+
+
+def test_no_expansion_uses_like_in_relaxed():
+    """Without city_list, relaxed query should still fall back to LIKE."""
+    sql, params = build_relaxed_query("food", {
+        "city": "Springfield",
+        "max_results": 5,
+    })
+    assert "city_pattern" in params, "Should fall back to LIKE without city_list"
+    assert params["city_pattern"] == "%Springfield%"
+    print("  PASS: no expansion falls back to LIKE in relaxed")
+
+
+# -----------------------------------------------------------------------
 # RUNNER
 # -----------------------------------------------------------------------
 
@@ -441,6 +526,15 @@ if __name__ == "__main__":
     print("\n--- Relaxed Query Parameters ---")
     test_relaxed_params_compared_to_strict()
     test_relaxed_without_city_still_has_state()
+
+    print("\n--- Borough Expansion ---")
+    test_queens_expands_to_neighborhoods()
+    test_brooklyn_expands_to_neighborhoods()
+    test_manhattan_expands_to_neighborhoods()
+    test_non_borough_does_not_expand()
+    test_borough_expansion_in_query()
+    test_borough_expansion_in_relaxed_query()
+    test_no_expansion_uses_like_in_relaxed()
 
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")

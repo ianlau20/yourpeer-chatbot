@@ -104,14 +104,18 @@ FILTER_BY_TAXONOMY_NAME = (
     ["taxonomy_name"],
 )
 
-FILTER_BY_TAXONOMY_ID = (
-    "t.id = :taxonomy_id::uuid",
-    ["taxonomy_id"],
-)
-
 FILTER_BY_CITY = (
     "LOWER(pa.city) = LOWER(:city)",
     ["city"],
+)
+
+# Borough-level city match — matches any city value that belongs to the borough.
+# When a user says "Queens", this matches "Queens", "Astoria", "Flushing",
+# "Jamaica", "Long Island City", etc.
+# The SQL uses ANY() with an array parameter, which SQLAlchemy handles natively.
+FILTER_BY_CITY_IN_BOROUGH = (
+    "LOWER(pa.city) = ANY(:city_list)",
+    ["city_list"],
 )
 
 # Broader city match — matches if the city field contains the search term.
@@ -237,6 +241,7 @@ TEMPLATES = {
         "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
@@ -256,6 +261,7 @@ TEMPLATES = {
         "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
@@ -271,6 +277,7 @@ TEMPLATES = {
         "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
@@ -279,26 +286,13 @@ TEMPLATES = {
         "default_params": {"taxonomy_name": "Clothing"},
         "taxonomy_aliases": ["Clothing"],
     },
-    "shower": {
-        "name": "ShowerQuery",
-        "description": "Find shower and hygiene facilities",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
-        "optional_filters": [
-            FILTER_BY_CITY,
-            FILTER_BY_CITY_LIKE,
-            FILTER_BY_PROXIMITY,
-            FILTER_BY_GENDER_ELIGIBILITY,
-            FILTER_BY_WEEKDAY,
-        ],
-        "default_params": {"taxonomy_name": "Shower"},
-        "taxonomy_aliases": ["Shower"],
-    },
     "medical": {
         "name": "HealthcareQuery",
         "description": "Find medical and healthcare services",
         "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
@@ -312,6 +306,7 @@ TEMPLATES = {
         "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
         ],
@@ -324,12 +319,55 @@ TEMPLATES = {
         "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
             FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
         "default_params": {"taxonomy_name": "Employment"},
         "taxonomy_aliases": ["Employment"],
+    },
+    "personal_care": {
+        "name": "PersonalCareQuery",
+        "description": "Find showers, laundry, toiletries, and hygiene services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
+            FILTER_BY_PROXIMITY,
+            FILTER_BY_GENDER_ELIGIBILITY,
+            FILTER_BY_WEEKDAY,
+        ],
+        "default_params": {"taxonomy_name": "Personal Care"},
+        "taxonomy_aliases": ["Personal Care", "Shower", "Laundry", "Toiletries"],
+    },
+    "mental_health": {
+        "name": "MentalHealthQuery",
+        "description": "Find mental health, counseling, and substance abuse services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
+            FILTER_BY_PROXIMITY,
+            FILTER_BY_AGE_ELIGIBILITY,
+        ],
+        "default_params": {"taxonomy_name": "Mental Health"},
+        "taxonomy_aliases": ["Mental Health"],
+    },
+    "other": {
+        "name": "OtherServicesQuery",
+        "description": "Find benefits, IDs, mail, phone, and miscellaneous services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "optional_filters": [
+            FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
+            FILTER_BY_PROXIMITY,
+        ],
+        "default_params": {"taxonomy_name": "Other service"},
+        "taxonomy_aliases": ["Other service"],
     },
 }
 
@@ -413,41 +451,18 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
     for key in ["age", "gender"]:
         relaxed_params.pop(key, None)
 
-    # Broaden city match (exact → LIKE), but do NOT drop it entirely.
-    # "Brooklyn" becomes "%Brooklyn%" to catch "East Brooklyn", etc.
-    if "city" in relaxed_params:
+    # Broaden city match:
+    # - If we have city_list (borough expansion), keep it — it already covers
+    #   all neighborhoods. Drop the exact city match to avoid double-filtering.
+    # - If we only have city (no expansion), broaden to LIKE.
+    if "city_list" in relaxed_params:
+        # Borough expansion already covers neighborhoods — just drop exact match
+        relaxed_params.pop("city", None)
+    elif "city" in relaxed_params:
         city = relaxed_params.pop("city")
         relaxed_params["city_pattern"] = f"%{city}%"
 
     return build_query(template_key, relaxed_params)
-
-
-# ---------------------------------------------------------------------------
-# SCHEDULE HELPERS
-# ---------------------------------------------------------------------------
-
-SCHEDULES_QUERY = text("""
-    SELECT
-        rs.weekday,
-        rs.opens_at,
-        rs.closes_at
-    FROM regular_schedules rs
-    WHERE rs.service_id = :service_id
-    ORDER BY rs.weekday, rs.opens_at
-""")
-
-HOLIDAY_SCHEDULES_QUERY = text("""
-    SELECT
-        hs.closed,
-        hs.start_date,
-        hs.end_date,
-        hs.opens_at,
-        hs.closes_at
-    FROM holiday_schedules hs
-    WHERE hs.location_id = :location_id
-      AND hs.end_date >= CURRENT_DATE
-    ORDER BY hs.start_date
-""")
 
 
 # ---------------------------------------------------------------------------
