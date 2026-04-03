@@ -815,5 +815,159 @@ if __name__ == "__main__":
     test_general_reply_does_not_retrigger_confirmation()
     test_no_after_escalation_does_not_confirm()
 
+    print("\n--- Bug Fix Regression Tests ---")
+    test_confirm_deny_breaks_loop()
+    test_confirm_deny_phrases()
+    test_cancel_variants_reset()
+    test_frustration_expanded_phrases()
+    test_thanks_with_continuation_falls_through()
+    test_empty_message_guard()
+    test_whitespace_message_guard()
+
     print("\n" + "=" * 50)
     print("ALL TESTS PASSED")
+
+
+# -----------------------------------------------------------------------
+# BUG FIX REGRESSION TESTS
+# -----------------------------------------------------------------------
+
+@patch("app.services.chatbot.query_services")
+@patch("app.services.chatbot.gemini_reply")
+def test_confirm_deny_breaks_loop(mock_gemini, mock_query):
+    """Bug 1: Saying 'no' during confirmation should NOT loop forever.
+
+    Previously, 'no' was classified as 'general', had no new slots,
+    and re-showed the confirmation nudge indefinitely.
+    """
+    mock_gemini.return_value = "How can I help?"
+    sid = "test-deny-loop"
+    clear_session(sid)
+
+    # Build up to confirmation
+    r1 = generate_reply("I need food in Brooklyn", session_id=sid)
+    assert r1["slots"].get("_pending_confirmation") is True
+
+    # Say 'no' — should exit confirmation, not re-show it
+    r2 = generate_reply("no", session_id=sid)
+    assert r2["slots"].get("_pending_confirmation") is None, \
+        "Pending confirmation should be cleared after 'no'"
+    assert "hold onto" in r2["response"].lower() or "no problem" in r2["response"].lower(), \
+        "Should acknowledge the denial gracefully"
+    assert len(r2["quick_replies"]) > 0, "Should offer next-step options"
+
+    # Saying 'no' again should NOT show the confirmation nudge
+    r3 = generate_reply("no", session_id=sid)
+    assert "just to make sure" not in r3["response"].lower(), \
+        "Should NOT re-show confirmation after denial"
+    print("  PASS: confirm_deny breaks the infinite loop")
+
+
+def test_confirm_deny_phrases():
+    """Bug 1: All denial phrases should classify as 'confirm_deny'."""
+    phrases = ["no", "nah", "nope", "not yet", "hold on", "stop"]
+    for phrase in phrases:
+        assert _classify_message(phrase) == "confirm_deny", \
+            f"'{phrase}' should classify as confirm_deny"
+
+    # Longer phrases
+    long_phrases = ["no thanks", "no thank you", "i changed my mind",
+                    "not right now", "maybe later"]
+    for phrase in long_phrases:
+        result = _classify_message(phrase)
+        assert result in ("confirm_deny", "thanks", "reset"), \
+            f"'{phrase}' should classify as confirm_deny, thanks, or reset, got '{result}'"
+    print("  PASS: confirm_deny phrases classified correctly")
+
+
+def test_cancel_variants_reset():
+    """Bug 2: 'cancel my search', 'please cancel' etc. should trigger reset."""
+    phrases = [
+        "cancel",             # exact match (existing)
+        "cancel my search",   # was broken — classified as 'general'
+        "please cancel",      # was broken
+        "i want to cancel",   # was broken
+        "cancel this",        # was broken
+    ]
+    for phrase in phrases:
+        assert _classify_message(phrase) == "reset", \
+            f"'{phrase}' should classify as reset, got '{_classify_message(phrase)}'"
+    print("  PASS: cancel variants trigger reset")
+
+
+def test_frustration_expanded_phrases():
+    """Bug 3: Expanded frustration phrases should be detected."""
+    phrases = [
+        "not what I needed",
+        "wrong results",
+        "these results are bad",
+        "thats not right",
+        "not useful",
+        "this sucks",
+        # Existing phrases should still work
+        "useless",
+        "that didnt help",
+        "none of those work",
+    ]
+    for phrase in phrases:
+        result = _classify_message(phrase)
+        assert result == "frustration", \
+            f"'{phrase}' should classify as frustration, got '{result}'"
+    print("  PASS: expanded frustration phrases detected")
+
+
+def test_thanks_with_continuation_falls_through():
+    """Bug 8: 'thanks but I need X' should NOT be classified as thanks.
+
+    Previously, 'thanks but I need more options' triggered the thanks
+    handler, dropping the user's continuation request.
+    """
+    # Pure thanks — should still work
+    assert _classify_message("thanks") == "thanks"
+    assert _classify_message("thank you") == "thanks"
+    assert _classify_message("appreciate it") == "thanks"
+
+    # Thanks with continuation — should NOT be thanks
+    continuations = [
+        "thanks but I need more options",
+        "thank you but I also want shelter",
+        "thanks but can you also search for food",
+        "thanks however I need something else",
+    ]
+    for phrase in continuations:
+        result = _classify_message(phrase)
+        assert result != "thanks", \
+            f"'{phrase}' should NOT classify as thanks, got '{result}'"
+    print("  PASS: thanks with continuation falls through")
+
+
+@patch("app.services.chatbot.query_services")
+@patch("app.services.chatbot.gemini_reply")
+def test_empty_message_guard(mock_gemini, mock_query):
+    """Bug 6: Empty string messages should return welcome, not hit Gemini."""
+    sid = "test-empty"
+    clear_session(sid)
+
+    r = generate_reply("", session_id=sid)
+    assert "looking for" in r["response"].lower(), \
+        "Empty message should return welcome prompt"
+    assert len(r["quick_replies"]) == 9, \
+        "Empty message should show all 9 category buttons"
+    mock_gemini.assert_not_called()
+    print("  PASS: empty message returns welcome")
+
+
+@patch("app.services.chatbot.query_services")
+@patch("app.services.chatbot.gemini_reply")
+def test_whitespace_message_guard(mock_gemini, mock_query):
+    """Bug 6: Whitespace-only messages should return welcome, not hit Gemini."""
+    sid = "test-whitespace"
+    clear_session(sid)
+
+    r = generate_reply("   ", session_id=sid)
+    assert "looking for" in r["response"].lower(), \
+        "Whitespace message should return welcome prompt"
+    assert len(r["quick_replies"]) == 9, \
+        "Whitespace message should show all 9 category buttons"
+    mock_gemini.assert_not_called()
+    print("  PASS: whitespace message returns welcome")

@@ -48,6 +48,8 @@ else:
 _RESET_PHRASES = [
     "start over", "reset", "clear", "new search", "begin again",
     "restart", "start again", "nevermind", "never mind",
+    "cancel my search", "please cancel", "i want to cancel",
+    "cancel search", "cancel this",
 ]
 
 # Short reset words that need exact-match to avoid false positives
@@ -94,6 +96,10 @@ _FRUSTRATION_PHRASES = [
     "doesnt work", "didn't work", "didnt work",
     "useless", "waste of time", "not working",
     "can't find anything", "cant find anything",
+    "not what i needed", "not what i need",
+    "wrong results", "results are bad", "results are wrong",
+    "thats not right", "that's not right", "thats wrong", "that's wrong",
+    "not useful", "this sucks", "so unhelpful",
 ]
 
 _BOT_IDENTITY_PHRASES = [
@@ -165,6 +171,18 @@ _CONFIRM_CHANGE_LOCATION = [
     "change borough", "change neighborhood",
 ]
 
+# Denial phrases — user declines the pending confirmation.
+# Treated as a soft reset: clears pending confirmation and offers options.
+_CONFIRM_DENY_EXACT = [
+    "no", "nah", "nope", "not yet", "wait", "hold on", "stop",
+]
+
+_CONFIRM_DENY_PHRASES = [
+    "no thanks", "no thank you", "i dont want", "i don't want",
+    "not right now", "maybe later", "changed my mind",
+    "i changed my mind",
+]
+
 
 def _classify_message(text: str) -> str:
     """
@@ -180,6 +198,7 @@ def _classify_message(text: str) -> str:
         "help"             — what can you do / how does this work
         "escalation"       — user wants to talk to a real person / peer navigator
         "confirm_yes"      — user confirmed a pending search
+        "confirm_deny"     — user declined a pending search (no / nah / not yet)
         "confirm_change_service"  — user wants to change service type
         "confirm_change_location" — user wants to change location
         "service"          — contains a service-related intent or slot data
@@ -235,6 +254,14 @@ def _classify_message(text: str) -> str:
         if cleaned.startswith(phrase) or cleaned == phrase:
             return "confirm_yes"
 
+    # Check confirmation denial (no / nah / nope / not yet)
+    for phrase in _CONFIRM_DENY_EXACT:
+        if cleaned == phrase:
+            return "confirm_deny"
+    for phrase in _CONFIRM_DENY_PHRASES:
+        if phrase in cleaned:
+            return "confirm_deny"
+
     # Check greetings (only if the message is short — "hi where's food"
     # should be classified as a service request, not a greeting)
     if len(cleaned.split()) <= 3:
@@ -242,13 +269,16 @@ def _classify_message(text: str) -> str:
             if cleaned == phrase or cleaned.startswith(phrase + " "):
                 return "greeting"
 
-    # Check thanks
-    for phrase in _THANKS_PHRASES:
-        if phrase in cleaned:
-            return "thanks"
-    for phrase in _THANKS_EXACT:
-        if cleaned == phrase:
-            return "thanks"
+    # Check thanks — but only if the message is JUST thanks.
+    # "thanks but I need more options" should fall through to service/general.
+    _has_continuation = any(w in cleaned for w in ["but", "however", "though", "need", "want", "also", "more"])
+    if not _has_continuation:
+        for phrase in _THANKS_PHRASES:
+            if phrase in cleaned:
+                return "thanks"
+        for phrase in _THANKS_EXACT:
+            if cleaned == phrase:
+                return "thanks"
 
     # Check frustration — before help since "isn't helpful" contains "help"
     for phrase in _FRUSTRATION_PHRASES:
@@ -491,6 +521,16 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     if not session_id:
         session_id = str(uuid.uuid4())
 
+    # --- Empty message guard ---
+    if not message or not message.strip():
+        return _empty_reply(
+            session_id,
+            "What are you looking for today? I can help with food, "
+            "shelter, clothing, health care, and more.",
+            get_session_slots(session_id),
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+
     # --- PII Redaction ---
     # Run redaction on every incoming message.
     # Slot extraction uses the ORIGINAL text (so locations/ages still parse).
@@ -651,6 +691,26 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
                 {"label": "Queens", "value": "Queens"},
                 {"label": "Bronx", "value": "Bronx"},
                 {"label": "Staten Island", "value": "Staten Island"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
+    if pending and category == "confirm_deny":
+        # User declined the search — clear confirmation, keep slots,
+        # and offer options so they're not stuck in a loop.
+        existing.pop("_pending_confirmation", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "No problem! I'll hold onto your info in case you want to "
+            "come back to it. What would you like to do?",
+            existing,
+            quick_replies=[
+                {"label": "🔄 Change service", "value": "Change service"},
+                {"label": "📍 Change location", "value": "Change location"},
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, category)

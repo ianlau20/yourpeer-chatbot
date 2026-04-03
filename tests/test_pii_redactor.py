@@ -160,6 +160,43 @@ def test_has_pii():
     print("  PASS: has_pii check")
 
 
+def test_numbered_street_addresses():
+    """Bug 4: Addresses with ordinal street numbers should be redacted.
+
+    Previously, '456 West 42nd Street' and '789 5th Avenue' were NOT
+    redacted because the regex required [A-Z][a-z]+ for street name
+    words, which doesn't match '42nd' or '5th'.
+    """
+    cases = [
+        ("I live at 456 West 42nd Street", "[ADDRESS]"),
+        ("meet me at 789 5th Avenue", "[ADDRESS]"),
+        ("Im at 100 East 125th Street", "[ADDRESS]"),
+        ("the office is at 200 W 34th Street", "[ADDRESS]"),
+        # Original patterns should still work
+        ("I live at 123 Main Street", "[ADDRESS]"),
+        ("Come to 456 Broadway", "[ADDRESS]"),
+        ("My address is 789 Flatbush Ave", "[ADDRESS]"),
+    ]
+    for original, expected_tag in cases:
+        redacted, dets = redact_pii(original)
+        assert expected_tag in redacted, \
+            f"Failed to redact address in: '{original}' → '{redacted}'"
+        assert any(d.pii_type == "ADDRESS" for d in dets), \
+            f"No ADDRESS detection in: '{original}'"
+
+    # Bare street names without house numbers should NOT be redacted
+    # (they're likely referring to a neighborhood/landmark, not PII)
+    safe_cases = [
+        "I live near 42nd Street",
+        "somewhere around 5th Avenue",
+    ]
+    for original in safe_cases:
+        redacted, dets = redact_pii(original)
+        assert "[ADDRESS]" not in redacted, \
+            f"False positive: '{original}' should NOT be redacted as address"
+    print("  PASS: numbered street addresses")
+
+
 if __name__ == "__main__":
     print("\nPII Redactor Tests\n" + "=" * 40)
     test_phone_numbers()
@@ -173,5 +210,6 @@ if __name__ == "__main__":
     test_multiple_pii()
     test_no_pii()
     test_has_pii()
+    test_numbered_street_addresses()
     print("\n" + "=" * 40)
     print("ALL TESTS PASSED")

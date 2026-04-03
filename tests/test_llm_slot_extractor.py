@@ -10,6 +10,7 @@ Run live tests:  ANTHROPIC_API_KEY=sk-... python tests/test_llm_slot_extractor.p
 
 import sys
 import os
+import pytest
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -256,6 +257,13 @@ def test_smart_unknown_location_goes_to_llm(mock_llm):
 # INTEGRATION TESTS (only run with --live flag)
 # -----------------------------------------------------------------------
 
+_skip_no_api_key = pytest.mark.skipif(
+    not os.getenv("ANTHROPIC_API_KEY"),
+    reason="ANTHROPIC_API_KEY not set — skipping live LLM tests",
+)
+
+
+@_skip_no_api_key
 def test_live_simple_extraction():
     """[LIVE] Simple service + location extraction."""
     result = extract_slots_llm("I need food in Brooklyn")
@@ -264,6 +272,7 @@ def test_live_simple_extraction():
     print("  PASS [LIVE]: simple extraction")
 
 
+@_skip_no_api_key
 def test_live_third_person():
     """[LIVE] Third-person extraction."""
     result = extract_slots_llm("my son is 12 and needs a warm coat")
@@ -272,6 +281,7 @@ def test_live_third_person():
     print("  PASS [LIVE]: third-person extraction")
 
 
+@_skip_no_api_key
 def test_live_contradicting_locations():
     """[LIVE] Intended vs current location."""
     result = extract_slots_llm("I'm in Queens but looking for food in the Bronx")
@@ -280,6 +290,7 @@ def test_live_contradicting_locations():
     print("  PASS [LIVE]: contradicting locations")
 
 
+@_skip_no_api_key
 def test_live_implicit_needs():
     """[LIVE] Implicit service type from context."""
     result = extract_slots_llm("somewhere safe for tonight, I'm a woman")
@@ -289,6 +300,7 @@ def test_live_implicit_needs():
     print("  PASS [LIVE]: implicit needs")
 
 
+@_skip_no_api_key
 def test_live_complex_sentence():
     """[LIVE] Complex sentence with multiple slots."""
     result = extract_slots_llm(

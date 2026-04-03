@@ -70,16 +70,27 @@ _DOB_PATTERNS = [
 ]
 
 # Street addresses: "123 Main Street", "456 Broadway", "789 Flatbush Ave"
-# Two patterns: one for "number + name + suffix", one for "number + Broadway"
+# Three patterns: standard names, ordinal streets, and Broadway special case.
 # Uses full suffix words plus safe abbreviations. Excludes 'St' (matches
 # 'status', 'still', etc.) and 'Ter' (matches 'shelter', 'terminal', etc.).
+_STREET_SUFFIX = (
+    r"(?:Street|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|"
+    r"Lane|Ln|Place|Pl|Court|Ct|Way|Terrace)"
+)
 _ADDRESS_PATTERNS = [
-    # Standard: number + street name(s) + suffix
+    # Standard: number + word-based street name(s) + suffix
+    # e.g. "300 Lafayette Street", "456 West Main Street"
     re.compile(
         r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}"
-        r"(?:Street|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|"
-        r"Lane|Ln|Place|Pl|Court|Ct|Way|Terrace)"
-        r"\b",
+        + _STREET_SUFFIX + r"\b",
+        re.IGNORECASE,
+    ),
+    # Ordinal street: number + optional direction + ordinal + suffix
+    # e.g. "456 West 42nd Street", "789 5th Avenue", "100 East 125th Street"
+    re.compile(
+        r"\b\d{1,5}\s+(?:(?:East|West|North|South|E|W|N|S)\s+)?"
+        r"\d{1,3}(?:st|nd|rd|th)\s+"
+        + _STREET_SUFFIX + r"\b",
         re.IGNORECASE,
     ),
     # Broadway special case (no suffix needed)
