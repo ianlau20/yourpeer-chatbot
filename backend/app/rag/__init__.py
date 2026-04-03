@@ -80,16 +80,18 @@ def query_services(
             if len(city_list) > 1:
                 user_params["city_list"] = city_list
         else:
-            # Neighborhood-level search: "Harlem" → try matching "Harlem" directly
-            # as a city value in the DB. Only exact city match in the strict query.
-            # The borough expansion is stored separately for the relaxed fallback.
-            neighborhood_name = location.strip().title()
-            user_params["city"] = neighborhood_name
-            # Store the borough expansion for relaxed fallback only.
-            # Prefixed with _ so it doesn't trigger FILTER_BY_CITY_IN_BOROUGH
-            # in the strict query (optional filters require "city_list" in params).
+            # Neighborhood-level search: "Chelsea" or "Williamsburg"
+            # The DB stores city values at the borough level (e.g. "New York"
+            # for all Manhattan addresses, "Brooklyn" for all Brooklyn addresses).
+            # So we use the NORMALIZED city value (the borough) for the strict
+            # query, not the raw neighborhood name which would match nothing.
+            user_params["city"] = normalized_city
+            # Also include the full borough expansion so both the strict
+            # city= filter and the city_list ANY() filter can work.
             city_list = get_borough_city_names(normalized_city)
             if len(city_list) > 1:
+                user_params["city_list"] = city_list
+                # Keep the borough list for relaxed fallback too
                 user_params["_borough_city_list"] = city_list
 
     if age is not None:

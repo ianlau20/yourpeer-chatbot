@@ -68,6 +68,9 @@ _HELP_PHRASES = [
     "help", "what can you do", "how does this work",
     "what is this", "who are you", "what do you do",
     "how do i use this", "instructions",
+    "what services", "what other services", "what else",
+    "what do you offer", "what can i search for",
+    "list services", "show services", "available services",
 ]
 
 _ESCALATION_PHRASES = [

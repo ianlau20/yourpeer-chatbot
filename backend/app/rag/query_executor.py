@@ -300,7 +300,8 @@ NYC_LOCATION_ALIASES = {
 }
 
 # Borough-level entries — these get the full neighborhood expansion.
-# Neighborhood-level entries should try a direct match first.
+# Neighborhood-level entries also use the borough city value since the DB
+# stores all addresses at the borough level (e.g. "New York" for Manhattan).
 _BOROUGH_KEYS = {
     "manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island",
 }

@@ -436,11 +436,15 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
     1. Drop time/schedule filters
     2. Drop eligibility filters (age, gender)
     3. Broaden city match:
-       - Neighborhood search: promote _borough_city_list → city_list
-         (exact "Harlem" → all Manhattan neighborhoods)
-       - Borough search: keep existing city_list
+       - If _borough_city_list exists: promote to city_list for ANY() match
+       - If city_list exists: keep it, drop exact city match
        - No expansion available: exact city → LIKE pattern
     4. State filter (NY) is NEVER dropped
+
+    Note: Since the DB stores all addresses at the borough level, both
+    borough and neighborhood searches now use the normalized borough city
+    value in strict queries. The relaxed query mainly helps by dropping
+    eligibility and schedule filters.
 
     Returns the broadest reasonable query. Caller should note to the user
     that results may be less precisely matched.
