@@ -112,7 +112,7 @@ Two Claude models are used across the system, each assigned to specific tasks ba
 
 ---
 
-### Claude Sonnet (`claude-sonnet-4-6-20260217`)
+### Claude Sonnet (`claude-sonnet-4-6`)
 
 **Used for:** Crisis detection (Stage 2 LLM classification) and LLM-as-judge evaluation.
 

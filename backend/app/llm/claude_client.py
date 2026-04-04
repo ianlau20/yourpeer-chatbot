@@ -38,7 +38,7 @@ CONVERSATIONAL_MODEL = "claude-haiku-4-5-20251001"
 SLOT_EXTRACTION_MODEL = "claude-haiku-4-5-20251001"
 
 # Crisis detection (safety-critical classification, needs nuance)
-CRISIS_DETECTION_MODEL = "claude-sonnet-4-6-20260217"
+CRISIS_DETECTION_MODEL = "claude-sonnet-4-6"
 
 # ---------------------------------------------------------------------------
 # CLIENT

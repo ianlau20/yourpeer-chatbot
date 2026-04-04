@@ -57,7 +57,7 @@ const MODELS: Record<string, ModelInfo> = {
     ],
   },
   sonnet: {
-    id: "claude-sonnet-4-6-20260217",
+    id: "claude-sonnet-4-6",
     name: "Sonnet 4.6",
     input: 3.0,
     output: 15.0,
