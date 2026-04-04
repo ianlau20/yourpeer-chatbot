@@ -71,10 +71,12 @@ _DOB_PATTERNS = [
 
 # Street addresses: "123 Main Street", "456 Broadway", "789 Flatbush Ave"
 # Three patterns: standard names, ordinal streets, and Broadway special case.
-# Uses full suffix words plus safe abbreviations. Excludes 'St' (matches
-# 'status', 'still', etc.) and 'Ter' (matches 'shelter', 'terminal', etc.).
+# Uses full suffix words plus safe abbreviations. 'St' is safe here because
+# the full address pattern requires a leading number + capitalized word,
+# which eliminates false positives like "status" or "still".
+# 'Ter' excluded (matches 'shelter', 'terminal', etc.).
 _STREET_SUFFIX = (
-    r"(?:Street|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|"
+    r"(?:Street|St\.|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|"
     r"Lane|Ln|Place|Pl|Court|Ct|Way|Terrace)"
 )
 _ADDRESS_PATTERNS = [

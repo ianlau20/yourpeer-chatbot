@@ -106,7 +106,6 @@ information, preventing hallucination.
 - **Real-time location** — no GPS support; relies on user-provided location text
 - **Caching** — DB queries are not cached
 - **Multilingual support** — English only
-- **Phone redaction in confirmation echo** — PII may appear in bot's confirmation message
 - **Adversarial service handling** — requests for impossible services proceed to search
 - **Result ordering** — alphabetical, which favors large organizations over small community orgs
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage

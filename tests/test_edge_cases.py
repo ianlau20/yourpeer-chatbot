@@ -203,6 +203,27 @@ def test_pii_redaction_preserves_age():
     assert slots["age"] == 17
 
 
+def test_pii_not_echoed_in_confirmation():
+    """PII in slot values must be redacted before echoing in confirmation."""
+    from app.services.chatbot import _build_confirmation_message
+    # Simulate a street address captured as location
+    slots = {"service_type": "food", "location": "123 Main Street"}
+    msg = _build_confirmation_message(slots)
+    assert "123 Main Street" not in msg
+    assert "[ADDRESS]" in msg
+
+    # A phone number somehow in a slot value
+    slots_phone = {"service_type": "food", "location": "212-555-1234"}
+    msg_phone = _build_confirmation_message(slots_phone)
+    assert "212-555-1234" not in msg_phone
+    assert "[PHONE]" in msg_phone
+
+    # A normal location should pass through unchanged
+    slots_clean = {"service_type": "food", "location": "Brooklyn"}
+    msg_clean = _build_confirmation_message(slots_clean)
+    assert "Brooklyn" in msg_clean
+
+
 def test_pii_with_phone_and_location():
     """Phone gets redacted, location stays intact for slot extraction."""
     msg = "Call me at 212-555-9876, I need food in Queens"

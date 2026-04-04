@@ -440,11 +440,19 @@ _CONFUSED_RESPONSE = (
 # ---------------------------------------------------------------------------
 
 def _build_confirmation_message(slots: dict) -> str:
-    """Build a human-readable confirmation prompt from filled slots."""
+    """Build a human-readable confirmation prompt from filled slots.
+
+    Slot values are redacted before echoing to prevent PII leakage
+    (e.g. a street address captured as a location).
+    """
     service = slots.get("service_type", "services")
     service_label = _SERVICE_LABELS.get(service, service)
     location = slots.get("location", "your area")
     age = slots.get("age")
+
+    # Redact any PII that may have been captured in slot values
+    # (e.g. street addresses extracted as location)
+    location, _ = redact_pii(location)
 
     parts = [f"I'll search for {service_label} in {location}"]
     if age:
