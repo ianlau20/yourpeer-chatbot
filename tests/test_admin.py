@@ -285,8 +285,12 @@ def test_queries_limit():
 
 def test_eval_no_results():
     """Should return 200 with null results when no eval results exist."""
+    from unittest.mock import patch
+    from pathlib import Path
     clear_audit_log()
-    response = client.get("/admin/api/eval")
+    # Patch TESTS_DIR to a non-existent path so eval_report.json isn't loaded
+    with patch("app.routes.admin.TESTS_DIR", Path("/nonexistent")):
+        response = client.get("/admin/api/eval")
     assert response.status_code == 200
     data = response.json()
     assert data["results"] is None

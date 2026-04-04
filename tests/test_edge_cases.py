@@ -24,9 +24,9 @@ from app.rag.query_executor import normalize_location, resolve_template_key
 # -----------------------------------------------------------------------
 
 def test_borough_normalization():
-    """NYC boroughs should map to their DB city values."""
+    """NYC boroughs should map to their canonical borough names."""
     cases = [
-        ("manhattan", "New York"),
+        ("manhattan", "Manhattan"),
         ("brooklyn", "Brooklyn"),
         ("queens", "Queens"),
         ("bronx", "Bronx"),

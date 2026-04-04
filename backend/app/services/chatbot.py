@@ -713,15 +713,21 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # The session is NOT cleared — the user may continue afterward.
     if category == "crisis":
         crisis_result = detect_crisis(message)
-        crisis_category, crisis_response = crisis_result
-        logger.warning(
-            f"Session {session_id}: crisis detected, "
-            f"category='{crisis_category}'"
-        )
-        log_crisis_detected(session_id, crisis_category, redacted_message)
-        result = _empty_reply(session_id, crisis_response, existing)
-        _log_turn(session_id, redacted_message, result, category)
-        return result
+        if crisis_result is None:
+            # Classification said crisis but detect_crisis disagrees
+            # (e.g. LLM fail-open during classification but not during
+            # the dedicated check). Treat as general conversation.
+            category = "general"
+        else:
+            crisis_category, crisis_response = crisis_result
+            logger.warning(
+                f"Session {session_id}: crisis detected, "
+                f"category='{crisis_category}'"
+            )
+            log_crisis_detected(session_id, crisis_category, redacted_message)
+            result = _empty_reply(session_id, crisis_response, existing)
+            _log_turn(session_id, redacted_message, result, category)
+            return result
 
     # --- Reset ---
     if category == "reset":
@@ -939,7 +945,12 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # --- Service request or general conversation ---
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
     # Store the REDACTED version in the session transcript.
-    if _USE_LLM:
+    #
+    # Only use LLM slot extraction for service-category messages.
+    # For non-service categories (confirm_deny, general, etc.) the LLM
+    # can hallucinate slots from conversation history, causing unwanted
+    # re-confirmation after a search is already complete.
+    if _USE_LLM and category == "service":
         extracted = extract_slots_smart(
             message,
             conversation_history=existing.get("transcript", []),
