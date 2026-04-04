@@ -6,7 +6,7 @@ Built by [Streetlives](https://www.streetlives.nyc/) as a front-end to the [Your
 
 ## How It Works
 
-A user describes what they need in plain language — or taps a quick-reply button. The chatbot extracts the service type and location through natural conversation, confirms the search parameters, then queries the Streetlives database and returns real, verified service listings as interactive cards — with addresses, hours, phone numbers, and links to the full YourPeer listing.
+A user describes what they need in plain language — by typing, tapping a quick-reply button, or using voice input. The chatbot extracts the service type and location through natural conversation, confirms the search parameters, then queries the Streetlives database and returns real, verified service listings as interactive cards — with addresses, hours, phone numbers, and links to the full YourPeer listing. The interface supports screen readers, keyboard navigation, and voice input for low-literacy and low-vision users.
 
 ```
 User:  taps "🍽️ Food"
@@ -18,6 +18,37 @@ Bot:   returns → 2 service cards with names, addresses, hours, and action butt
 ```
 
 **No hallucination by design.** The LLM handles conversation only — all service data comes from deterministic database queries using pre-reviewed templates. The bot never makes up service names, addresses, or eligibility rules.
+
+## Quick Start
+
+```bash
+# Clone and set up backend
+git clone https://github.com/ianlau20/yourpeer-chatbot.git
+cd yourpeer-chatbot
+python3 -m venv backend/venv
+source backend/venv/bin/activate
+pip install -r backend/requirements.txt
+
+# Configure backend environment
+cp .env.example .env
+# Edit .env with your GEMINI_API_KEY, GEMINI_MODEL, and DATABASE_URL
+# Optional: add ANTHROPIC_API_KEY for LLM-enhanced slot extraction and crisis detection
+
+# Run backend (Terminal 1)
+cd backend
+uvicorn app.main:app --reload
+
+# Set up and run frontend (Terminal 2 — requires Node.js 18.18+)
+cd frontend-next
+npm install
+echo "CHAT_BACKEND_URL=http://localhost:8000" > .env.local
+npm run dev
+
+# Open http://localhost:3000/chat   (chat interface)
+# Open http://localhost:3000/admin  (staff review console)
+```
+
+See [SETUP.md](SETUP.md) for detailed instructions including prerequisites, IDE configuration, and Render deployment.
 
 ## Architecture
 
@@ -35,7 +66,7 @@ User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Conf
                           Confirmation
                           handling
 
-Staff → Admin Console (/admin/) → Audit Log API → Anonymized transcripts, query logs, crisis events, stats
+Staff → Admin Console (/admin) → Audit Log API → Anonymized transcripts, query logs, crisis events, stats
                                        ↓
                                   Eval Results → LLM-as-judge scores (from eval_llm_judge.py)
 ```
@@ -49,7 +80,7 @@ The system follows a **Safer, Limited RAG** pattern with four phases:
 
 ## Features
 
-See [FEATURES.md](FEATURES.md) for the full feature reference, organized by area: conversation & intake, crisis detection, search & results, service cards, privacy & safety, and staff tools.
+See [FEATURES.md](FEATURES.md) for the full feature reference, organized by area: conversation & intake, crisis detection, search & results, service cards, privacy & safety, accessibility, and staff tools.
 
 ## Tech Stack
 
@@ -60,8 +91,8 @@ See [FEATURES.md](FEATURES.md) for the full feature reference, organized by area
 | Crisis Detection | Regex pre-check + Claude Haiku (LLM stage, when ANTHROPIC_API_KEY is set) |
 | Conversational Fallback | Google Gemini (dialog only, not for service data) |
 | Database | Streetlives PostgreSQL on AWS RDS (read-only), PostGIS for neighborhood proximity |
-| Frontend | Vanilla HTML/CSS/JS with service card carousel |
-| Deployment | Render (free tier) |
+| Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS, Zustand, Radix UI, Lucide icons |
+| Deployment | Render (two services: FastAPI API + Next.js frontend) |
 
 ## Models
 
@@ -117,31 +148,6 @@ Four models are used across the system. Each has a specific, bounded role — no
 
 **Not part of the production system.** The eval runner is a development and QA tool. It consumes API quota but has no effect on conversations.
 
-## Quick Start
-
-```bash
-# Clone and set up
-git clone https://github.com/ianlau20/yourpeer-chatbot.git
-cd yourpeer-chatbot
-python3 -m venv backend/venv
-source backend/venv/bin/activate
-pip install -r backend/requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your GEMINI_API_KEY, GEMINI_MODEL, and DATABASE_URL
-# Optional: add ANTHROPIC_API_KEY for LLM-enhanced slot extraction and crisis detection
-
-# Run
-cd backend
-uvicorn app.main:app --reload
-
-# Open http://127.0.0.1:8000        (chat interface)
-# Open http://127.0.0.1:8000/admin/  (staff review console)
-```
-
-See [SETUP.md](SETUP.md) for detailed instructions including IDE configuration and troubleshooting.
-
 ## Known Limitations & Future Work
 
 These are tracked issues identified during DB audits and pilot testing, deferred for post-pilot resolution.
@@ -170,7 +176,7 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | [EVAL_RESULTS.md](EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
 | [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
-| [TESTING.md](TESTING.md) | Test suite guide — 444 unit tests across 14 suites + 83-scenario LLM-as-judge evaluation framework |
+| [TESTING.md](TESTING.md) | Test suite guide — 379 unit tests across 14 suites + 85-scenario LLM-as-judge evaluation framework |
 | [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories

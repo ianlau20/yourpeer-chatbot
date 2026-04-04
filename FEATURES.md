@@ -63,13 +63,28 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 
 ---
 
+## Accessibility
+
+The frontend is designed for the population served — people who may be using screen readers, keyboard-only navigation, or voice input on shared or low-end devices.
+
+- **Screen reader support** — chat messages are announced via `aria-live` regions as they arrive. User and bot messages are labeled distinctly ("You said" / "YourPeer said"). Loading and error states are announced without interrupting the conversation flow
+- **Keyboard navigation** — every interactive element is reachable and operable via keyboard. The service carousel supports left/right arrow keys. Admin conversation rows respond to Enter and Space. Focus management returns to the input after sending
+- **Voice input** — Web Speech API microphone button for users who prefer speaking to typing. Interim transcripts appear in real time. The button auto-hides on browsers without speech support, and shows clear error messages for denied mic access
+- **Semantic HTML** — the chat area uses `role="log"`, the carousel uses `role="region"` with `aria-roledescription="carousel"`, service cards use `role="listitem"` with position announcements ("result 1 of 3"), quick replies are grouped with `role="group"`
+- **Labeled controls** — all icon-only buttons have `aria-label` attributes (send, mic, previous/next, thumbs up/down, close). The text input has a visually hidden `<label>`. Action links on service cards include the service name ("Call Food Pantry", "Get directions to Food Pantry")
+- **Decorative elements hidden** — all decorative icons (map pin, phone, clock, mail) and carousel dot indicators are marked `aria-hidden="true"` so screen readers skip them
+- **Focus indicators** — all focusable elements show visible focus rings via Tailwind's `focus:ring` utilities
+- **Accessible dialog** — the admin transcript viewer uses Radix Dialog, which provides keyboard trap, Escape to close, and focus restoration out of the box
+
+---
+
 ## Staff Tools
 
-- **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin/`. Includes a full transcript viewer with slot metadata and crisis flags
+- **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin`. Includes a full transcript viewer with slot metadata and crisis flags
 - **Metrics tab** — 18 live metrics across 5 layers (intake quality, answer quality, safety, system quality/eval, closed-loop) with targets and status indicators
 - **User feedback** — thumbs up/down on every bot response; feedback scores are surfaced in the admin Overview and Metrics tabs
 - **In-browser eval runner** — the Eval tab in the staff console includes a "Run Evals" button that triggers the LLM-as-judge suite as a FastAPI background task, with live progress polling and a scenario count selector (5 / 10 / 20 / all)
-- **LLM-as-judge evaluation** — 83-scenario automated evaluation framework across 17 categories, simulating conversations and scoring across 8 quality dimensions: slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, and error recovery. Outputs a structured report with per-scenario scores, critical failure tracking, and category averages. See [EVAL_RESULTS.md](EVAL_RESULTS.md) for full run history
+- **LLM-as-judge evaluation** — 85-scenario automated evaluation framework across 17 categories, simulating conversations and scoring across 8 quality dimensions: slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, and error recovery. Outputs a structured report with per-scenario scores, critical failure tracking, and category averages. See [EVAL_RESULTS.md](EVAL_RESULTS.md) for full run history
 
 ---
 

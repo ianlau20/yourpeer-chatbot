@@ -2,7 +2,7 @@
 Admin API Routes — Staff review console endpoints.
 
 All endpoints are prefixed with /admin/api/.
-The admin HTML page is served at /admin/.
+The admin UI is served by Next.js at /admin/.
 """
 
 import os
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Query, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from app.services.audit_log import (
     get_recent_events,
@@ -40,23 +40,18 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # Path to the eval runner (relative to project root)
 TESTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tests"
 
-# Path to the admin frontend
-FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent.parent / "frontend"
-
 
 # ---------------------------------------------------------------------------
-# ADMIN FRONTEND
+# ADMIN UI REDIRECT
 # ---------------------------------------------------------------------------
 
 @router.get("/")
-def serve_admin():
-    """Serve the admin console HTML page."""
-    admin_path = FRONTEND_DIR / "admin.html"
-    if admin_path.exists():
-        return FileResponse(str(admin_path))
+def admin_root():
+    """The admin UI is served by Next.js. Point users there."""
     return JSONResponse(
-        status_code=404,
-        content={"detail": "Admin console not found. Ensure frontend/admin.html exists."},
+        content={
+            "detail": "Admin UI is served by Next.js at http://localhost:3000/admin",
+        },
     )
 
 
