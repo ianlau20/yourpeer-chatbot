@@ -1,15 +1,16 @@
 services:
   # -----------------------------------------------------------------------
-  # Backend — FastAPI (headless API only, no static file serving)
+  # Backend — FastAPI (headless API)
   # -----------------------------------------------------------------------
   - type: web
     name: yourpeer-chatbot-api
     runtime: python
-    python: "3.12"
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
@@ -25,14 +26,13 @@ services:
   - type: web
     name: yourpeer-chatbot
     runtime: node
-    nodeVersion: "24"
     rootDir: frontend-next
     buildCommand: npm install && npm run build
     startCommand: npm run start
     envVars:
-      # Points at the internal Render service URL for the backend above.
-      # After first deploy, replace with the actual .onrender.com URL.
+      - key: NODE_VERSION
+        value: "24.0.0"
+      # Points at the backend's Render URL.
+      # After first deploy, verify this matches the actual .onrender.com URL.
       - key: CHAT_BACKEND_URL
         value: https://yourpeer-chatbot-api.onrender.com
-      - key: PORT
-        value: "3000"
