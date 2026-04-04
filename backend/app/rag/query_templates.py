@@ -61,7 +61,9 @@ SELECT
     best_phone.number     AS phone,
 
     today_sched.opens_at   AS today_opens,
-    today_sched.closes_at  AS today_closes
+    today_sched.closes_at  AS today_closes,
+
+    membership_elig.requires_membership AS requires_membership
 
 FROM services s
     JOIN service_taxonomy st       ON s.id = st.service_id
@@ -91,6 +93,19 @@ FROM services s
           AND rs.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int - 1
         LIMIT 1
     ) today_sched ON TRUE
+    LEFT JOIN LATERAL (
+        -- Returns true only when ALL eligible_values are ["true"] (referral required).
+        -- Services with ["true","false"] or no membership rule return NULL (no badge shown).
+        SELECT (
+            e.eligible_values = '["true"]'::jsonb
+            OR e.eligible_values = '[true]'::jsonb
+        ) AS requires_membership
+        FROM eligibility e
+        JOIN eligibility_parameters ep ON ep.id = e.parameter_id
+        WHERE e.service_id = s.id
+          AND ep.name = 'membership'
+        LIMIT 1
+    ) membership_elig ON TRUE
 """
 
 # ---------------------------------------------------------------------------
@@ -102,6 +117,25 @@ FROM services s
 FILTER_BY_TAXONOMY_NAME = (
     "LOWER(t.name) = LOWER(:taxonomy_name)",
     ["taxonomy_name"],
+)
+
+# Multi-value taxonomy match — used when a service category maps to several
+# taxonomy names in the DB (e.g. clothing services are split across
+# "Clothing", "Clothing Pantry", "Interview-Ready Clothing", etc.).
+# Passes a list of lowercase names; ANY() matches if t.name is in the list.
+FILTER_BY_TAXONOMY_NAME_IN = (
+    "LOWER(t.name) = ANY(:taxonomy_names)",
+    ["taxonomy_names"],
+)
+
+# Borough filter — uses the physical_addresses.borough column directly.
+# This is the most reliable borough filter: the borough column is clean,
+# consistently populated, and avoids the city-field casing chaos
+# (e.g. "BRONX" vs "Bronx" vs "The Bronx" all in the same borough).
+# Case-insensitive match handles any remaining inconsistencies.
+FILTER_BY_BOROUGH = (
+    "LOWER(pa.borough) = LOWER(:borough)",
+    ["borough"],
 )
 
 FILTER_BY_CITY = (
@@ -244,8 +278,9 @@ TEMPLATES = {
     "food": {
         "name": "FoodQuery",
         "description": "Find food services (pantries, soup kitchens, meals) by location",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -253,19 +288,41 @@ TEMPLATES = {
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
             FILTER_BY_WEEKDAY,
+            # FILTER_BY_OPEN_NOW is defined but the chatbot does not currently pass
+            # weekday/current_time params. DB audit (Apr 2026) shows schedule data
+            # is only populated for walk-in services: Soup Kitchen (81%), Shower (55%),
+            # Clothing Pantry (64%), Food Pantry (40%). Enabling this filter would
+            # silently exclude the majority of services with no schedule rows.
+            # Re-enable only if schedule coverage improves substantially.
             FILTER_BY_OPEN_NOW,
         ],
-        "default_params": {"taxonomy_name": "Food"},
+        "default_params": {
+            "taxonomy_names": [
+                "food",
+                "food pantry",
+                "food benefits",
+                "mobile pantry",
+                "mobile food truck",
+                "mobile market",
+                "food delivery / meals on wheels",
+                "soup kitchen",
+                "mobile soup kitchen",
+                "brown bag",
+                "farmer's markets",
+            ]
+        },
         "taxonomy_aliases": [
-            "Food", "Food Pantry", "Mobile Pantry", "Mobile Market",
-            "Mobile Soup Kitchen", "Brown Bag", "Farmer's Markets",
+            "Food", "Food Pantry", "Food Benefits", "Mobile Pantry",
+            "Mobile Food Truck", "Mobile Market", "Food Delivery / Meals on Wheels",
+            "Soup Kitchen", "Mobile Soup Kitchen", "Brown Bag", "Farmer's Markets",
         ],
     },
     "shelter": {
         "name": "HousingEligibilityQuery",
         "description": "Find shelters and housing with eligibility checks",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -274,14 +331,28 @@ TEMPLATES = {
             FILTER_BY_GENDER_ELIGIBILITY,
             FILTER_BY_WEEKDAY,
         ],
-        "default_params": {"taxonomy_name": "Shelter"},
-        "taxonomy_aliases": ["Shelter"],
+        "default_params": {
+            "taxonomy_names": [
+                "shelter",
+                "transitional independent living (til)",
+                "supportive housing",
+                "housing lottery",
+                "veterans short-term housing",
+                "warming center",
+                "safe haven",
+            ]
+        },
+        "taxonomy_aliases": [
+            "Shelter", "Transitional Independent Living (TIL)", "Supportive Housing",
+            "Housing Lottery", "Veterans Short-Term Housing", "Warming Center", "Safe Haven",
+        ],
     },
     "clothing": {
         "name": "ClothingQuery",
         "description": "Find clothing distribution services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -289,55 +360,87 @@ TEMPLATES = {
             FILTER_BY_AGE_ELIGIBILITY,
             FILTER_BY_GENDER_ELIGIBILITY,
         ],
-        "default_params": {"taxonomy_name": "Clothing"},
-        "taxonomy_aliases": ["Clothing"],
+        "default_params": {
+            "taxonomy_names": [
+                "clothing",
+                "clothing pantry",
+                "interview-ready clothing",
+                "professional clothing",
+                "coat drive",
+                "thrift shop",
+            ]
+        },
+        "taxonomy_aliases": [
+            "Clothing", "Clothing Pantry", "Interview-Ready Clothing",
+            "Professional Clothing", "Coat Drive", "Thrift Shop",
+        ],
     },
     "medical": {
         "name": "HealthcareQuery",
         "description": "Find medical and healthcare services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
-        "default_params": {"taxonomy_name": "Health"},
-        "taxonomy_aliases": ["Health", "Crisis"],
+        "default_params": {
+            "taxonomy_names": [
+                "health",
+                "general health",
+                "crisis",
+            ]
+        },
+        "taxonomy_aliases": ["Health", "General Health", "Crisis"],
     },
     "legal": {
         "name": "LegalQuery",
         "description": "Find legal aid and immigration services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
         ],
-        "default_params": {"taxonomy_name": "Legal Services"},
-        "taxonomy_aliases": ["Legal Services", "Advocates / Legal Aid"],
+        "default_params": {
+            "taxonomy_names": [
+                "legal services",
+                "immigration services",
+            ]
+        },
+        "taxonomy_aliases": ["Legal Services", "Immigration Services"],
     },
     "employment": {
         "name": "EmploymentQuery",
         "description": "Find job training and employment services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
-        "default_params": {"taxonomy_name": "Employment"},
-        "taxonomy_aliases": ["Employment"],
+        "default_params": {
+            "taxonomy_names": [
+                "employment",
+                "internship",
+            ]
+        },
+        "taxonomy_aliases": ["Employment", "Internship"],
     },
     "personal_care": {
         "name": "PersonalCareQuery",
         "description": "Find showers, laundry, toiletries, and hygiene services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
@@ -345,35 +448,93 @@ TEMPLATES = {
             FILTER_BY_GENDER_ELIGIBILITY,
             FILTER_BY_WEEKDAY,
         ],
-        "default_params": {"taxonomy_name": "Personal Care"},
-        "taxonomy_aliases": ["Personal Care", "Shower", "Laundry", "Toiletries"],
+        "default_params": {
+            "taxonomy_names": [
+                "personal care",
+                "shower",
+                "laundry",
+                "toiletries",
+                "hygiene",
+                "haircut",
+                "restrooms",
+            ]
+        },
+        "taxonomy_aliases": [
+            "Personal Care", "Shower", "Laundry", "Toiletries",
+            "Hygiene", "Haircut", "Restrooms",
+        ],
     },
     "mental_health": {
         "name": "MentalHealthQuery",
-        "description": "Find mental health, counseling, and substance abuse services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "description": "Find mental health, counseling, and substance use services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
             FILTER_BY_AGE_ELIGIBILITY,
         ],
-        "default_params": {"taxonomy_name": "Mental Health"},
-        "taxonomy_aliases": ["Mental Health"],
+        "default_params": {
+            "taxonomy_names": [
+                "mental health",
+                "substance use treatment",
+                "residential recovery",
+                "support groups",
+            ]
+        },
+        "taxonomy_aliases": [
+            "Mental Health", "Substance Use Treatment",
+            "Residential Recovery", "Support Groups",
+        ],
     },
     "other": {
         "name": "OtherServicesQuery",
-        "description": "Find benefits, IDs, mail, phone, and miscellaneous services",
-        "required_filters": [FILTER_BY_TAXONOMY_NAME, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
+        "description": "Find benefits, drop-in centers, case workers, and miscellaneous services",
+        "required_filters": [FILTER_BY_TAXONOMY_NAME_IN, FILTER_NOT_HIDDEN, FILTER_BY_STATE_NY],
         "optional_filters": [
+            FILTER_BY_BOROUGH,
             FILTER_BY_CITY,
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
         ],
-        "default_params": {"taxonomy_name": "Other service"},
-        "taxonomy_aliases": ["Other service"],
+        "default_params": {
+            "taxonomy_names": [
+                "other service",
+                "benefits",
+                "drop-in center",
+                "case workers",
+                "referral",
+                "education",
+                "mail",
+                "free wifi",
+                "taxes",
+                "baby supplies",
+                "baby",
+                "assessment",
+                "community services",
+                "activities",
+                "appliances",
+                "gym",
+                "pets",
+                "single adult",
+                "families",
+                "youth",
+                "senior",
+                "veterans",
+                "lgbtq young adult",
+                "intake",
+            ]
+        },
+        "taxonomy_aliases": [
+            "Other service", "Benefits", "Drop-in Center", "Case Workers",
+            "Referral", "Education", "Mail", "Free Wifi", "Taxes",
+            "Baby Supplies", "Baby", "Assessment", "Community Services",
+            "Activities", "Appliances", "Gym", "Pets", "Single Adult",
+            "Families", "Youth", "Senior", "Veterans", "LGBTQ Young Adult", "Intake",
+        ],
     },
 }
 
@@ -471,6 +632,10 @@ def build_relaxed_query(template_key: str, user_params: dict) -> tuple[str, dict
     for key in ["lat", "lon", "radius_meters"]:
         relaxed_params.pop(key, None)
 
+    # Drop borough filter — keep city_list as the broader fallback.
+    # This ensures records where pa.borough is NULL can still be found.
+    relaxed_params.pop("borough", None)
+
     # Promote _borough_city_list (from neighborhood searches) to city_list
     # so the relaxed query broadens from "Harlem" to all of Manhattan.
     if "_borough_city_list" in relaxed_params:
@@ -543,6 +708,9 @@ def format_service_card(row: dict) -> dict:
         "yourpeer_url": yourpeer_url,
         "hours_today": schedule_status["hours_today"],
         "is_open": schedule_status["is_open"],
+        # True only when membership eligible_values = ["true"] exclusively.
+        # None/False means open to all or accepts both members and non-members.
+        "requires_membership": bool(row.get("requires_membership")),
     }
 
 

@@ -48,6 +48,8 @@ else:
 _RESET_PHRASES = [
     "start over", "reset", "clear", "new search", "begin again",
     "restart", "start again", "nevermind", "never mind",
+    "cancel my search", "please cancel", "i want to cancel",
+    "cancel search", "cancel this",
 ]
 
 # Short reset words that need exact-match to avoid false positives
@@ -60,8 +62,14 @@ _GREETING_PHRASES = [
 ]
 
 _THANKS_PHRASES = [
-    "thanks", "thank you", "thx", "ty", "appreciate it",
+    "thanks", "thank you", "appreciate it",
     "that helps", "perfect", "great thanks", "awesome",
+]
+
+# Short thanks words that need exact match to avoid substring collisions
+# (e.g., "ty" in "city", "Port Authority"; "thx" unlikely to collide but safe)
+_THANKS_EXACT = [
+    "thx", "ty",
 ]
 
 _HELP_PHRASES = [
@@ -78,6 +86,47 @@ _ESCALATION_PHRASES = [
     "speak to someone", "speak to a person", "real person",
     "human", "connect me", "call someone", "live chat",
     "case manager", "social worker", "counselor",
+]
+
+_FRUSTRATION_PHRASES = [
+    "not helpful", "isn't helpful", "isnt helpful",
+    "doesn't help", "doesnt help", "didn't help", "didnt help",
+    "already tried", "tried that", "tried those",
+    "none of those", "none of them", "doesn't work",
+    "doesnt work", "didn't work", "didnt work",
+    "useless", "waste of time", "not working",
+    "can't find anything", "cant find anything",
+    "not what i needed", "not what i need",
+    "wrong results", "results are bad", "results are wrong",
+    "thats not right", "that's not right", "thats wrong", "that's wrong",
+    "not useful", "this sucks", "so unhelpful",
+]
+
+_BOT_IDENTITY_PHRASES = [
+    "are you a robot", "are you a bot", "are you ai",
+    "are you a real person", "are you human",
+    "am i talking to a person", "am i talking to a human",
+    "is this a bot", "is this ai", "is this a chatbot",
+    "is this a real person", "who am i talking to",
+    "are you a computer", "are you a machine",
+    "talking to a robot",
+]
+
+# Confusion / overwhelm — the user doesn't know what they need.
+# These MUST be caught before hitting the LLM, which would otherwise
+# interpret "I don't know what to do" as a mental health request.
+_CONFUSED_PHRASES = [
+    "don't know what to do", "dont know what to do",
+    "idk what to do", "i don't know", "i dont know",
+    "not sure what i need", "don't know what i need",
+    "dont know what i need", "what should i do",
+    "don't know where to start", "dont know where to start",
+    "i'm confused", "im confused",
+    "i'm lost", "im lost",
+    "i'm overwhelmed", "im overwhelmed",
+    "i'm not sure", "im not sure",
+    "where do i start", "where do i begin",
+    "what are my options", "what can i do",
 ]
 
 # ---------------------------------------------------------------------------
@@ -139,6 +188,18 @@ _CONFIRM_CHANGE_LOCATION = [
     "change borough", "change neighborhood",
 ]
 
+# Denial phrases — user declines the pending confirmation.
+# Treated as a soft reset: clears pending confirmation and offers options.
+_CONFIRM_DENY_EXACT = [
+    "no", "nah", "nope", "not yet", "wait", "hold on", "stop",
+]
+
+_CONFIRM_DENY_PHRASES = [
+    "no thanks", "no thank you", "i dont want", "i don't want",
+    "not right now", "maybe later", "changed my mind",
+    "i changed my mind",
+]
+
 
 def _classify_message(text: str) -> str:
     """
@@ -147,13 +208,17 @@ def _classify_message(text: str) -> str:
     Returns one of:
         "crisis"           — suicide, violence, DV, trafficking, medical emergency
         "reset"            — user wants to start over
+        "bot_identity"     — user asking if they're talking to AI or a person
         "greeting"         — hi / hello / hey
         "thanks"           — thank you / thx
+        "frustration"      — user frustrated with results or bot
         "help"             — what can you do / how does this work
         "escalation"       — user wants to talk to a real person / peer navigator
         "confirm_yes"      — user confirmed a pending search
+        "confirm_deny"     — user declined a pending search (no / nah / not yet)
         "confirm_change_service"  — user wants to change service type
         "confirm_change_location" — user wants to change location
+        "confused"         — user doesn't know what they need (overwhelmed, lost)
         "service"          — contains a service-related intent or slot data
         "general"          — everything else (conversational, follow-up, unclear)
     """
@@ -175,6 +240,13 @@ def _classify_message(text: str) -> str:
     for phrase in _RESET_EXACT:
         if cleaned == phrase:
             return "reset"
+
+    # Check bot identity — before escalation since "real person" would
+    # otherwise match escalation. Bot identity questions are distinct from
+    # requests to talk to a person.
+    for phrase in _BOT_IDENTITY_PHRASES:
+        if phrase in cleaned:
+            return "bot_identity"
 
     # Check escalation — before greetings/thanks so "connect me with
     # a peer navigator please" doesn't fall through
@@ -200,6 +272,14 @@ def _classify_message(text: str) -> str:
         if cleaned.startswith(phrase) or cleaned == phrase:
             return "confirm_yes"
 
+    # Check confirmation denial (no / nah / nope / not yet)
+    for phrase in _CONFIRM_DENY_EXACT:
+        if cleaned == phrase:
+            return "confirm_deny"
+    for phrase in _CONFIRM_DENY_PHRASES:
+        if phrase in cleaned:
+            return "confirm_deny"
+
     # Check greetings (only if the message is short — "hi where's food"
     # should be classified as a service request, not a greeting)
     if len(cleaned.split()) <= 3:
@@ -207,10 +287,29 @@ def _classify_message(text: str) -> str:
             if cleaned == phrase or cleaned.startswith(phrase + " "):
                 return "greeting"
 
-    # Check thanks
-    for phrase in _THANKS_PHRASES:
+    # Check thanks — but only if the message is JUST thanks.
+    # "thanks but I need more options" should fall through to service/general.
+    _has_continuation = any(w in cleaned for w in ["but", "however", "though", "need", "want", "also", "more"])
+    if not _has_continuation:
+        for phrase in _THANKS_PHRASES:
+            if phrase in cleaned:
+                return "thanks"
+        for phrase in _THANKS_EXACT:
+            if cleaned == phrase:
+                return "thanks"
+
+    # Check frustration — before help since "isn't helpful" contains "help"
+    for phrase in _FRUSTRATION_PHRASES:
         if phrase in cleaned:
-            return "thanks"
+            return "frustration"
+
+    # Check confusion/overwhelm — BEFORE help and BEFORE slot extraction.
+    # "I don't know what to do" must NOT reach the LLM, which would
+    # interpret it as a mental health request and trigger a false
+    # confirmation for a service the user never asked for.
+    for phrase in _CONFUSED_PHRASES:
+        if phrase in cleaned:
+            return "confused"
 
     # Check help
     for phrase in _HELP_PHRASES:
@@ -271,6 +370,40 @@ _ESCALATION_RESPONSE = (
     "anything else I can help with?"
 )
 
+_FRUSTRATION_RESPONSE = (
+    "I'm sorry this hasn't been what you needed. I understand how "
+    "frustrating it can be when you've already tried places and they "
+    "didn't work out.\n\n"
+    "Here are some options:\n"
+    "• I can search a different area or service type\n"
+    "• I can connect you with a peer navigator who knows the system well\n"
+    "• Call 311 for live social services help\n\n"
+    "What would be most helpful for you right now?"
+)
+
+_BOT_IDENTITY_RESPONSE = (
+    "I'm an AI assistant for YourPeer. I help you find free services in "
+    "NYC — things like food, shelter, clothing, and more — using verified "
+    "information from our database.\n\n"
+    "I don't make up information. All the services I show you come from "
+    "real locations that have been checked by people who've used them.\n\n"
+    "If you'd like to talk to a real person, I can connect you with a "
+    "peer navigator. Otherwise, just tell me what you need help with!"
+)
+
+_CONFUSED_RESPONSE = (
+    "That's okay — you don't have to know exactly what you need. "
+    "I can help you figure it out.\n\n"
+    "Here are some things people often look for:\n"
+    "• A meal or groceries\n"
+    "• A place to stay tonight\n"
+    "• A shower, clean clothes, or toiletries\n"
+    "• A doctor or someone to talk to\n"
+    "• Help with legal issues, a job, or benefits\n\n"
+    "Tap any option below, or just tell me what's going on "
+    "and I'll point you in the right direction."
+)
+
 
 # ---------------------------------------------------------------------------
 # CONFIRMATION HELPERS
@@ -317,15 +450,109 @@ def _follow_up_quick_replies(slots: dict) -> list:
 
     return []
 
-# Nearby borough suggestions for when a query returns no results
-_NEARBY_BOROUGHS = {
-    "Queens": ["Brooklyn", "Manhattan"],
-    "Brooklyn": ["Manhattan", "Queens"],
-    "Manhattan": ["Brooklyn", "Queens"],
-    "Bronx": ["Manhattan", "Queens"],
-    "Staten Island": ["Brooklyn", "Manhattan"],
-    "New York": ["Brooklyn", "Queens"],  # Manhattan alias
+# Borough suggestions when a query returns no results.
+# Ordered by actual service availability from DB audit (Apr 2026),
+# not just geographic proximity. Each service type lists boroughs
+# from highest to lowest service count, excluding the user's own borough.
+#
+# Format: { service_type: { borough: [suggestion1, suggestion2] } }
+# Falls back to _NEARBY_BOROUGHS_DEFAULT for unknown service types.
+
+_NEARBY_BOROUGHS_BY_SERVICE = {
+    "food": {
+        "Manhattan":    ["Brooklyn", "Queens"],
+        "Brooklyn":     ["Queens", "Bronx"],
+        "Queens":       ["Brooklyn", "Bronx"],
+        "Bronx":        ["Brooklyn", "Queens"],
+        "Staten Island": ["Brooklyn", "Queens"],
+    },
+    "shelter": {
+        # Shelter is thin everywhere — Manhattan has most (14), suggest it first
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "clothing": {
+        # Manhattan-heavy (34). Queens only has 3 — always suggest Manhattan
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "personal_care": {
+        # Shower: Manhattan (14), Bronx (5), Queens (4). Brooklyn only has 2
+        "Manhattan":    ["Bronx", "Queens"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Bronx"],
+        "Bronx":        ["Manhattan", "Queens"],
+        "Staten Island": ["Manhattan", "Queens"],
+    },
+    "medical": {
+        # Health: Manhattan (237), Brooklyn (158), Bronx (118)
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "mental_health": {
+        # Mental Health: Manhattan (40), Brooklyn (36), Queens (18)
+        "Manhattan":    ["Brooklyn", "Queens"],
+        "Brooklyn":     ["Manhattan", "Queens"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "legal": {
+        # Legal: Manhattan (19), Brooklyn (9), Bronx (6)
+        "Manhattan":    ["Brooklyn", "Bronx"],
+        "Brooklyn":     ["Manhattan", "Bronx"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
+    "employment": {
+        # Employment: Manhattan (9), Brooklyn (6), Queens (2)
+        "Manhattan":    ["Brooklyn", "Queens"],
+        "Brooklyn":     ["Manhattan", "Queens"],
+        "Queens":       ["Manhattan", "Brooklyn"],
+        "Bronx":        ["Manhattan", "Brooklyn"],
+        "Staten Island": ["Manhattan", "Brooklyn"],
+    },
 }
+
+# Default fallback — geographic proximity when no service-specific data
+_NEARBY_BOROUGHS_DEFAULT = {
+    "Manhattan":    ["Brooklyn", "Queens"],
+    "Brooklyn":     ["Manhattan", "Queens"],
+    "Queens":       ["Brooklyn", "Manhattan"],
+    "Bronx":        ["Manhattan", "Queens"],
+    "Staten Island": ["Brooklyn", "Manhattan"],
+    "New York":     ["Brooklyn", "Queens"],  # Manhattan alias
+}
+
+# Service types that map to each template key (mirrors SLOT_SERVICE_TO_TEMPLATE)
+_SERVICE_TO_BOROUGH_KEY = {
+    "food": "food",
+    "shelter": "shelter", "housing": "shelter",
+    "clothing": "clothing",
+    "personal_care": "personal_care", "shower": "personal_care",
+    "medical": "medical", "healthcare": "medical", "health": "medical",
+    "mental_health": "mental_health",
+    "legal": "legal",
+    "employment": "employment", "job": "employment",
+}
+
+
+def _get_nearby_boroughs(service_type: str | None, borough: str) -> list[str]:
+    """Return the best nearby boroughs to suggest for a given service + borough combo."""
+    service_key = _SERVICE_TO_BOROUGH_KEY.get((service_type or "").lower())
+    if service_key and service_key in _NEARBY_BOROUGHS_BY_SERVICE:
+        return _NEARBY_BOROUGHS_BY_SERVICE[service_key].get(borough, [])
+    return _NEARBY_BOROUGHS_DEFAULT.get(borough, [])
 
 
 def _no_results_message(slots: dict) -> str:
@@ -333,10 +560,13 @@ def _no_results_message(slots: dict) -> str:
     service = slots.get("service_type", "services")
     location = slots.get("location", "your area")
 
-    # Suggest nearby boroughs if we know the normalized city
-    from app.rag.query_executor import normalize_location
+    from app.rag.query_executor import normalize_location, is_borough
     normalized = normalize_location(location) if location else None
-    nearby = _NEARBY_BOROUGHS.get(normalized, [])
+
+    # Only suggest nearby boroughs if the user searched at the borough level
+    nearby = []
+    if normalized and is_borough(location):
+        nearby = _get_nearby_boroughs(service, normalized)
 
     parts = [
         f"I wasn't able to find {service} services in {location} "
@@ -345,13 +575,9 @@ def _no_results_message(slots: dict) -> str:
 
     if nearby:
         nearby_str = " or ".join(nearby[:2])
-        parts.append(
-            f"Would you like me to try {nearby_str} instead?"
-        )
+        parts.append(f"Would you like me to try {nearby_str} instead?")
     else:
-        parts.append(
-            "You could try a different neighborhood or borough."
-        )
+        parts.append("You could try a different neighborhood or borough.")
 
     parts.append(
         'You can also say "connect with peer navigator" to talk to a real person.'
@@ -427,6 +653,16 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     if not session_id:
         session_id = str(uuid.uuid4())
 
+    # --- Empty message guard ---
+    if not message or not message.strip():
+        return _empty_reply(
+            session_id,
+            "What are you looking for today? I can help with food, "
+            "shelter, clothing, health care, and more.",
+            get_session_slots(session_id),
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+
     # --- PII Redaction ---
     # Run redaction on every incoming message.
     # Slot extraction uses the ORIGINAL text (so locations/ages still parse).
@@ -496,18 +732,70 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
     # --- Help ---
     if category == "help":
+        # Check if the message actually contains a service request despite
+        # being classified as "help" (e.g., "I need help with my immigration
+        # case in the Bronx" contains "help" but is really a legal request).
+        # If slots have a service_type, treat as a service request instead.
+        # Uses fast regex only — no LLM call needed for this check.
+        help_slots = extract_slots(message)
+        if help_slots.get("service_type"):
+            category = "service"  # re-classify and fall through to slot handling
+        else:
+            result = _empty_reply(
+                session_id, _HELP_RESPONSE, existing,
+                quick_replies=list(_WELCOME_QUICK_REPLIES),
+            )
+            _log_turn(session_id, redacted_message, result, category)
+            return result
+
+    # --- Bot Identity ---
+    if category == "bot_identity":
         result = _empty_reply(
-            session_id, _HELP_RESPONSE, existing,
+            session_id, _BOT_IDENTITY_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
+    # --- Confused / Overwhelmed ---
+    # "I don't know what to do", "I'm lost", "I'm overwhelmed"
+    # Show gentle guidance with category buttons — do NOT send to LLM
+    # (which would misinterpret as a mental health request).
+    if category == "confused":
+        result = _empty_reply(
+            session_id, _CONFUSED_RESPONSE, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES) + [
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
+    # --- Frustration ---
+    if category == "frustration":
+        result = _empty_reply(
+            session_id, _FRUSTRATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 Try different search", "value": "Start over"},
+                {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
+            ],
         )
         _log_turn(session_id, redacted_message, result, category)
         return result
 
     # --- Escalation ---
     if category == "escalation":
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
-        _log_turn(session_id, redacted_message, result, category)
-        return result
+        # Check if the message also has service slots — if so, the user
+        # is probably an outreach worker making a request (e.g., "I'm a
+        # peer navigator. I have a client who needs shelter in East Harlem.")
+        # not someone asking to talk to a person.
+        esc_slots = extract_slots(message)
+        if esc_slots.get("service_type") and esc_slots.get("location"):
+            category = "service"  # re-classify and fall through to slot handling
+        else:
+            result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+            _log_turn(session_id, redacted_message, result, category)
+            return result
 
     # --- Handle confirmation responses ---
     pending = existing.get("_pending_confirmation")
@@ -554,6 +842,26 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         _log_turn(session_id, redacted_message, result, category)
         return result
 
+    if pending and category == "confirm_deny":
+        # User declined the search — clear confirmation, keep slots,
+        # and offer options so they're not stuck in a loop.
+        existing.pop("_pending_confirmation", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "No problem! I'll hold onto your info in case you want to "
+            "come back to it. What would you like to do?",
+            existing,
+            quick_replies=[
+                {"label": "🔄 Change service", "value": "Change service"},
+                {"label": "📍 Change location", "value": "Change location"},
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
     # If pending confirmation but user typed something new (not a
     # confirmation action), check if it contains new slot data.
     # If not, gently re-show the confirmation rather than falling
@@ -563,7 +871,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
         # Check if the message has new slot data
         if _USE_LLM_EXTRACTION:
-            pending_extracted = extract_slots_smart(message)
+            pending_extracted = extract_slots_smart(
+                message,
+                conversation_history=existing.get("transcript", []),
+            )
         else:
             pending_extracted = extract_slots(message)
         pending_has_new = any(v is not None for v in pending_extracted.values())
@@ -599,7 +910,10 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
     # Store the REDACTED version in the session transcript.
     if _USE_LLM_EXTRACTION:
-        extracted = extract_slots_smart(message)
+        extracted = extract_slots_smart(
+            message,
+            conversation_history=existing.get("transcript", []),
+        )
     else:
         extracted = extract_slots(message)
 

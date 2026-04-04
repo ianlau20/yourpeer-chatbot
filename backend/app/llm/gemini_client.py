@@ -34,7 +34,7 @@ def _get_client():
     if not _model_name:
         _init_error = RuntimeError(
             "Missing GEMINI_MODEL. Set it in your .env file. "
-            'Example: GEMINI_MODEL="gemini-2.0-flash"'
+            'Example: GEMINI_MODEL="gemini-2.5-flash"'
         )
         raise _init_error
 

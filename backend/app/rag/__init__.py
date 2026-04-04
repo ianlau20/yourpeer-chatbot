@@ -68,38 +68,33 @@ def query_services(
             ),
         }
 
-    # Normalize location to DB-compatible city value
+    # Normalize location to DB-compatible value and build query params
     user_params = {}
     if location:
         normalized_city = normalize_location(location)
         user_location_is_borough = is_borough(location)
 
         if user_location_is_borough:
-            # Borough-level search: "Queens" → search all Queens neighborhoods.
-            # Use borough expansion (ANY) as the primary filter.
-            user_params["city"] = normalized_city
+            # Borough-level search: pass the borough name directly to use the
+            # clean pa.borough column (avoids city field casing chaos).
+            # Also keep city_list as a fallback for records where borough is NULL.
+            user_params["borough"] = normalized_city
             city_list = get_borough_city_names(normalized_city)
             if len(city_list) > 1:
                 user_params["city_list"] = city_list
         else:
-            # Neighborhood-level search: "Chelsea" or "Williamsburg"
-            # Use PostGIS proximity search if we have center coordinates,
-            # falling back to borough-level city filtering if not.
+            # Neighborhood-level search: use PostGIS proximity if we have
+            # center coords, plus city filters as a safety net.
             center = get_neighborhood_center(location)
 
             if center:
-                # Proximity search — find services within ~1 mile of
-                # the neighborhood center. This gives genuinely local
-                # results instead of all-of-Manhattan for "Chelsea".
                 lat, lon = center
                 user_params["lat"] = lat
                 user_params["lon"] = lon
                 user_params["radius_meters"] = DEFAULT_NEIGHBORHOOD_RADIUS_METERS
 
-            # Also include city-level filters as a safety net.
-            # The DB stores city at the borough level, so this ensures
-            # results stay within the correct borough even if PostGIS
-            # data is missing on some locations.
+            # City-level filters keep results within the correct borough
+            # even if PostGIS data is missing on some locations.
             user_params["city"] = normalized_city
             city_list = get_borough_city_names(normalized_city)
             if len(city_list) > 1:

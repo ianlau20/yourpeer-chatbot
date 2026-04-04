@@ -10,6 +10,7 @@ Event types:
     - query_execution:   A database query that was executed
     - crisis_detected:   Crisis language was detected
     - session_reset:     User started over
+    - feedback:          Thumbs up/down from the user after results
 
 Production note: Replace the in-memory store with a persistent database
 (PostgreSQL, Redis, etc.) for real deployments.
@@ -153,6 +154,32 @@ def log_session_reset(session_id: str):
         _events.append(event)
 
 
+def log_feedback(session_id: str, rating: str, comment: Optional[str] = None):
+    """Record a thumbs up/down feedback event.
+
+    Args:
+        session_id: The session the feedback belongs to.
+        rating: 'up' or 'down'.
+        comment: Optional free-text comment (keep brief; no PII expected).
+    """
+    if rating not in ("up", "down"):
+        raise ValueError(f"rating must be 'up' or 'down', got {rating!r}")
+
+    event = {
+        "type": "feedback",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
+        "rating": rating,
+        "comment": comment or None,
+    }
+
+    with _lock:
+        _events.append(event)
+        if session_id not in _conversations:
+            _conversations[session_id] = []
+        _conversations[session_id].append(len(_events) - 1)
+
+
 # ---------------------------------------------------------------------------
 # DATA RETRIEVAL (for the admin API)
 # ---------------------------------------------------------------------------
@@ -242,6 +269,8 @@ def get_stats() -> dict:
     total_queries = sum(1 for e in events if e["type"] == "query_execution")
     total_crises = sum(1 for e in events if e["type"] == "crisis_detected")
     total_resets = sum(1 for e in events if e["type"] == "session_reset")
+    feedback_up = sum(1 for e in events if e["type"] == "feedback" and e.get("rating") == "up")
+    feedback_down = sum(1 for e in events if e["type"] == "feedback" and e.get("rating") == "down")
 
     unique_sessions = set(e.get("session_id") for e in events if e.get("session_id"))
 
@@ -273,6 +302,12 @@ def get_stats() -> dict:
         "total_crises": total_crises,
         "total_resets": total_resets,
         "unique_sessions": len(unique_sessions),
+        "feedback_up": feedback_up,
+        "feedback_down": feedback_down,
+        "feedback_score": (
+            round(feedback_up / (feedback_up + feedback_down), 2)
+            if (feedback_up + feedback_down) > 0 else None
+        ),
         "category_distribution": categories,
         "service_type_distribution": service_types,
         "relaxed_query_rate": (

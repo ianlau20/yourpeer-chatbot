@@ -12,18 +12,20 @@ SERVICE_KEYWORDS = {
     # --- Food (taxonomy: Food, Food Pantry, Mobile Pantry, etc.) ---
     "food": [
         "food", "food bank", "food pantry", "meal", "meals", "groceries",
-        "pantry", "eat", "hungry", "soup kitchen", "soup", "lunch", "dinner",
+        "pantry", "hungry", "soup kitchen", "soup", "lunch", "dinner",
         "breakfast", "snack", "free food", "hot meal", "brown bag",
         "farmers market", "mobile pantry",
+        # "eat" removed — collides with words like "beat", "seat", "theater"
     ],
 
     # --- Shelter & Housing (taxonomy: Shelter) ---
     "shelter": [
-        "shelter", "place to stay", "bed", "housing", "sleep tonight",
+        "shelter", "place to stay", "housing", "sleep tonight",
         "place to sleep", "somewhere to sleep", "homeless", "unhoused",
         "drop-in center", "drop in center", "warming center",
         "overnight", "transitional housing", "safe haven", "room",
         "place to live", "somewhere to live", "intake",
+        # "bed" removed — collides with "bed-stuy", "bedford-stuyvesant"
     ],
 
     # --- Clothing (taxonomy: Clothing) ---
@@ -35,10 +37,11 @@ SERVICE_KEYWORDS = {
 
     # --- Personal Care (taxonomy: Personal Care → Shower, Laundry, etc.) ---
     "personal_care": [
-        "shower", "showers", "hygiene", "wash", "clean up", "laundry",
+        "shower", "showers", "hygiene", "clean up", "laundry",
         "toiletries", "restroom", "bathroom", "haircut", "barber",
         "toothbrush", "toothpaste", "soap", "shampoo", "deodorant",
         "personal care", "grooming",
+        # "wash" removed — collides with "washington heights"
     ],
 
     # --- Health Care (taxonomy: Health) ---
@@ -46,7 +49,8 @@ SERVICE_KEYWORDS = {
         "doctor", "clinic", "medical", "hospital", "medicine", "health",
         "health care", "healthcare", "prescription", "dental", "dentist",
         "eye doctor", "vision", "glasses", "urgent care", "checkup",
-        "physical", "vaccination", "vaccine", "std", "hiv", "testing",
+        "physical", "vaccination", "vaccine", "std testing", "hiv testing",
+        # "std" and "hiv" shortened removed — expanded to "std testing"/"hiv testing"
     ],
 
     # --- Mental Health (taxonomy: Mental Health) ---
@@ -69,19 +73,23 @@ SERVICE_KEYWORDS = {
 
     # --- Employment (taxonomy: Employment) ---
     "employment": [
-        "job", "jobs", "work", "employment", "hiring", "career",
+        "job", "jobs", "employment", "hiring", "career",
         "resume", "interview", "job training", "vocational",
         "workforce", "job placement", "temp work", "day labor",
-        "job search", "job help",
+        "job search", "job help", "find work", "need work",
+        "looking for work",
+        # "work" removed — collides with "how does this work", "outreach worker", etc.
     ],
 
     # --- Other Services (taxonomy: Other service) ---
     "other": [
         "benefits", "snap", "ebt", "food stamps", "medicaid",
         "social security", "disability", "ssi", "public assistance",
-        "id", "identification", "birth certificate", "phone",
+        "identification", "birth certificate", "need an id",
         "free phone", "wifi", "internet", "charging", "mail",
         "mailing address", "storage", "locker",
+        # "id" removed — collides with "side", "ridge", "midtown", etc.
+        # "phone" removed — collides with PII phone numbers in messages
     ],
 }
 
@@ -140,10 +148,22 @@ def _extract_location(text: str) -> Optional[str]:
             if not has_real_location_after:
                 return NEAR_ME_SENTINEL
 
-    # Preposition + location pattern: "in Brooklyn", "near Queens",
+    # Preposition + known location: "in Brooklyn", "near Queens",
     # "around Harlem", "by Midtown", "from the Bronx"
+    # First, try to match a preposition followed by a KNOWN location.
+    # This prevents the greedy capture bug where "in East New York but
+    # they can't keep me anymore" grabs way past the location name.
+    for loc in _KNOWN_LOCATIONS:
+        pattern = r"\b(?:in|near|around|by|from|over in|out in)\s+" + re.escape(loc) + r"\b"
+        if re.search(pattern, lower):
+            return loc
+
+    # Fallback: preposition + short capture (max 25 chars, stop at common
+    # stop words to prevent grabbing sentence fragments)
     prep_match = re.search(
-        r"\b(?:in|near|around|by|from|over in|out in)\s+([a-zA-Z][a-zA-Z\s\-]{1,40})",
+        r"\b(?:in|near|around|by|from|over in|out in)\s+"
+        r"([a-zA-Z][a-zA-Z\s\-]{1,24}?)"
+        r"(?:\s+(?:but|and|or|that|who|where|when|for|to|i|my|the|they|we|it|is|are|was|can|do)\b|[,.\?!]|$)",
         text,
         re.IGNORECASE,
     )
@@ -177,6 +197,7 @@ _KNOWN_LOCATIONS = [
     "lower east side", "upper west side", "upper east side",
     "east new york", "east village", "west village", "east harlem",
     "midtown east", "midtown west", "times square",
+    "port authority", "penn station", "grand central",
     "crown heights", "cobble hill", "sunset park",
     "bay ridge", "far rockaway", "fort greene",
     "park slope", "red hook", "south bronx", "mott haven",

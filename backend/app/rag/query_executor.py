@@ -247,13 +247,17 @@ def resolve_template_key(service_type: str) -> Optional[str]:
 # CITY / BOROUGH NORMALIZATION
 # ---------------------------------------------------------------------------
 
-# The DB uses city names (from physical_addresses.city), not borough names.
-# But users often say "Queens" or "the Bronx". This mapping handles common
-# NYC borough names and neighborhoods that map to DB city values.
+# physical_addresses has a clean `borough` column (Manhattan, Brooklyn,
+# Queens, Bronx, Staten Island) — borough-level searches now use
+# FILTER_BY_BOROUGH against pa.borough directly, which is far more reliable
+# than city field matching (the city field has inconsistent casing, typos,
+# and wrong borough assignments in the source data).
+# City normalization and expansion are kept for neighborhood-level searches
+# and as a fallback for records where pa.borough is NULL.
 
 NYC_LOCATION_ALIASES = {
-    # Boroughs → city values used in the DB
-    "manhattan":      "New York",
+    # Boroughs → canonical borough names matching pa.borough
+    "manhattan":      "Manhattan",
     "brooklyn":       "Brooklyn",
     "queens":         "Queens",
     "bronx":          "Bronx",
@@ -288,6 +292,9 @@ NYC_LOCATION_ALIASES = {
     "nolita":         "New York",
     "noho":           "New York",
     "times square":   "New York",
+    "port authority":  "New York",
+    "penn station":   "New York",
+    "grand central":  "New York",
 
     "williamsburg":   "Brooklyn",
     "bushwick":       "Brooklyn",
@@ -326,10 +333,18 @@ NYC_LOCATION_ALIASES = {
 }
 
 # Borough-level entries — these get the full neighborhood expansion.
-# Neighborhood-level entries also use the borough city value since the DB
-# stores all addresses at the borough level (e.g. "New York" for Manhattan).
 _BOROUGH_KEYS = {
     "manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island",
+}
+
+# Maps canonical borough names (as stored in pa.borough) to the primary city
+# value used in pa.city for that borough. Used for city-field fallback searches.
+_BOROUGH_TO_PRIMARY_CITY = {
+    "Manhattan":   "New York",
+    "Brooklyn":    "Brooklyn",
+    "Queens":      "Queens",
+    "Bronx":       "Bronx",
+    "Staten Island": "Staten Island",
 }
 
 
@@ -342,10 +357,13 @@ def is_borough(raw_location: str) -> bool:
 
 def normalize_location(raw_location: str) -> str:
     """
-    Normalize a user-provided location string to a DB-compatible city value.
+    Normalize a user-provided location string to a canonical borough name
+    (e.g. "manhattan" → "Manhattan", "the bronx" → "Bronx") or to the
+    DB city value for neighborhoods (e.g. "harlem" → "New York").
 
-    Falls back to the original string if no alias is found — the query
-    will still work, it just might not match any rows.
+    For borough-level searches, the returned value is passed as the `borough`
+    param and matched against pa.borough directly.
+    For neighborhood searches, it's used for city-field filtering.
     """
     if not raw_location:
         return raw_location
@@ -353,19 +371,17 @@ def normalize_location(raw_location: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# BOROUGH EXPANSION
+# BOROUGH → CITY EXPANSION
 # ---------------------------------------------------------------------------
-# When a user says "Queens", the DB might store the location's city as
-# "Jamaica", "Flushing", "Astoria", etc. This reverse map lets us search
-# for ALL city values that belong to a borough.
+# Fallback for records where pa.borough is NULL — search by city field instead.
+# Builds a reverse map: borough primary city → all city values in that borough.
 
 def _build_borough_to_cities() -> dict:
-    """Build a reverse map from borough DB city → all city values in that borough."""
+    """Build a reverse map: primary city value → all city values in that borough."""
     borough_cities = {}
     for alias, city in NYC_LOCATION_ALIASES.items():
         if city not in borough_cities:
             borough_cities[city] = {city}
-        # The alias might be a neighborhood name that the DB uses as a city value
         alias_city = alias.title()
         borough_cities[city].add(alias_city)
     return {k: sorted(v) for k, v in borough_cities.items()}
@@ -374,19 +390,23 @@ def _build_borough_to_cities() -> dict:
 BOROUGH_TO_CITIES = _build_borough_to_cities()
 
 
-def get_borough_city_names(city: str) -> list[str]:
+def get_borough_city_names(borough: str) -> list[str]:
     """
-    Given a normalized borough city value (e.g. "Queens"), return all
-    city values that might appear in the DB for that borough.
+    Given a canonical borough name (e.g. "Queens", "Manhattan"), return all
+    city values that might appear in pa.city for that borough.
 
-    Returns a lowercased list for case-insensitive SQL matching.
+    Used as a fallback for records where pa.borough is NULL.
+    Returns a lowercased list for case-insensitive SQL ANY() matching.
 
     Example:
         get_borough_city_names("Queens")
         → ["astoria", "far rockaway", "flushing", "jackson heights",
            "jamaica", "long island city", "queens"]
     """
-    cities = BOROUGH_TO_CITIES.get(city, [city])
+    # Translate canonical borough name to the primary city value used as the
+    # key in BOROUGH_TO_CITIES (e.g. "Manhattan" → "New York")
+    primary_city = _BOROUGH_TO_PRIMARY_CITY.get(borough, borough)
+    cities = BOROUGH_TO_CITIES.get(primary_city, [primary_city])
     return [c.lower() for c in cities]
 
 
@@ -429,6 +449,9 @@ NEIGHBORHOOD_CENTERS = {
     "nolita":            (40.7231, -73.9946),
     "noho":              (40.7265, -73.9927),
     "times square":      (40.7580, -73.9855),
+    "port authority":    (40.7569, -73.9900),
+    "penn station":      (40.7506, -73.9935),
+    "grand central":     (40.7527, -73.9772),
 
     # Brooklyn
     "williamsburg":      (40.7081, -73.9571),

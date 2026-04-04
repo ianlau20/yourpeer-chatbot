@@ -12,21 +12,85 @@ Categories (from the architecture spec §5.3):
     3. Domestic violence / abuse
     4. Exploitation / trafficking
     5. Medical emergency
+    6. General safety concern (unsafe at home, runaway, fleeing)
+
+Detection strategy — two-stage:
+
+    Stage 1: Regex pre-check (< 1ms, deterministic, auditable)
+        Catches the most common explicit phrasings. If it fires,
+        return immediately — no LLM call needed.
+
+    Stage 2: LLM classification (1-3s, only runs when regex misses)
+        Claude classifies the message against all six categories.
+        Catches indirect, paraphrased, and culturally specific language
+        that can't be enumerated in a keyword list.
+
+        Fail-open policy: if the LLM call fails (timeout, API error,
+        quota exceeded), the system returns a general safety response
+        rather than falling through to slot-filling. This is intentional:
+        the LLM is only invoked when a message was ambiguous enough that
+        regex couldn't decide — that uncertainty itself is reason to
+        err toward safety for this population.
 
 Design decisions:
-    - Keyword-based, not LLM-based, so it's deterministic and auditable.
-    - Errs on the side of false positives — showing crisis resources to
-      someone who doesn't need them is far better than missing someone who does.
+    - Regex runs unconditionally first — it's free and fast.
+    - LLM is only called when regex returns None.
+    - LLM uses a structured JSON response (not tool calling) to minimize
+      tokens and latency. Max 150 tokens is sufficient for yes/no + category.
+    - All crisis responses are warm, non-judgmental, and action-oriented.
     - Each category has its own response with category-specific resources.
-    - All responses include a general peer navigator offer.
-    - The response tone is warm, non-judgmental, and action-oriented.
 """
 
+import os
+import json
 import re
 import logging
 from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# LLM CLIENT (lazy-initialized, same pattern as llm_slot_extractor.py)
+# ---------------------------------------------------------------------------
+
+try:
+    import anthropic
+    _anthropic_available = True
+except ImportError:
+    _anthropic_available = False
+    logger.warning("anthropic SDK not installed — LLM crisis detection disabled")
+
+_client = None
+_init_error = None
+
+
+def _get_client():
+    """Lazy-initialize the Anthropic client."""
+    global _client, _init_error
+
+    if _client is not None:
+        return _client
+    if _init_error is not None:
+        raise _init_error
+    if not _anthropic_available:
+        _init_error = RuntimeError("anthropic SDK not installed")
+        raise _init_error
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        _init_error = RuntimeError("ANTHROPIC_API_KEY not set")
+        raise _init_error
+
+    try:
+        _client = anthropic.Anthropic(api_key=api_key)
+        return _client
+    except Exception as e:
+        _init_error = RuntimeError(f"Failed to initialize Anthropic client: {e}")
+        raise _init_error
+
+
+# Whether LLM crisis detection is enabled (requires ANTHROPIC_API_KEY)
+_USE_LLM_DETECTION = bool(os.getenv("ANTHROPIC_API_KEY"))
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +113,21 @@ _SUICIDE_SELF_HARM_PHRASES = [
     # Suicidal ideation
     "suicidal", "suicide", "overdose", "jump off",
     "hang myself", "slit my",
+    # Passive / indirect hopelessness (P8)
+    # These phrases don't mention death explicitly but signal suicidal ideation.
+    # Erring on the side of false positives is correct here — showing crisis
+    # resources to someone feeling hopeless does no harm.
+    "what's the point anymore", "whats the point anymore",
+    "what is the point anymore", "no point anymore",
+    "nothing helps anymore", "nothing ever helps",
+    "i give up", "given up on everything", "given up on life",
+    "i can't do this anymore", "i cant do this anymore",
+    "there's no hope", "theres no hope", "no hope left",
+    "nobody cares", "no one cares if i",
+    "would be better without me", "better off without me",
+    "i'm done fighting", "im done fighting",
+    "can't keep going", "cant keep going",
+    "so tired of living", "tired of living like this",
 ]
 
 _VIOLENCE_PHRASES = [
@@ -75,6 +154,46 @@ _DOMESTIC_VIOLENCE_PHRASES = [
     "partner hurts me", "violent partner",
     "stalking me", "being stalked", "restraining order",
     "order of protection",
+    # Fleeing / implicit DV
+    "he's going to come back", "she's going to come back",
+    "going to come back", "coming back soon",
+    "he's going to hurt me", "she's going to hurt me",
+    "going to hurt me",
+    "threatened to hurt me", "threatened to kill me",
+    "he threatened me", "she threatened me",
+    "said he would hurt me", "said she would hurt me",
+    "said he'd hurt me", "said she'd hurt me",
+    "said he would kill me", "said she would kill me",
+    "need to leave before", "have to leave before",
+    "kicked me out", "threw me out", "locked me out",
+]
+
+# General safety concerns — not clearly DV or suicidal, but the person
+# feels unsafe and needs immediate resources. Errs on the side of providing
+# crisis resources rather than routine slot-filling.
+_SAFETY_CONCERN_PHRASES = [
+    "don't feel safe", "dont feel safe", "not safe here",
+    "not safe where i am", "i'm not safe", "im not safe",
+    "need to get out", "need to leave now", "have to get out",
+    "can't stay here", "cant stay here",
+    "in danger", "i'm in danger", "im in danger",
+    "someone is threatening me", "being threatened",
+    "someone is following me", "being followed",
+    "need to get away",
+    "afraid for my life", "fear for my life",
+    "they're going to find me", "going to find me",
+    # Youth runaway / unsafe home situations (P9)
+    # Runaway youth face acute safety risks — prioritize crisis resources
+    # alongside shelter search rather than treating as routine.
+    "ran away from home", "run away from home", "running away from home",
+    "ran away last night", "ran away yesterday",
+    "i'm a runaway", "im a runaway", "i am a runaway",
+    "kicked out of my home", "kicked out by my parents",
+    "thrown out of my home", "parents kicked me out",
+    "family kicked me out", "kicked out at",
+    "unsafe at home", "not safe at home", "home isn't safe", "home is not safe",
+    "can't go home", "cant go home", "not safe to go home",
+    "afraid to go home",
 ]
 
 _TRAFFICKING_PHRASES = [
@@ -159,6 +278,18 @@ _MEDICAL_EMERGENCY_RESPONSE = (
     "Once you're safe, I can help you find nearby clinics or health services."
 )
 
+_SAFETY_CONCERN_RESPONSE = (
+    "Your safety comes first. If you're in immediate danger, please call 911.\n\n"
+    "Here are resources that can help right now:\n"
+    "• National Domestic Violence Hotline — 1-800-799-7233 (24/7) "
+    "or text START to 88788\n"
+    "• NYC Domestic Violence Hotline — 1-800-621-4673 (24/7, multilingual)\n"
+    "• NYC Safe Horizons — 1-800-621-HOPE (4673)\n"
+    "• 988 Suicide & Crisis Lifeline — call or text 988\n\n"
+    "If you need shelter right away, I can help you find somewhere safe. "
+    "Just let me know what area you're in."
+)
+
 
 # ---------------------------------------------------------------------------
 # DETECTION
@@ -169,24 +300,130 @@ _CRISIS_CATEGORIES = [
     ("suicide_self_harm", _SUICIDE_SELF_HARM_PHRASES, _SUICIDE_RESPONSE),
     ("medical_emergency", _MEDICAL_EMERGENCY_PHRASES, _MEDICAL_EMERGENCY_RESPONSE),
     ("domestic_violence", _DOMESTIC_VIOLENCE_PHRASES, _DOMESTIC_VIOLENCE_RESPONSE),
+    ("safety_concern", _SAFETY_CONCERN_PHRASES, _SAFETY_CONCERN_RESPONSE),
     ("trafficking", _TRAFFICKING_PHRASES, _TRAFFICKING_RESPONSE),
     ("violence", _VIOLENCE_PHRASES, _VIOLENCE_RESPONSE),
 ]
 
+# Map LLM category name → response text
+_LLM_CATEGORY_RESPONSES = {
+    "suicide_self_harm": _SUICIDE_RESPONSE,
+    "domestic_violence": _DOMESTIC_VIOLENCE_RESPONSE,
+    "safety_concern": _SAFETY_CONCERN_RESPONSE,
+    "trafficking": _TRAFFICKING_RESPONSE,
+    "medical_emergency": _MEDICAL_EMERGENCY_RESPONSE,
+    "violence": _VIOLENCE_RESPONSE,
+}
+
+# Used as the fail-open response when the LLM is invoked but unavailable.
+# General enough to be appropriate for any crisis type.
+_FAILOPEN_RESPONSE = _SAFETY_CONCERN_RESPONSE
+
+_LLM_SYSTEM_PROMPT = """\
+You are a crisis detection classifier for a social services chatbot serving \
+vulnerable populations in New York City, including people experiencing \
+homelessness, domestic violence, mental health crises, and trafficking.
+
+Your only job is to determine whether a user message indicates a crisis \
+situation requiring immediate safety resources.
+
+Crisis categories:
+- suicide_self_harm: suicidal ideation (direct or indirect), self-harm, \
+hopelessness, passive ideation ("what's the point", "nothing matters anymore")
+- domestic_violence: abuse by a partner or family member, threats, fleeing \
+a dangerous home situation
+- safety_concern: feeling unsafe, running away from home, being kicked out, \
+unsafe living situation
+- trafficking: being controlled, unable to leave, documents taken
+- medical_emergency: immediate physical danger requiring 911
+- violence: threats to harm others
+
+Respond with ONLY a JSON object, no other text:
+{"crisis": true, "category": "<category_name>"}
+or
+{"crisis": false}
+
+Be sensitive to indirect language. Someone saying "I've been on the streets \
+for months and nothing helps anymore" may be expressing passive suicidal \
+ideation even without explicit language. When in doubt, err toward crisis=true.\
+"""
+
+
+def _detect_crisis_llm(text: str) -> Optional[Tuple[str, str]]:
+    """
+    Use Claude to classify a message that regex didn't catch.
+
+    Returns (category, response_text) if crisis detected, None otherwise.
+
+    Fail-open: if the LLM call fails for any reason, returns the general
+    safety concern response rather than None. This is intentional — the
+    LLM is only invoked for messages ambiguous enough that regex couldn't
+    decide, so we resolve that uncertainty toward safety.
+    """
+    try:
+        client = _get_client()
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",  # Fastest model — latency matters here
+            max_tokens=60,                       # {"crisis": true, "category": "..."} is ~15 tokens
+            system=_LLM_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": text}],
+        )
+
+        raw = response.content[0].text.strip()
+
+        # Strip markdown code fences if present
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+
+        parsed = json.loads(raw)
+
+        if not parsed.get("crisis"):
+            logger.info(f"LLM crisis check: no crisis detected")
+            return None
+
+        category = parsed.get("category", "safety_concern")
+        response_text = _LLM_CATEGORY_RESPONSES.get(category, _FAILOPEN_RESPONSE)
+
+        logger.warning(
+            f"LLM crisis detected: category='{category}' "
+            f"for message: '{text[:80]}...'"
+        )
+        return (category, response_text)
+
+    except Exception as e:
+        # Fail-open: LLM unavailable or returned unparseable output.
+        # We were already in the ambiguous path (regex missed) — resolve
+        # toward safety rather than falling through to slot-filling.
+        logger.error(
+            f"LLM crisis detection failed ({type(e).__name__}: {e}) — "
+            f"failing open with safety_concern response"
+        )
+        return ("safety_concern", _FAILOPEN_RESPONSE)
+
 
 def detect_crisis(text: str) -> Optional[Tuple[str, str]]:
     """
-    Check if a message contains crisis language.
+    Check if a message contains crisis language. Two-stage detection:
+
+    Stage 1 — Regex (< 1ms, always runs):
+        Catches common explicit phrasings. Returns immediately on match.
+
+    Stage 2 — LLM (1-3s, only when regex misses):
+        Catches indirect, paraphrased, and culturally specific language.
+        Fails open: if the LLM is unavailable, returns a general safety
+        response rather than None, because the LLM is only invoked for
+        ambiguous messages where uncertainty should resolve toward safety.
 
     Returns:
         (crisis_category, response_text) if crisis detected
         None if no crisis detected
 
     Categories: "suicide_self_harm", "medical_emergency",
-                "domestic_violence", "trafficking", "violence"
+                "domestic_violence", "safety_concern", "trafficking", "violence"
     """
     lower = text.lower()
 
+    # --- Stage 1: Regex pre-check ---
     for category, phrases, response in _CRISIS_CATEGORIES:
         for phrase in phrases:
             if phrase in lower:
@@ -195,6 +432,10 @@ def detect_crisis(text: str) -> Optional[Tuple[str, str]]:
                     f"matched phrase='{phrase}'"
                 )
                 return (category, response)
+
+    # --- Stage 2: LLM classification (only if regex missed) ---
+    if _USE_LLM_DETECTION:
+        return _detect_crisis_llm(text)
 
     return None
 

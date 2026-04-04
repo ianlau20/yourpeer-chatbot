@@ -2,25 +2,27 @@
 LLM-Based Slot Extractor
 
 Uses Claude function calling to extract structured intake slots from
-natural language. Falls back to the regex extractor for simple inputs
-where the LLM adds no value (saving API calls and latency).
+natural language. Uses a complexity-based routing strategy:
 
-Strategy:
-    1. Run regex extraction first (fast, free, handles 80% of inputs)
-    2. If regex found a service_type AND location → use regex results (done)
-    3. If regex found partial or nothing → call Claude to extract slots
-    4. Merge LLM results with regex results (LLM wins on conflicts)
+    1. Run regex extraction (fast, free)
+    2. Check if the message is "simple" — short, clear keyword match,
+       known location, no ambiguity
+    3. SIMPLE → trust regex (skip LLM, saves ~1-2s and ~$0.001)
+    4. COMPLEX → call LLM (longer messages, implicit needs, slang,
+       multi-part sentences, conflicting signals)
 
-This keeps API costs low while handling nuanced inputs like:
-    - "I'm in Queens but looking for food in the Bronx"
-    - "my son is 12 and needs a coat"
-    - "somewhere safe for tonight, I'm a woman"
-    - "I was just released from Rikers"
+This ensures the LLM handles nuanced inputs that regex gets wrong:
+    - "I just got out of the hospital and need a place to stay" → shelter
+    - "I'm in Queens but looking for food in the Bronx" → Bronx
+    - "my son is 12 and needs a coat" → age=12
+    - "somewhere safe for tonight, I'm a woman" → shelter + urgency
+    - "I was just released from Rikers" → shelter
 """
 
 import os
 import json
 import logging
+import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -88,7 +90,8 @@ _EXTRACT_SLOTS_TOOL = {
                 "description": (
                     "The type of service the user is looking for. "
                     "food = meals, pantries, groceries. "
-                    "shelter = housing, place to sleep, drop-in centers. "
+                    "shelter = housing, place to sleep, drop-in centers, "
+                    "somewhere safe, transitional housing. "
                     "clothing = clothes, coats, shoes. "
                     "personal_care = showers, laundry, haircuts, hygiene. "
                     "medical = doctors, clinics, dental, vision. "
@@ -102,6 +105,8 @@ _EXTRACT_SLOTS_TOOL = {
                 "type": "string",
                 "description": (
                     "The NYC borough or neighborhood where the user wants services. "
+                    "Extract ONLY the location name — never include surrounding words. "
+                    "For example, 'in East New York but they can't keep me' → 'East New York'. "
                     "Extract the INTENDED location, not where they currently are if different. "
                     "For example, 'I'm in Queens but need food in Brooklyn' → 'Brooklyn'. "
                     "Use the neighborhood or borough name as stated by the user."
@@ -142,7 +147,10 @@ _SYSTEM_PROMPT = (
     "Extract structured information from the user's message using the "
     "extract_intake_slots tool. Only extract what is explicitly stated or "
     "strongly implied. Do not guess or assume. If the message doesn't contain "
-    "any service-related information, call the tool with an empty object {}."
+    "any service-related information, call the tool with an empty object {}.\n\n"
+    "You may receive prior conversation turns for context. Use them to resolve "
+    "references like 'there', 'that area', 'try Queens instead', or 'what about "
+    "Brooklyn?' — but only extract slots from the LATEST user message."
 )
 
 
@@ -150,9 +158,16 @@ _SYSTEM_PROMPT = (
 # LLM EXTRACTION
 # ---------------------------------------------------------------------------
 
-def extract_slots_llm(message: str) -> dict:
+def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
     """
     Use Claude function calling to extract slots from a message.
+
+    Args:
+        message: The current user message to extract slots from.
+        conversation_history: Optional list of prior turns, each a dict
+            with keys 'role' ('user' or 'assistant') and 'text'.
+            Provides context for follow-up messages like
+            "What about in Brooklyn?" or "Try Queens instead".
 
     Returns a dict with keys: service_type, location, age, urgency, gender.
     Values are None for slots that couldn't be extracted.
@@ -160,13 +175,41 @@ def extract_slots_llm(message: str) -> dict:
     try:
         client = _get_client()
 
+        # Build messages with conversation history for context
+        messages = []
+        if conversation_history:
+            # Include up to the last 6 turns (3 user + 3 bot) to stay
+            # within a reasonable token budget for slot extraction.
+            recent = conversation_history[-6:]
+            for turn in recent:
+                role = turn.get("role", "user")
+                text = turn.get("text", "")
+                api_role = "user" if role == "user" else "assistant"
+
+                # Claude API requires strictly alternating roles.
+                # If we'd have two consecutive same-role messages,
+                # insert a placeholder for the other role.
+                if messages and messages[-1]["role"] == api_role:
+                    placeholder_role = "assistant" if api_role == "user" else "user"
+                    messages.append({"role": placeholder_role, "content": "(continuing)"})
+
+                messages.append({"role": api_role, "content": text})
+
+            # Ensure the last history message isn't "user" — we're about
+            # to append the current user message.
+            if messages and messages[-1]["role"] == "user":
+                messages.append({"role": "assistant", "content": "(listening)"})
+
+        # Add the current message
+        messages.append({"role": "user", "content": message})
+
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=256,
             system=_SYSTEM_PROMPT,
             tools=[_EXTRACT_SLOTS_TOOL],
             tool_choice={"type": "tool", "name": "extract_intake_slots"},
-            messages=[{"role": "user", "content": message}],
+            messages=messages,
         )
 
         # Extract the tool call result
@@ -200,46 +243,103 @@ def _empty_slots() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# SMART EXTRACTOR — regex first, LLM when needed
+# COMPLEXITY CHECK
 # ---------------------------------------------------------------------------
 
-def extract_slots_smart(message: str) -> dict:
+def _is_simple_message(message: str, regex_result: dict) -> bool:
     """
-    Extract slots using a tiered approach:
-    1. Regex first (fast, free)
-    2. LLM only if regex didn't get enough
+    Determine if a message is simple enough to trust regex extraction.
+
+    Simple = short, clear keyword match, known location, no ambiguity.
+    Complex = long sentences, implicit needs, conflicting signals, slang.
+
+    When in doubt, return False (use LLM) — accuracy > speed.
+    """
+    words = message.split()
+
+    # Long messages are always complex
+    if len(words) > 8:
+        return False
+
+    has_service = regex_result.get("service_type") is not None
+    has_location = regex_result.get("location") is not None
+
+    # If regex didn't get both, it's not simple
+    if not (has_service and has_location):
+        return False
+
+    # Check if the extracted location is a known NYC location
+    # (not a greedy-captured sentence fragment)
+    from app.services.slot_extractor import _KNOWN_LOCATIONS, NEAR_ME_SENTINEL
+    location = regex_result.get("location", "")
+    if location == NEAR_ME_SENTINEL:
+        return True  # "near me" is simple
+    location_is_known = any(
+        loc == location.lower().strip()
+        for loc in _KNOWN_LOCATIONS
+    )
+    if not location_is_known:
+        return False  # Unknown location may be garbled — let LLM handle
+
+    # Check for multiple service-type keywords (conflicting signals)
+    from app.services.slot_extractor import SERVICE_KEYWORDS
+    lower = message.lower()
+    matched_categories = set()
+    for cat, keywords in SERVICE_KEYWORDS.items():
+        for kw in keywords:
+            if len(kw) > 3 and kw in lower:  # only check non-short keywords
+                matched_categories.add(cat)
+    if len(matched_categories) > 1:
+        return False  # Conflicting service signals — let LLM disambiguate
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# SMART EXTRACTOR — complexity-based routing
+# ---------------------------------------------------------------------------
+
+def extract_slots_smart(message: str, conversation_history: list = None) -> dict:
+    """
+    Extract slots using complexity-based routing:
+
+    1. Regex runs first (fast, free)
+    2. If message is SIMPLE and regex got clear results → use regex
+    3. If message is COMPLEX → call LLM with conversation history
+       (authoritative, no merge)
+    4. If LLM fails → fall back to regex
+
+    Args:
+        message: The current user message.
+        conversation_history: Optional list of prior turns for LLM context.
+            Each item is a dict with 'role' and 'text' keys.
 
     Returns the same dict shape as extract_slots().
     """
     from app.services.slot_extractor import extract_slots as extract_slots_regex
 
-    # Step 1: Regex extraction (always runs)
+    # Step 1: Regex extraction (always runs — fast)
     regex_result = extract_slots_regex(message)
 
-    has_service = regex_result.get("service_type") is not None
-    has_location = regex_result.get("location") is not None
-
-    # Step 2: If regex got both service + location, we're done
-    if has_service and has_location:
-        logger.debug("Regex extracted enough — skipping LLM")
+    # Step 2: Complexity check
+    if _is_simple_message(message, regex_result):
+        logger.debug("Simple message — using regex results")
         return regex_result
 
-    # Step 3: Call LLM for complex/ambiguous inputs
-    logger.info("Regex insufficient — calling LLM for slot extraction")
-    llm_result = extract_slots_llm(message)
+    # Step 3: Complex message — LLM is authoritative
+    logger.info("Complex message — calling LLM for slot extraction")
+    llm_result = extract_slots_llm(message, conversation_history=conversation_history)
 
-    # Step 4: Merge — LLM wins on conflicts, regex fills gaps
-    merged = {}
-    all_keys = set(list(regex_result.keys()) + list(llm_result.keys()))
-    for key in all_keys:
-        llm_val = llm_result.get(key)
-        regex_val = regex_result.get(key)
-        # LLM result takes priority if it has a value
-        if llm_val is not None:
-            merged[key] = llm_val
-        elif regex_val is not None:
-            merged[key] = regex_val
-        else:
-            merged[key] = None
+    # If LLM returned something useful, use it
+    llm_has_data = any(v is not None for v in llm_result.values())
+    if llm_has_data:
+        # Supplement with regex for any slots LLM missed
+        # (e.g., LLM got service+location but missed urgency)
+        for key in regex_result:
+            if llm_result.get(key) is None and regex_result.get(key) is not None:
+                llm_result[key] = regex_result[key]
+        return llm_result
 
-    return merged
+    # Step 4: LLM returned nothing — fall back to regex
+    logger.warning("LLM returned empty — falling back to regex")
+    return regex_result
