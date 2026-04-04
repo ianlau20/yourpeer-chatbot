@@ -49,6 +49,21 @@ _SUICIDE_SELF_HARM_PHRASES = [
     # Suicidal ideation
     "suicidal", "suicide", "overdose", "jump off",
     "hang myself", "slit my",
+    # Passive / indirect hopelessness (P8)
+    # These phrases don't mention death explicitly but signal suicidal ideation.
+    # Erring on the side of false positives is correct here — showing crisis
+    # resources to someone feeling hopeless does no harm.
+    "what's the point anymore", "whats the point anymore",
+    "what is the point anymore", "no point anymore",
+    "nothing helps anymore", "nothing ever helps",
+    "i give up", "given up on everything", "given up on life",
+    "i can't do this anymore", "i cant do this anymore",
+    "there's no hope", "theres no hope", "no hope left",
+    "nobody cares", "no one cares if i",
+    "would be better without me", "better off without me",
+    "i'm done fighting", "im done fighting",
+    "can't keep going", "cant keep going",
+    "so tired of living", "tired of living like this",
 ]
 
 _VIOLENCE_PHRASES = [
@@ -98,6 +113,18 @@ _SAFETY_CONCERN_PHRASES = [
     "need to get away",
     "afraid for my life", "fear for my life",
     "they're going to find me", "going to find me",
+    # Youth runaway / unsafe home situations (P9)
+    # Runaway youth face acute safety risks — prioritize crisis resources
+    # alongside shelter search rather than treating as routine.
+    "ran away from home", "run away from home", "running away from home",
+    "ran away last night", "ran away yesterday",
+    "i'm a runaway", "im a runaway", "i am a runaway",
+    "kicked out of my home", "kicked out by my parents",
+    "thrown out of my home", "parents kicked me out",
+    "family kicked me out", "kicked out at",
+    "unsafe at home", "home isn't safe", "home is not safe",
+    "can't go home", "cant go home", "not safe to go home",
+    "afraid to go home",
 ]
 
 _TRAFFICKING_PHRASES = [
