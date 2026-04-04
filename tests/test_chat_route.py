@@ -281,8 +281,8 @@ def test_chat_response_serialization_round_trip():
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="How can I help?")
-def test_chat_route_valid_request(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="How can I help?")
+def test_chat_route_valid_request(mock_claude, mock_query):
     """POST /chat/ with a valid message should return 200."""
     response = client.post("/chat/", json={"message": "hello"})
     assert response.status_code == 200
@@ -296,8 +296,8 @@ def test_chat_route_valid_request(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_generates_session_id(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_generates_session_id(mock_claude, mock_query):
     """POST /chat/ without session_id should generate one."""
     response = client.post("/chat/", json={"message": "hi"})
     data = response.json()
@@ -307,8 +307,8 @@ def test_chat_route_generates_session_id(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_preserves_session_id(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_preserves_session_id(mock_claude, mock_query):
     """POST /chat/ with session_id should preserve it."""
     response = client.post("/chat/", json={
         "message": "hi",
@@ -341,8 +341,8 @@ def test_chat_route_no_body():
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_empty_message(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_empty_message(mock_claude, mock_query):
     """POST /chat/ with empty message should return 200 with welcome prompt.
 
     The model accepts '' but generate_reply handles it with an early guard.
@@ -354,8 +354,8 @@ def test_chat_route_empty_message(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_response_schema(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_response_schema(mock_claude, mock_query):
     """Response should match ChatResponse schema exactly."""
     response = client.post("/chat/", json={"message": "I need food"})
     data = response.json()
@@ -389,8 +389,8 @@ def test_chat_route_response_schema(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_multi_turn_with_services(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_multi_turn_with_services(mock_claude, mock_query):
     """A full multi-turn conversation should return service cards."""
     sid = "http-multi-turn"
     clear_session(sid)
@@ -420,8 +420,8 @@ def test_chat_route_multi_turn_with_services(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_session_continuity(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_session_continuity(mock_claude, mock_query):
     """Slots should accumulate across turns within the same session."""
     sid = "http-continuity"
     clear_session(sid)
@@ -441,8 +441,8 @@ def test_chat_route_session_continuity(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_reset_clears_session(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_reset_clears_session(mock_claude, mock_query):
     """Saying 'start over' should clear the session slots."""
     sid = "http-reset"
     clear_session(sid)
@@ -459,8 +459,8 @@ def test_chat_route_reset_clears_session(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_quick_replies_structure(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_quick_replies_structure(mock_claude, mock_query):
     """Quick replies should have label and value fields."""
     r = client.post("/chat/", json={"message": "hello"})
     data = r.json()
@@ -479,8 +479,8 @@ def test_chat_route_quick_replies_structure(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_chat_route_crisis_returns_resources(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_chat_route_crisis_returns_resources(mock_claude, mock_query):
     """Crisis messages should return crisis resources, not service results."""
     r = client.post("/chat/", json={"message": "I want to kill myself"})
     assert r.status_code == 200

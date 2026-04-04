@@ -16,9 +16,8 @@ The Next.js frontend proxies API calls to the FastAPI backend via `rewrites` in 
 - All changes pushed to GitHub
 - A [Render](https://render.com) account (sign up with GitHub)
 - Node.js 18.18+ (set via `NODE_VERSION` env var in `render.yaml`)
-- Your `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)
+- Your `ANTHROPIC_API_KEY` from [Anthropic Console](https://console.anthropic.com/)
 - Your `DATABASE_URL` in the format: `postgresql://user:password@host:port/streetlives`
-- Your `ANTHROPIC_API_KEY` from [Anthropic Console](https://console.anthropic.com/) (optional but recommended — enables LLM-enhanced slot extraction)
 
 ### Files required
 
@@ -36,9 +35,8 @@ These files must be in your repo before deploying:
 3. Connect the `ianlau20/yourpeer-chatbot` repository and select the `frontend` branch
 4. Render reads `render.yaml` and creates both services automatically
 5. On the **backend service** (`yourpeer-chatbot-api`), set the secret environment variables:
-   - `GEMINI_API_KEY` = your Google AI Studio key
+   - `ANTHROPIC_API_KEY` = your Anthropic API key
    - `DATABASE_URL` = your full PostgreSQL connection string
-   - `ANTHROPIC_API_KEY` = your Anthropic API key (optional)
 6. On the **frontend service** (`yourpeer-chatbot`), verify that `CHAT_BACKEND_URL` is set to the backend's Render URL (e.g. `https://yourpeer-chatbot-api.onrender.com`). Update it if the auto-generated name differs.
 7. Deploy both services
 
@@ -69,10 +67,8 @@ Render automatically redeploys both services when you push to the branch configu
 
 | Variable | Required | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | Yes | Google AI Studio API key for LLM dialog |
-| `GEMINI_MODEL` | Yes | Model name (use `gemini-3-flash-preview`) — set automatically by `render.yaml` |
+| `ANTHROPIC_API_KEY` | Yes | Anthropic API key — powers all LLM features (conversational responses via Haiku, slot extraction via Haiku, crisis detection via Sonnet). Without this, the system falls back to regex-only slot extraction, regex-only crisis detection, and static fallback responses |
 | `DATABASE_URL` | Yes | PostgreSQL connection string for Streetlives DB |
-| `ANTHROPIC_API_KEY` | No | Enables LLM-enhanced slot extraction and the LLM-as-judge evaluation suite. Without this, the system falls back to regex-only slot extraction (still functional, less accurate on complex inputs) |
 | `PYTHON_VERSION` | No | Python version (e.g. `3.12.0`) — set automatically by `render.yaml`. Render uses its default if not set |
 
 #### Frontend service (`yourpeer-chatbot`)

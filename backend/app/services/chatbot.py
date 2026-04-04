@@ -3,7 +3,7 @@ import re
 import os
 import logging
 
-from app.llm.gemini_client import gemini_reply
+from app.llm.claude_client import claude_reply
 from app.services.session_store import (
     get_session_slots,
     save_session_slots,
@@ -609,12 +609,12 @@ def _build_conversational_prompt(user_message: str, slots: dict) -> str:
 
 
 def _fallback_response(message: str, slots: dict) -> str:
-    """Try Gemini for conversational response, with a safe static fallback."""
+    """Try Claude for conversational response, with a safe static fallback."""
     try:
         prompt = _build_conversational_prompt(message, slots)
-        return gemini_reply(prompt)
+        return claude_reply(prompt)
     except Exception as e:
-        logger.error(f"Gemini fallback also failed: {e}")
+        logger.error(f"Claude fallback also failed: {e}")
         return (
             "I'm having trouble right now. "
             "You can try again in a moment, or visit yourpeer.nyc "
@@ -974,7 +974,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
     # --- General conversation ---
     # The message didn't match any service keywords and isn't a greeting/reset.
-    # Use Gemini for a natural conversational response that gently steers
+    # Use Claude Haiku for a natural conversational response that gently steers
     # the user back toward telling us what they need.
     response = _fallback_response(message, merged)
     result = _empty_reply(

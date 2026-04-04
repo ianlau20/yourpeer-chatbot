@@ -69,13 +69,12 @@ Create a `.env` file in the repo root:
 
 ```
 DATABASE_URL="postgresql://user:password@host:port/streetlives"
-GEMINI_API_KEY="your-gemini-api-key"
-GEMINI_MODEL="gemini-3-flash-preview"
+ANTHROPIC_API_KEY="your-anthropic-api-key"
 ```
 
-**Optional:** Add `ANTHROPIC_API_KEY` for Claude-powered slot extraction.
-
 **Database URL:** Contact the Streetlives team for PostgreSQL staging credentials. The RDS instance requires IP whitelisting.
+
+**Anthropic API key:** Required for all LLM features (conversational responses, slot extraction, crisis detection). Get a key at [console.anthropic.com](https://console.anthropic.com/). Without this key, the chatbot falls back to regex-only slot extraction, regex-only crisis detection, and static fallback responses.
 
 ### Run the backend
 
@@ -147,7 +146,7 @@ All 221 backend tests run without external services (database and LLM calls are 
 
 ```
 cd tests
-python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py && python test_crisis_detector.py && python test_llm_slot_extractor.py
+python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py && python test_crisis_detector.py && python test_llm_slot_extractor.py && python test_claude_client.py
 ```
 
 To run LLM integration tests against the real Claude API:

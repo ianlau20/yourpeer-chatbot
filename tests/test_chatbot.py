@@ -2,7 +2,7 @@
 Tests for the chatbot module — message classification, routing,
 multi-turn session state, PII integration, and fallback behavior.
 
-External dependencies (Gemini LLM, Streetlives DB) are mocked so
+External dependencies (Claude LLM, Streetlives DB) are mocked so
 tests run without API keys or a database connection.
 
 Run with: python -m pytest tests/test_chatbot.py -v
@@ -115,7 +115,7 @@ def test_classify_with_punctuation():
 
 # -----------------------------------------------------------------------
 # GENERATE REPLY — ROUTING PATHS
-# (mock Gemini and DB so tests run without external services)
+# (mock Claude and DB so tests run without external services)
 # -----------------------------------------------------------------------
 
 MOCK_QUERY_RESULTS = {
@@ -156,20 +156,20 @@ MOCK_ERROR_RESULTS = {
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_greeting_route(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_greeting_route(mock_claude, mock_query):
     """Greeting should return greeting response without querying DB."""
     result = generate_reply("hi", session_id="test-greeting")
     mock_query.assert_not_called()
-    mock_gemini.assert_not_called()
+    mock_claude.assert_not_called()
     assert _GREETING_RESPONSE in result["response"]
     assert result["services"] == []
     print("  PASS: greeting route (no DB, no LLM)")
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_greeting_with_existing_session(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_greeting_with_existing_session(mock_claude, mock_query):
     """Greeting with existing slots should acknowledge the session."""
     from app.services.session_store import save_session_slots
     save_session_slots("test-greeting-existing", {"service_type": "food"})
@@ -183,8 +183,8 @@ def test_greeting_with_existing_session(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_reset_clears_session(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_reset_clears_session(mock_claude, mock_query):
     """Reset should clear the session and return reset response."""
     from app.services.session_store import save_session_slots
     save_session_slots("test-reset", {"service_type": "food", "location": "Brooklyn"})
@@ -201,8 +201,8 @@ def test_reset_clears_session(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_thanks_route(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_thanks_route(mock_claude, mock_query):
     """Thanks should return thanks response."""
     result = generate_reply("thank you", session_id="test-thanks")
     assert _THANKS_RESPONSE in result["response"]
@@ -211,8 +211,8 @@ def test_thanks_route(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_help_route(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_help_route(mock_claude, mock_query):
     """Help should return help response."""
     result = generate_reply("what can you do", session_id="test-help")
     assert "free services" in result["response"].lower() or "find" in result["response"].lower()
@@ -221,8 +221,8 @@ def test_help_route(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_service_with_results(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_service_with_results(mock_claude, mock_query):
     """Full service request should confirm first, then query DB on confirmation."""
     sid = "test-service-results"
     clear_session(sid)
@@ -238,7 +238,7 @@ def test_service_with_results(mock_gemini, mock_query):
     # Step 2: Confirm — now it should query the DB
     r2 = generate_reply("Yes, search", session_id=sid)
     mock_query.assert_called_once()
-    mock_gemini.assert_not_called()
+    mock_claude.assert_not_called()
     assert r2["result_count"] == 1
     assert len(r2["services"]) == 1
     assert r2["services"][0]["service_name"] == "Test Food Pantry"
@@ -249,8 +249,8 @@ def test_service_with_results(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_EMPTY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_service_no_results(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_service_no_results(mock_claude, mock_query):
     """Service request with no results should show helpful message after confirmation."""
     sid = "test-no-results"
     clear_session(sid)
@@ -265,26 +265,26 @@ def test_service_no_results(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", side_effect=Exception("DB connection failed"))
-@patch("app.services.chatbot.gemini_reply", return_value="Let me try to help another way.")
-def test_db_failure_falls_back_to_gemini(mock_gemini, mock_query):
-    """If DB query throws after confirmation, should fall back to Gemini."""
+@patch("app.services.chatbot.claude_reply", return_value="Let me try to help another way.")
+def test_db_failure_falls_back_to_claude(mock_claude, mock_query):
+    """If DB query throws after confirmation, should fall back to Claude."""
     sid = "test-db-fail"
     clear_session(sid)
     generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation step
     result = generate_reply("Yes, search", session_id=sid)  # confirm → query fails
     mock_query.assert_called_once()
-    mock_gemini.assert_called_once()
+    mock_claude.assert_called_once()
     assert result["response"] == "Let me try to help another way."
     assert result["services"] == []
 
     clear_session(sid)
-    print("  PASS: DB failure falls back to Gemini")
+    print("  PASS: DB failure falls back to Claude")
 
 
 @patch("app.services.chatbot.query_services", side_effect=Exception("DB down"))
-@patch("app.services.chatbot.gemini_reply", side_effect=Exception("Gemini down too"))
-def test_both_db_and_gemini_fail(mock_gemini, mock_query):
-    """If both DB and Gemini fail after confirmation, should return safe static message."""
+@patch("app.services.chatbot.claude_reply", side_effect=Exception("Claude down too"))
+def test_both_db_and_claude_fail(mock_claude, mock_query):
+    """If both DB and Claude fail after confirmation, should return safe static message."""
     sid = "test-both-fail"
     clear_session(sid)
     generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation step
@@ -293,22 +293,22 @@ def test_both_db_and_gemini_fail(mock_gemini, mock_query):
     assert result["services"] == []
 
     clear_session(sid)
-    print("  PASS: both DB + Gemini fail → safe static response")
+    print("  PASS: both DB + Claude fail → safe static response")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_ERROR_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="I can try to help with that.")
-def test_query_error_falls_back(mock_gemini, mock_query):
-    """If query_services returns an error key after confirmation, should fall back to Gemini."""
+@patch("app.services.chatbot.claude_reply", return_value="I can try to help with that.")
+def test_query_error_falls_back(mock_claude, mock_query):
+    """If query_services returns an error key after confirmation, should fall back to Claude."""
     sid = "test-query-error"
     clear_session(sid)
     generate_reply("I need food in Brooklyn", session_id=sid)  # confirmation step
     result = generate_reply("Yes, search", session_id=sid)  # confirm → error
-    mock_gemini.assert_called_once()
+    mock_claude.assert_called_once()
     assert result["response"] == "I can try to help with that."
 
     clear_session(sid)
-    print("  PASS: query error falls back to Gemini")
+    print("  PASS: query error falls back to Claude")
 
 
 # -----------------------------------------------------------------------
@@ -316,8 +316,8 @@ def test_query_error_falls_back(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_service_needs_followup(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_service_needs_followup(mock_claude, mock_query):
     """Service keyword without location should ask follow-up, not query DB."""
     clear_session("test-followup")
     result = generate_reply("I need food", session_id="test-followup")
@@ -335,17 +335,17 @@ def test_service_needs_followup(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply", return_value="I understand. How can I help you find what you need?")
-def test_general_conversation(mock_gemini, mock_query):
-    """Unrecognized messages should route to Gemini for conversational response."""
+@patch("app.services.chatbot.claude_reply", return_value="I understand. How can I help you find what you need?")
+def test_general_conversation(mock_claude, mock_query):
+    """Unrecognized messages should route to Claude for conversational response."""
     clear_session("test-general")
     result = generate_reply("tell me more about that", session_id="test-general")
     mock_query.assert_not_called()
-    mock_gemini.assert_called_once()
+    mock_claude.assert_called_once()
     assert result["response"] == "I understand. How can I help you find what you need?"
 
     clear_session("test-general")
-    print("  PASS: general conversation routes to Gemini")
+    print("  PASS: general conversation routes to Claude")
 
 
 # -----------------------------------------------------------------------
@@ -353,8 +353,8 @@ def test_general_conversation(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_multi_turn_slot_accumulation(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_multi_turn_slot_accumulation(mock_claude, mock_query):
     """Slots should accumulate across turns within the same session."""
     sid = "test-multi-turn"
     clear_session(sid)
@@ -381,8 +381,8 @@ def test_multi_turn_slot_accumulation(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_reset_then_new_search(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_reset_then_new_search(mock_claude, mock_query):
     """After reset, a new search should start from scratch."""
     sid = "test-reset-new"
     clear_session(sid)
@@ -408,8 +408,8 @@ def test_reset_then_new_search(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_pii_redacted_in_transcript(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_pii_redacted_in_transcript(mock_claude, mock_query):
     """PII should be redacted in the stored transcript but slots should still extract."""
     sid = "test-pii-transcript"
     clear_session(sid)
@@ -438,8 +438,8 @@ def test_pii_redacted_in_transcript(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_phone_redacted_in_transcript(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_phone_redacted_in_transcript(mock_claude, mock_query):
     """Phone numbers should be redacted in transcript."""
     sid = "test-pii-phone"
     clear_session(sid)
@@ -462,8 +462,8 @@ def test_phone_redacted_in_transcript(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_session_id_generated_when_none(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_session_id_generated_when_none(mock_claude, mock_query):
     """If no session_id is provided, one should be generated."""
     result = generate_reply("hi")
     assert result["session_id"] is not None
@@ -474,8 +474,8 @@ def test_session_id_generated_when_none(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_session_id_preserved(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_session_id_preserved(mock_claude, mock_query):
     """If session_id is provided, it should be returned unchanged."""
     result = generate_reply("hi", session_id="my-custom-id")
     assert result["session_id"] == "my-custom-id"
@@ -488,8 +488,8 @@ def test_session_id_preserved(mock_gemini, mock_query):
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_response_has_all_required_keys(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_response_has_all_required_keys(mock_claude, mock_query):
     """Every response should have all required keys for the ChatResponse model."""
     required_keys = [
         "session_id", "response", "follow_up_needed",
@@ -508,8 +508,8 @@ def test_response_has_all_required_keys(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_relaxed_search_flag(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_relaxed_search_flag(mock_claude, mock_query):
     """relaxed_search should reflect whether the query was relaxed."""
     sid = "test-relaxed"
     clear_session(sid)
@@ -564,8 +564,8 @@ def test_classify_confirmation_phrases():
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_confirmation_step_triggered(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_confirmation_step_triggered(mock_claude, mock_query):
     """When both slots are filled, should return confirmation, not query."""
     sid = "test-confirm-trigger"
     clear_session(sid)
@@ -582,8 +582,8 @@ def test_confirmation_step_triggered(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_change_location_during_confirmation(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_change_location_during_confirmation(mock_claude, mock_query):
     """User can change location during confirmation."""
     sid = "test-change-loc"
     clear_session(sid)
@@ -600,8 +600,8 @@ def test_change_location_during_confirmation(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_change_service_during_confirmation(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_change_service_during_confirmation(mock_claude, mock_query):
     """User can change service type during confirmation."""
     sid = "test-change-svc"
     clear_session(sid)
@@ -618,8 +618,8 @@ def test_change_service_during_confirmation(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_greeting_has_quick_replies(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_greeting_has_quick_replies(mock_claude, mock_query):
     """Greeting response should include quick-reply category buttons."""
     sid = "test-qr-greeting"
     clear_session(sid)
@@ -635,8 +635,8 @@ def test_greeting_has_quick_replies(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_reset_has_quick_replies(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_reset_has_quick_replies(mock_claude, mock_query):
     """Reset response should include quick-reply category buttons."""
     sid = "test-qr-reset"
     clear_session(sid)
@@ -649,8 +649,8 @@ def test_reset_has_quick_replies(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_service_followup_has_quick_replies(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_service_followup_has_quick_replies(mock_claude, mock_query):
     """When only service type is known, follow-up should show borough buttons."""
     sid = "test-qr-followup"
     clear_session(sid)
@@ -667,8 +667,8 @@ def test_service_followup_has_quick_replies(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_new_input_clears_pending_confirmation(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_new_input_clears_pending_confirmation(mock_claude, mock_query):
     """Typing new service input during confirmation should re-extract and re-confirm."""
     sid = "test-new-input-confirm"
     clear_session(sid)
@@ -688,8 +688,8 @@ def test_new_input_clears_pending_confirmation(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_results_have_post_search_quick_replies(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_results_have_post_search_quick_replies(mock_claude, mock_query):
     """After results are shown, should offer new search and peer navigator buttons."""
     sid = "test-qr-results"
     clear_session(sid)
@@ -706,8 +706,8 @@ def test_results_have_post_search_quick_replies(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="No problem! What else can I help with?")
-def test_general_reply_does_not_retrigger_confirmation(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="No problem! What else can I help with?")
+def test_general_reply_does_not_retrigger_confirmation(mock_claude, mock_query):
     """A general message like 'no' should NOT re-trigger confirmation from stale slots."""
     sid = "test-no-retrigger"
     clear_session(sid)
@@ -730,8 +730,8 @@ def test_general_reply_does_not_retrigger_confirmation(mock_gemini, mock_query):
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply", return_value="No problem! What else can I help with?")
-def test_no_after_escalation_does_not_confirm(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="No problem! What else can I help with?")
+def test_no_after_escalation_does_not_confirm(mock_claude, mock_query):
     """After escalation response, 'no' should route to general conversation."""
     sid = "test-no-after-escalation"
     clear_session(sid)
@@ -783,8 +783,8 @@ if __name__ == "__main__":
     test_general_conversation()
 
     print("\n--- Fallback Behavior ---")
-    test_db_failure_falls_back_to_gemini()
-    test_both_db_and_gemini_fail()
+    test_db_failure_falls_back_to_claude()
+    test_both_db_and_claude_fail()
     test_query_error_falls_back()
 
     print("\n--- Multi-Turn Sessions ---")
@@ -836,14 +836,14 @@ if __name__ == "__main__":
 # -----------------------------------------------------------------------
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_confirm_deny_breaks_loop(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_confirm_deny_breaks_loop(mock_claude, mock_query):
     """Bug 1: Saying 'no' during confirmation should NOT loop forever.
 
     Previously, 'no' was classified as 'general', had no new slots,
     and re-showed the confirmation nudge indefinitely.
     """
-    mock_gemini.return_value = "How can I help?"
+    mock_claude.return_value = "How can I help?"
     sid = "test-deny-loop"
     clear_session(sid)
 
@@ -945,9 +945,9 @@ def test_thanks_with_continuation_falls_through():
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_empty_message_guard(mock_gemini, mock_query):
-    """Bug 6: Empty string messages should return welcome, not hit Gemini."""
+@patch("app.services.chatbot.claude_reply")
+def test_empty_message_guard(mock_claude, mock_query):
+    """Bug 6: Empty string messages should return welcome, not hit Claude."""
     sid = "test-empty"
     clear_session(sid)
 
@@ -956,14 +956,14 @@ def test_empty_message_guard(mock_gemini, mock_query):
         "Empty message should return welcome prompt"
     assert len(r["quick_replies"]) == 9, \
         "Empty message should show all 9 category buttons"
-    mock_gemini.assert_not_called()
+    mock_claude.assert_not_called()
     print("  PASS: empty message returns welcome")
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_whitespace_message_guard(mock_gemini, mock_query):
-    """Bug 6: Whitespace-only messages should return welcome, not hit Gemini."""
+@patch("app.services.chatbot.claude_reply")
+def test_whitespace_message_guard(mock_claude, mock_query):
+    """Bug 6: Whitespace-only messages should return welcome, not hit Claude."""
     sid = "test-whitespace"
     clear_session(sid)
 
@@ -972,7 +972,7 @@ def test_whitespace_message_guard(mock_gemini, mock_query):
         "Whitespace message should return welcome prompt"
     assert len(r["quick_replies"]) == 9, \
         "Whitespace message should show all 9 category buttons"
-    mock_gemini.assert_not_called()
+    mock_claude.assert_not_called()
     print("  PASS: whitespace message returns welcome")
 
 
@@ -1008,8 +1008,8 @@ def test_confused_classification():
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply")
-def test_confused_does_not_trigger_llm(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_confused_does_not_trigger_llm(mock_claude, mock_query):
     """'I don't know what to do' should NOT reach the LLM or extract slots.
 
     Previously, the LLM would interpret this as a mental health request
@@ -1028,14 +1028,14 @@ def test_confused_does_not_trigger_llm(mock_gemini, mock_query):
     assert r["slots"].get("_pending_confirmation") is None, \
         "Should NOT have triggered confirmation"
 
-    # Gemini should NOT have been called
-    mock_gemini.assert_not_called()
+    # Claude should NOT have been called
+    mock_claude.assert_not_called()
     print("  PASS: confused does not trigger LLM")
 
 
 @patch("app.services.chatbot.query_services")
-@patch("app.services.chatbot.gemini_reply", return_value="test")
-def test_conversation_history_passed_to_llm(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply", return_value="test")
+def test_conversation_history_passed_to_llm(mock_claude, mock_query):
     """When LLM extraction is enabled, the session transcript should be
     passed as conversation_history so follow-ups like 'What about in
     Brooklyn?' have context from prior turns.

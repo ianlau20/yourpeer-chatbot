@@ -50,44 +50,10 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# LLM CLIENT (lazy-initialized, same pattern as llm_slot_extractor.py)
+# LLM CLIENT — uses shared Anthropic client from claude_client.py
 # ---------------------------------------------------------------------------
 
-try:
-    import anthropic
-    _anthropic_available = True
-except ImportError:
-    _anthropic_available = False
-    logger.warning("anthropic SDK not installed — LLM crisis detection disabled")
-
-_client = None
-_init_error = None
-
-
-def _get_client():
-    """Lazy-initialize the Anthropic client."""
-    global _client, _init_error
-
-    if _client is not None:
-        return _client
-    if _init_error is not None:
-        raise _init_error
-    if not _anthropic_available:
-        _init_error = RuntimeError("anthropic SDK not installed")
-        raise _init_error
-
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        _init_error = RuntimeError("ANTHROPIC_API_KEY not set")
-        raise _init_error
-
-    try:
-        _client = anthropic.Anthropic(api_key=api_key)
-        return _client
-    except Exception as e:
-        _init_error = RuntimeError(f"Failed to initialize Anthropic client: {e}")
-        raise _init_error
-
+from app.llm.claude_client import get_client, CRISIS_DETECTION_MODEL
 
 # Whether LLM crisis detection is enabled (requires ANTHROPIC_API_KEY)
 _USE_LLM_DETECTION = bool(os.getenv("ANTHROPIC_API_KEY"))
@@ -361,11 +327,11 @@ def _detect_crisis_llm(text: str) -> Optional[Tuple[str, str]]:
     decide, so we resolve that uncertainty toward safety.
     """
     try:
-        client = _get_client()
+        client = get_client()
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",  # Fastest model — latency matters here
-            max_tokens=60,                       # {"crisis": true, "category": "..."} is ~15 tokens
+            model=CRISIS_DETECTION_MODEL,  # Sonnet 4.6 — nuance matters for safety
+            max_tokens=60,                 # {"crisis": true, "category": "..."} is ~15 tokens
             system=_LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": text}],
         )

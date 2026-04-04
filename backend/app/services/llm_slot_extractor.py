@@ -27,44 +27,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Try to import Anthropic SDK
-try:
-    import anthropic
-    _anthropic_available = True
-except ImportError:
-    _anthropic_available = False
-    logger.warning("anthropic SDK not installed — LLM slot extraction disabled")
-
-# Lazy-initialized client
-_client = None
-_init_error = None
-
-
-def _get_client():
-    """Lazy-initialize the Anthropic client."""
-    global _client, _init_error
-
-    if _client is not None:
-        return _client
-    if _init_error is not None:
-        raise _init_error
-    if not _anthropic_available:
-        _init_error = RuntimeError("anthropic SDK not installed")
-        raise _init_error
-
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        _init_error = RuntimeError(
-            "ANTHROPIC_API_KEY not set. Add it to your .env file."
-        )
-        raise _init_error
-
-    try:
-        _client = anthropic.Anthropic(api_key=api_key)
-        return _client
-    except Exception as e:
-        _init_error = RuntimeError(f"Failed to initialize Anthropic client: {e}")
-        raise _init_error
+# Use the shared Anthropic client and model constants
+from app.llm.claude_client import get_client, SLOT_EXTRACTION_MODEL
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +137,7 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
     Values are None for slots that couldn't be extracted.
     """
     try:
-        client = _get_client()
+        client = get_client()
 
         # Build messages with conversation history for context
         messages = []
@@ -204,7 +168,7 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
         messages.append({"role": "user", "content": message})
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=SLOT_EXTRACTION_MODEL,
             max_tokens=256,
             system=_SYSTEM_PROMPT,
             tools=[_EXTRACT_SLOTS_TOOL],

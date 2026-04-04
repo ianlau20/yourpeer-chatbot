@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 379 tests across 14 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Gemini client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Gemini LLM, and Anthropic API are mocked where needed.
+The test suite covers 381 tests across 14 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Claude API is mocked where needed.
 
 ## Running Tests
 
@@ -63,7 +63,7 @@ All 14 backend modules and all 53 public functions are covered:
 | `chat_models.py` | `test_chat_route.py` | 16 | Full |
 | `admin.py` (routes) | `test_admin.py` | 18 | Full |
 | `chat.py` (route) | `test_chat_route.py` | 14 | Full |
-| `gemini_client.py` | `test_gemini_client.py` | 10 | Full |
+| `claude_client.py` | `test_claude_client.py` | 12 | Full |
 | `main.py` | `test_main.py` | 7 | Full |
 
 **Not covered:** Frontend TypeScript/React components (`frontend-next/`). There is no frontend test infrastructure in the project yet. See "Known Limitations" section below.
@@ -78,7 +78,7 @@ Validates the main chatbot module — message classification, slot extraction ro
 |---|---|---|
 | Message classification | 10 | All routing categories: reset, greeting, thanks, help, service, general, confirm_yes, confirm_deny, confirm_change_service, confirm_change_location, bot_identity, frustration, escalation. Long messages not misclassified as greetings. Punctuation handling |
 | Routing paths | 9 | Greeting (with and without existing session), reset, thanks, help, service with results, no results, partial slots trigger follow-up, general conversation |
-| Fallback behavior | 3 | DB failure → Gemini fallback. Both fail → safe static message. Query error → Gemini fallback |
+| Fallback behavior | 3 | DB failure → Claude fallback. Both fail → safe static message. Query error → Claude fallback |
 | Multi-turn sessions | 2 | Slot accumulation across turns with confirmation. Reset then new search |
 | PII in chatbot flow | 2 | Name/phone redacted in transcript but slots still extract |
 | Session ID | 2 | Auto-generated when none provided. Preserved when provided |
@@ -237,14 +237,14 @@ Validates PII detection and redaction across six PII types.
 | Clean passthrough | 1 | No PII → no changes |
 | Quick check | 1 | `has_pii()` utility |
 
-### `test_gemini_client.py` — 10 tests
+### `test_claude_client.py` — 12 tests
 
-Unit tests for the Gemini LLM client. All external calls mocked.
+Unit tests for the Claude LLM client. All external calls mocked.
 
 | Category | Tests | What's covered |
 |---|---|---|
 | Lazy initialization | 2 | First call creates client, subsequent calls reuse it |
-| Missing env vars | 2 | Missing `GEMINI_API_KEY` raises, missing `GEMINI_MODEL` raises |
+| Missing env vars | 1 | Missing `ANTHROPIC_API_KEY` raises |
 | Error caching | 2 | Init failure cached (no retry), `genai.Client()` failure cached |
 | Reply success | 2 | Returns response text, None text → empty string |
 | Reply failure | 2 | API exception → fallback string, init failure → fallback string |
@@ -328,8 +328,8 @@ Follow the existing pattern. For chatbot tests that need external services mocke
 
 ```python
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
-@patch("app.services.chatbot.gemini_reply")
-def test_your_new_test(mock_gemini, mock_query):
+@patch("app.services.chatbot.claude_reply")
+def test_your_new_test(mock_claude, mock_query):
     clear_session("test-new")
     result = generate_reply("your test message", session_id="test-new")
     assert result["response"] == "expected"
