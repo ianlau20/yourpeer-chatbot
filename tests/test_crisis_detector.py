@@ -8,7 +8,9 @@ Or just:  python tests/test_crisis_detector.py
 
 
 
+from unittest.mock import patch, MagicMock
 from app.services.crisis_detector import detect_crisis, is_crisis
+import app.services.crisis_detector as cd
 
 
 # -----------------------------------------------------------------------
@@ -206,6 +208,15 @@ def test_medical_response_has_poison_control():
 # NO FALSE POSITIVES
 # -----------------------------------------------------------------------
 
+def _mock_llm_no_crisis():
+    """Context manager that mocks the LLM to return no-crisis for all messages."""
+    mock_message = MagicMock()
+    mock_message.content = [MagicMock(text='{"crisis": false}')]
+    return patch.object(cd, 'get_client', return_value=MagicMock(
+        messages=MagicMock(create=MagicMock(return_value=mock_message))
+    ))
+
+
 def test_no_false_positives_service_requests():
     """Normal service requests should NOT trigger crisis detection."""
     safe_messages = [
@@ -219,10 +230,11 @@ def test_no_false_positives_service_requests():
         "Where's the nearest clinic?",
         "I need help with my resume",
     ]
-    for msg in safe_messages:
-        result = detect_crisis(msg)
-        assert result is None, \
-            f"False positive on: '{msg}' → {result[0] if result else None}"
+    with _mock_llm_no_crisis():
+        for msg in safe_messages:
+            result = detect_crisis(msg)
+            assert result is None, \
+                f"False positive on: '{msg}' → {result[0] if result else None}"
 
 
 def test_no_false_positives_conversational():
@@ -237,10 +249,11 @@ def test_no_false_positives_conversational():
         "I'm fine",
         "what can you do",
     ]
-    for msg in safe_messages:
-        result = detect_crisis(msg)
-        assert result is None, \
-            f"False positive on: '{msg}' → {result[0] if result else None}"
+    with _mock_llm_no_crisis():
+        for msg in safe_messages:
+            result = detect_crisis(msg)
+            assert result is None, \
+                f"False positive on: '{msg}' → {result[0] if result else None}"
 
 
 def test_no_false_positive_on_hurt_in_context():
@@ -251,10 +264,11 @@ def test_no_false_positive_on_hurt_in_context():
         "I hurt my back at work",
         "The process hurt my application",
     ]
-    for msg in safe_messages:
-        result = detect_crisis(msg)
-        assert result is None, \
-            f"False positive on: '{msg}' → {result[0] if result else None}"
+    with _mock_llm_no_crisis():
+        for msg in safe_messages:
+            result = detect_crisis(msg)
+            assert result is None, \
+                f"False positive on: '{msg}' → {result[0] if result else None}"
 
 
 # -----------------------------------------------------------------------
@@ -415,15 +429,17 @@ def test_no_false_positive_on_shelter_search():
         "I need somewhere to stay",
         "Looking for emergency housing in the Bronx",
     ]
-    for msg in safe_messages:
-        result = detect_crisis(msg)
-        assert result is None, \
-            f"False positive on shelter search: '{msg}' → {result[0] if result else None}"
+    with _mock_llm_no_crisis():
+        for msg in safe_messages:
+            result = detect_crisis(msg)
+            assert result is None, \
+                f"False positive on shelter search: '{msg}' → {result[0] if result else None}"
 
 def test_is_crisis_helper():
     """is_crisis() should return True/False correctly."""
     assert is_crisis("I want to kill myself") is True
-    assert is_crisis("I need food in Brooklyn") is False
+    with _mock_llm_no_crisis():
+        assert is_crisis("I need food in Brooklyn") is False
 
 
 def test_crisis_in_longer_message():

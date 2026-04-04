@@ -99,6 +99,15 @@ MOCK_RELAXED_RESULTS = {
 # FIXTURES
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _clear_rate_limits():
+    """Reset rate limiter state before each test so tests are isolated."""
+    from app.services.rate_limiter import clear
+    clear()
+    yield
+    clear()
+
+
 @pytest.fixture
 def mock_service_card():
     """A single realistic service card dict."""
