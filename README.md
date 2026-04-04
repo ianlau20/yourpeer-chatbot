@@ -146,14 +146,13 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 
 **`adversarial_fake_service` graceful handling.** A request for an impossible service (e.g., "helicopter ride") proceeds to a meaningless search rather than being redirected gracefully to real alternatives. P6 guard clause in the confirmation builder is pending.
 
-**Phone number redaction in confirmation echo.** When a user includes a phone number in their message, the number is redacted from the stored transcript but may still appear in the bot's confirmation echo before being stored. P5 fix (run `redact_pii()` on outgoing responses) is pending.
-
 ## Documentation
 
 | Document | Description |
 |---|---|
 | [FEATURES.md](FEATURES.md) | Full feature reference — conversation & intake, crisis detection, search & results, service cards, privacy & safety, staff tools |
 | [CRISIS_DETECTION.md](CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, phrase list design, LLM prompt, and how to extend |
+| [PII_REDACTION.md](PII_REDACTION.md) | PII redaction — six detection categories, pattern details, tradeoffs, known gaps, and future improvements |
 | [METRICS.md](METRICS.md) | Success metrics — 18 metrics across 5 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
 | [EVAL_RESULTS.md](EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
 | [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |

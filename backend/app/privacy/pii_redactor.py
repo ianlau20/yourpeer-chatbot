@@ -70,34 +70,47 @@ _DOB_PATTERNS = [
 ]
 
 # Street addresses: "123 Main Street", "456 Broadway", "789 Flatbush Ave"
-# Three patterns: standard names, ordinal streets, and Broadway special case.
-# Uses full suffix words plus safe abbreviations. 'St' is safe here because
-# the full address pattern requires a leading number + capitalized word,
-# which eliminates false positives like "status" or "still".
-# 'Ter' excluded (matches 'shelter', 'terminal', etc.).
+#
+# Uses full suffix words plus safe abbreviations. 'St' and 'Ter' are safe
+# because the full pattern requires a leading number + capitalized word,
+# which eliminates false positives like "status", "still", "shelter", etc.
 _STREET_SUFFIX = (
     r"(?:Street|St\.|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|"
-    r"Lane|Ln|Place|Pl|Court|Ct|Way|Terrace)"
+    r"Lane|Ln|Place|Pl|Court|Ct|Way|Terrace|Ter\.?)"
 )
+
+# Optional apartment/unit/floor suffix: "Apt 4B", "#12", "Unit 3", "Fl 2"
+_UNIT_SUFFIX = (
+    r"(?:\s+(?:Apt\.?|Unit|Suite|Ste\.?|Fl(?:oor)?\.?|Rm\.?|#)\s*[A-Za-z0-9-]+)?"
+)
+
 _ADDRESS_PATTERNS = [
-    # Standard: number + word-based street name(s) + suffix
-    # e.g. "300 Lafayette Street", "456 West Main Street"
+    # Standard: number + word-based street name(s) + suffix + optional unit
+    # e.g. "300 Lafayette Street", "456 West Main Street Apt 4B"
     re.compile(
         r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}"
-        + _STREET_SUFFIX + r"\b",
+        + _STREET_SUFFIX + _UNIT_SUFFIX + r"\b",
         re.IGNORECASE,
     ),
-    # Ordinal street: number + optional direction + ordinal + suffix
-    # e.g. "456 West 42nd Street", "789 5th Avenue", "100 East 125th Street"
+    # Ordinal street: number + optional direction + ordinal + suffix + optional unit
+    # e.g. "456 West 42nd Street", "789 5th Avenue Apt 3"
     re.compile(
         r"\b\d{1,5}\s+(?:(?:East|West|North|South|E|W|N|S)\s+)?"
         r"\d{1,3}(?:st|nd|rd|th)\s+"
-        + _STREET_SUFFIX + r"\b",
+        + _STREET_SUFFIX + _UNIT_SUFFIX + r"\b",
         re.IGNORECASE,
     ),
-    # Broadway special case (no suffix needed)
+    # Broadway special case (no suffix needed) + optional unit
     re.compile(
-        r"\b\d{1,5}\s+Broadway\b",
+        r"\b\d{1,5}\s+Broadway" + _UNIT_SUFFIX + r"\b",
+        re.IGNORECASE,
+    ),
+    # Suffix-less addresses with location preposition context:
+    # "at 123 Main", "on 456 Flatbush". Requires a preposition to avoid
+    # false positives on bare "number + word" phrases like "5 Borough".
+    re.compile(
+        r"(?:at|on|to)\s+\d{1,5}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?"
+        + _UNIT_SUFFIX + r"\b",
         re.IGNORECASE,
     ),
 ]

@@ -182,3 +182,57 @@ def test_numbered_street_addresses():
             f"False positive: '{original}' should NOT be redacted as address"
 
 
+def test_address_with_apartment_unit():
+    """Apartment/unit/floor suffixes should be captured with the address."""
+    cases = [
+        "I live at 123 Main Street Apt 4B",
+        "My address is 456 Broadway #12",
+        "I stay at 789 Flatbush Ave Unit 3",
+        "Meet at 100 East 125th Street Fl 2",
+        "Office at 300 Lafayette Street Suite 5A",
+    ]
+    for original in cases:
+        redacted, dets = redact_pii(original)
+        assert "[ADDRESS]" in redacted, \
+            f"Failed to redact address in: '{original}' → '{redacted}'"
+        # The unit info should NOT leak after the [ADDRESS] tag
+        for unit_marker in ["Apt", "#", "Unit", "Fl ", "Suite"]:
+            assert unit_marker not in redacted, \
+                f"Unit info leaked in: '{original}' → '{redacted}'"
+
+
+def test_address_ter_suffix():
+    """Terrace abbreviated as 'Ter' or 'Ter.' should be caught."""
+    for suffix in ["Ter", "Ter.", "Terrace"]:
+        original = f"45 Oak {suffix}"
+        redacted, dets = redact_pii(original)
+        assert "[ADDRESS]" in redacted, \
+            f"Failed to redact: '{original}' → '{redacted}'"
+
+
+def test_address_suffixless_with_preposition():
+    """Addresses without a street suffix should be caught when preceded
+    by a location preposition (at/on/to)."""
+    cases = [
+        "I live at 123 Main",
+        "shelter at 456 Flatbush",
+        "meet me on 789 Lexington",
+        "go to 100 Park",
+    ]
+    for original in cases:
+        redacted, dets = redact_pii(original)
+        assert "[ADDRESS]" in redacted, \
+            f"Failed to redact: '{original}' → '{redacted}'"
+
+    # Without a preposition, bare number + word is too ambiguous
+    safe_cases = [
+        "123 Main",
+        "5 Borough",
+        "I need 2 Meals",
+    ]
+    for original in safe_cases:
+        redacted, dets = redact_pii(original)
+        assert "[ADDRESS]" not in redacted, \
+            f"False positive: '{original}' should NOT be redacted"
+
+
