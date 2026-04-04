@@ -95,7 +95,7 @@ Four models are used across the system. Each has a specific, bounded role — no
 
 ---
 
-### Gemini (`GEMINI_MODEL` env var, e.g. `gemini-2.0-flash`)
+### Gemini (`GEMINI_MODEL` env var, e.g. `gemini-2.5-flash`)
 
 **Used for:** Conversational fallback — general responses to messages that don't match any routing category and don't contain service slots.
 
