@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 388 tests across 14 unit/integration test files, plus an LLM-as-judge evaluation framework with 29 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Gemini client initialization, static file serving, and session management. All tests run without external services — the Streetlives database, Gemini LLM, and Anthropic API are mocked where needed.
+The test suite covers 379 tests across 14 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Gemini client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Gemini LLM, and Anthropic API are mocked where needed.
 
 ## Running Tests
 
@@ -61,12 +61,12 @@ All 14 backend modules and all 53 public functions are covered:
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 12+ | Full |
 | `session_store.py` | `test_session_store.py`, `test_chatbot.py`, `test_chat_route.py` | 7+ | Full |
 | `chat_models.py` | `test_chat_route.py` | 16 | Full |
-| `admin.py` (routes) | `test_admin.py` | 19 | Full |
+| `admin.py` (routes) | `test_admin.py` | 18 | Full |
 | `chat.py` (route) | `test_chat_route.py` | 14 | Full |
 | `gemini_client.py` | `test_gemini_client.py` | 10 | Full |
-| `main.py` | `test_main.py`, `test_admin.py` | 15+ | Full |
+| `main.py` | `test_main.py` | 7 | Full |
 
-**Not covered:** Frontend JavaScript (`app.js`, `admin.html`). There is no JS test infrastructure in the project. See "Known Limitations" section below.
+**Not covered:** Frontend TypeScript/React components (`frontend-next/`). There is no frontend test infrastructure in the project yet. See "Known Limitations" section below.
 
 ## Test Suites
 
@@ -191,19 +191,18 @@ Validates all 13 public functions in the audit log module.
 | Ring buffer | 3 | Caps at MAX_EVENTS, evicts oldest, conversation index stays within MAX_CONVERSATIONS |
 | Thread safety | 1 | 17 concurrent threads logging and reading simultaneously |
 
-### `test_admin.py` — 19 tests
+### `test_admin.py` — 18 tests
 
-HTTP-level tests for all 7 admin API endpoints using FastAPI TestClient.
+HTTP-level tests for the admin API endpoints using FastAPI TestClient.
 
 | Category | Tests | What's covered |
 |---|---|---|
-| Admin page | 1 | `GET /admin/` serves HTML |
 | Stats | 2 | Empty state returns zeros, populated state returns correct counts |
 | Conversations list | 3 | Summaries, limit parameter, limit validation (rejects 0 and 999) |
 | Conversation detail | 3 | All event types returned, 404 for unknown ID, crisis session includes both event types |
 | Events | 5 | All events, type filtering, invalid type → 422, limit, limit validation |
 | Queries | 2 | Returns only query executions, limit |
-| Eval | 2 | 404 when empty, returns data when set |
+| Eval | 2 | 200 with null results when empty, returns data when set |
 | Health | 1 | `GET /api/health` returns ok |
 
 ### `test_chat_route.py` — 30 tests
@@ -259,20 +258,16 @@ Validates session CRUD and thread safety.
 | Basic operations | 5 | Save/get round-trip with deep copy, nonexistent returns {}, clear, clear nonexistent, overwrite |
 | Thread safety | 2 | 30 concurrent threads (1,500 operations), lock existence |
 
-### `test_main.py` — 15 tests
+### `test_main.py` — 7 tests
 
-HTTP-level tests for the FastAPI app configuration, static file serving, and error handling.
+HTTP-level tests for the FastAPI app configuration (headless API mode).
 
 | Category | Tests | What's covered |
 |---|---|---|
 | Health | 1 | `GET /api/health` |
-| Serve frontend | 1 | `GET /` serves index.html |
-| Static files | 4 | styles.css, app.js, 404.html, 500.html served with correct content types |
-| 404 handling | 2 | Unknown paths return 404 page, nested paths too |
-| API prefix guard | 3 | `/chat/*`, `/api/*`, `/docs` not intercepted by static handler |
-| Admin redirect | 1 | `GET /admin` → 301 to `/admin/` |
+| Root | 1 | `GET /` returns JSON message (no static file serving) |
+| API routing | 3 | `/api/health`, `POST /chat/`, `/admin/api/stats` all routed correctly |
 | CORS | 2 | Headers present, preflight OPTIONS |
-| Root fallback | 1 | Correct branch taken based on frontend dir existence |
 
 ## LLM-as-Judge Evaluation (`eval_llm_judge.py`)
 
@@ -304,7 +299,7 @@ The evaluation runs a three-stage pipeline:
 ### Running the evaluation
 
 ```bash
-# Run all 29 scenarios
+# Run all 85 scenarios
 ANTHROPIC_API_KEY=sk-ant-... python tests/eval_llm_judge.py
 
 # Run only crisis scenarios
@@ -325,7 +320,7 @@ These are documented behaviors, not bugs:
 - **Two boroughs in one message (regex only):** "I'm in Queens but looking for food in Brooklyn" extracts "Queens" (first preposition match), not Brooklyn. LLM extraction picks the intended location.
 - **Manhattan / "New York" ambiguity:** Manhattan normalizes to DB city value "New York." PostGIS proximity search mitigates this for neighborhood-level queries.
 - **Audit log is in-memory:** Staff review console data is lost on server restart. For production, replace with a persistent store.
-- **Frontend untested:** No JavaScript test infrastructure exists. `app.js` functions (`escapeHtml`, `sendMessage`, `addServiceCards`) have no automated tests.
+- **Frontend untested:** No frontend test infrastructure exists yet. The Next.js components in `frontend-next/` (chat UI, admin console, hooks, Zustand store) have no automated tests. Consider adding Playwright for E2E tests or Vitest for component tests when stabilizing for production.
 
 ## Adding New Tests
 

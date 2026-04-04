@@ -65,11 +65,11 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 
 ## Staff Tools
 
-- **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin/`. Includes a full transcript viewer with slot metadata and crisis flags
+- **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin`. Includes a full transcript viewer with slot metadata and crisis flags
 - **Metrics tab** — 18 live metrics across 5 layers (intake quality, answer quality, safety, system quality/eval, closed-loop) with targets and status indicators
 - **User feedback** — thumbs up/down on every bot response; feedback scores are surfaced in the admin Overview and Metrics tabs
 - **In-browser eval runner** — the Eval tab in the staff console includes a "Run Evals" button that triggers the LLM-as-judge suite as a FastAPI background task, with live progress polling and a scenario count selector (5 / 10 / 20 / all)
-- **LLM-as-judge evaluation** — 83-scenario automated evaluation framework across 17 categories, simulating conversations and scoring across 8 quality dimensions: slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, and error recovery. Outputs a structured report with per-scenario scores, critical failure tracking, and category averages. See [EVAL_RESULTS.md](EVAL_RESULTS.md) for full run history
+- **LLM-as-judge evaluation** — 85-scenario automated evaluation framework across 17 categories, simulating conversations and scoring across 8 quality dimensions: slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, and error recovery. Outputs a structured report with per-scenario scores, critical failure tracking, and category averages. See [EVAL_RESULTS.md](EVAL_RESULTS.md) for full run history
 
 ---
 
