@@ -31,6 +31,8 @@ export function ChatMessage({ message, onQuickReply, onFeedback }: ChatMessagePr
   return (
     <>
       <div
+        role={isUser ? "status" : "article"}
+        aria-label={isUser ? "You said" : "YourPeer said"}
         className={`max-w-[82%] px-4 py-3 rounded-2xl text-[0.94rem] leading-relaxed whitespace-pre-wrap animate-in fade-in slide-in-from-bottom-1 ${
           isUser
             ? "self-end bg-amber-300 text-neutral-900 rounded-br-md"

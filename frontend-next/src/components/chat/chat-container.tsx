@@ -38,7 +38,12 @@ export function ChatContainer() {
 
       <div
         ref={chatRef}
-        className="flex-1 bg-white border border-neutral-200 rounded-2xl min-h-[400px] max-h-[75vh] overflow-y-auto p-5 flex flex-col gap-2.5 shadow-sm"
+        role="log"
+        aria-label="Chat messages"
+        aria-live="polite"
+        aria-relevant="additions"
+        tabIndex={0}
+        className="flex-1 bg-white border border-neutral-200 rounded-2xl min-h-[400px] max-h-[75vh] overflow-y-auto p-5 flex flex-col gap-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-300/30"
       >
         {messages.map((msg) => (
           <ChatMessage

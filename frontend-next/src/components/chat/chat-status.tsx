@@ -10,17 +10,16 @@ interface ChatStatusProps {
 }
 
 export function ChatStatus({ isLoading, error }: ChatStatusProps) {
-  if (!isLoading && !error) {
-    return <div className="min-h-[20px] my-2 mx-1" />;
-  }
-
   return (
-    <p
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
       className={`min-h-[20px] my-2 mx-1 text-sm ${
         error ? "text-red-600" : "text-neutral-400"
       }`}
     >
       {error || (isLoading ? "Searching..." : "")}
-    </p>
+    </div>
   );
 }

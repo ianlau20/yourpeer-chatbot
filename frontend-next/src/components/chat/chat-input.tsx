@@ -40,9 +40,13 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
+    <form onSubmit={handleSubmit} className="flex gap-2" aria-label="Chat input">
+      <label htmlFor="chat-message-input" className="sr-only">
+        Message
+      </label>
       <input
         ref={inputRef}
+        id="chat-message-input"
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -60,6 +64,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
       <button
         type="submit"
         disabled={disabled || !value.trim()}
+        aria-label="Send message"
         className="w-12 h-12 border-none rounded-xl bg-neutral-900 text-white flex items-center justify-center transition-transform hover:scale-[1.04] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
       >
         <Send size={18} strokeWidth={2.5} />

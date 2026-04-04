@@ -6,7 +6,7 @@ Built by [Streetlives](https://www.streetlives.nyc/) as a front-end to the [Your
 
 ## How It Works
 
-A user describes what they need in plain language — or taps a quick-reply button. The chatbot extracts the service type and location through natural conversation, confirms the search parameters, then queries the Streetlives database and returns real, verified service listings as interactive cards — with addresses, hours, phone numbers, and links to the full YourPeer listing.
+A user describes what they need in plain language — by typing, tapping a quick-reply button, or using voice input. The chatbot extracts the service type and location through natural conversation, confirms the search parameters, then queries the Streetlives database and returns real, verified service listings as interactive cards — with addresses, hours, phone numbers, and links to the full YourPeer listing. The interface supports screen readers, keyboard navigation, and voice input for low-literacy and low-vision users.
 
 ```
 User:  taps "🍽️ Food"
@@ -80,7 +80,7 @@ The system follows a **Safer, Limited RAG** pattern with four phases:
 
 ## Features
 
-See [FEATURES.md](FEATURES.md) for the full feature reference, organized by area: conversation & intake, crisis detection, search & results, service cards, privacy & safety, and staff tools.
+See [FEATURES.md](FEATURES.md) for the full feature reference, organized by area: conversation & intake, crisis detection, search & results, service cards, privacy & safety, accessibility, and staff tools.
 
 ## Tech Stack
 

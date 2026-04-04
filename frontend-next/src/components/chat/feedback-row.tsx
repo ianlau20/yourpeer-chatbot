@@ -31,8 +31,12 @@ export function FeedbackRow({ onFeedback }: FeedbackRowProps) {
         : "Were these results helpful?";
 
   return (
-    <div className="flex items-center gap-2.5 self-start px-0.5 py-1.5 animate-in fade-in slide-in-from-bottom-1">
-      <span className="text-xs text-neutral-400">{label}</span>
+    <div
+      role="group"
+      aria-label="Rate these results"
+      className="flex items-center gap-2.5 self-start px-0.5 py-1.5 animate-in fade-in slide-in-from-bottom-1"
+    >
+      <span id="feedback-label" className="text-xs text-neutral-400">{label}</span>
       <button
         type="button"
         disabled={!!submitted}

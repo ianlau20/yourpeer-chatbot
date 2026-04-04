@@ -80,7 +80,16 @@ export function ConversationTable({ conversations }: ConversationTableProps) {
                 <tr
                   key={c.session_id}
                   onClick={() => openTranscript(c.session_id)}
-                  className="cursor-pointer hover:bg-amber-50/50 transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openTranscript(c.session_id);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`View transcript for session ${c.session_id.slice(0, 12)}`}
+                  className="cursor-pointer hover:bg-amber-50/50 transition-colors focus:outline-none focus:bg-amber-50/50"
                 >
                   <td className="px-4 py-2.5 font-mono text-xs text-neutral-500 border-b border-neutral-100">
                     {c.session_id.slice(0, 12)}…

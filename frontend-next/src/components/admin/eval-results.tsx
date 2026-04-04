@@ -92,6 +92,7 @@ export function EvalRunner({ onComplete }: EvalRunnerProps) {
       <button
         onClick={handleRun}
         disabled={running}
+        aria-label={running ? "Evaluation running" : "Run evaluation suite"}
         className="px-4 py-2 rounded-lg bg-amber-300 text-neutral-900 font-semibold text-sm transition hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {running ? "⏳ Running…" : "▶ Run Evals"}

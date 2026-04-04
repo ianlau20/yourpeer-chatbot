@@ -11,6 +11,9 @@ import type { ServiceResult } from "@/lib/chat/types";
 
 interface ServiceCardProps {
   service: ServiceResult;
+  isActive?: boolean;
+  index?: number;
+  total?: number;
 }
 
 function StatusBadge({ status }: { status?: string }) {
@@ -35,12 +38,23 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
-export function ServiceCard({ service }: ServiceCardProps) {
+export function ServiceCard({ service, isActive, index, total }: ServiceCardProps) {
+  const name = service.service_name || "Service";
+  const cardLabel =
+    index !== undefined && total !== undefined
+      ? `${name}, result ${index + 1} of ${total}`
+      : name;
+
   return (
-    <div className="flex-shrink-0 w-[280px] snap-start bg-white border border-neutral-200 rounded-2xl p-4 flex flex-col gap-2.5 transition-all hover:border-neutral-300 hover:shadow-md">
+    <div
+      role="listitem"
+      aria-label={cardLabel}
+      aria-current={isActive ? "true" : undefined}
+      className="flex-shrink-0 w-[280px] snap-start bg-white border border-neutral-200 rounded-2xl p-4 flex flex-col gap-2.5 transition-all hover:border-neutral-300 hover:shadow-md"
+    >
       {/* Name */}
       <div className="text-[0.95rem] font-semibold tracking-tight text-neutral-900 leading-snug">
-        {service.service_name || "Service"}
+        {name}
       </div>
 
       {/* Organization */}
@@ -55,8 +69,8 @@ export function ServiceCard({ service }: ServiceCardProps) {
         <StatusBadge status={service.is_open} />
         {service.hours_today && (
           <span className="inline-flex items-center gap-1 text-xs text-neutral-500">
-            <Clock size={14} className="text-neutral-400" />
-            {service.hours_today}
+            <Clock size={14} className="text-neutral-400" aria-hidden="true" />
+            <span>Hours: {service.hours_today}</span>
           </span>
         )}
       </div>
@@ -64,24 +78,24 @@ export function ServiceCard({ service }: ServiceCardProps) {
       {/* Address */}
       {service.address && (
         <div className="flex items-start gap-2 text-sm text-neutral-500 leading-snug">
-          <MapPin size={14} className="text-neutral-400 mt-0.5 flex-shrink-0" />
-          <span>{service.address}</span>
+          <MapPin size={14} className="text-neutral-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <span>Address: {service.address}</span>
         </div>
       )}
 
       {/* Phone */}
       {service.phone && (
         <div className="flex items-start gap-2 text-sm text-neutral-500">
-          <Phone size={14} className="text-neutral-400 mt-0.5 flex-shrink-0" />
-          <span>{service.phone}</span>
+          <Phone size={14} className="text-neutral-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <span>Phone: {service.phone}</span>
         </div>
       )}
 
       {/* Email */}
       {service.email && (
         <div className="flex items-start gap-2 text-sm text-neutral-500">
-          <Mail size={14} className="text-neutral-400 mt-0.5 flex-shrink-0" />
-          <span>{service.email}</span>
+          <Mail size={14} className="text-neutral-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <span>Email: {service.email}</span>
         </div>
       )}
 
@@ -111,7 +125,8 @@ export function ServiceCard({ service }: ServiceCardProps) {
         <a
           href={service.yourpeer_url}
           target="_blank"
-          rel="noopener"
+          rel="noopener noreferrer"
+          aria-label={`Learn more about ${name} on YourPeer`}
           className="block w-full py-2.5 rounded-lg bg-amber-300 text-center text-sm font-semibold text-neutral-900 transition-all hover:bg-amber-400 hover:shadow-md mt-auto"
         >
           Learn More on YourPeer
@@ -119,10 +134,11 @@ export function ServiceCard({ service }: ServiceCardProps) {
       )}
 
       {/* Action buttons */}
-      <div className="flex gap-1.5 pt-1">
+      <div className="flex gap-1.5 pt-1" role="group" aria-label={`Actions for ${name}`}>
         {service.phone && (
           <a
             href={`tel:${service.phone.replace(/\D/g, "")}`}
+            aria-label={`Call ${name}`}
             className="flex-1 py-2 rounded-lg border border-neutral-900 bg-neutral-900 text-center text-xs font-semibold text-white transition hover:bg-neutral-700"
           >
             Call
@@ -132,7 +148,8 @@ export function ServiceCard({ service }: ServiceCardProps) {
           <a
             href={`https://maps.google.com/?q=${encodeURIComponent(service.address)}`}
             target="_blank"
-            rel="noopener"
+            rel="noopener noreferrer"
+            aria-label={`Get directions to ${name}`}
             className="flex-1 py-2 rounded-lg border border-neutral-200 bg-neutral-50 text-center text-xs font-semibold text-neutral-900 transition hover:bg-neutral-100 hover:border-neutral-300"
           >
             Directions
@@ -142,7 +159,8 @@ export function ServiceCard({ service }: ServiceCardProps) {
           <a
             href={service.website}
             target="_blank"
-            rel="noopener"
+            rel="noopener noreferrer"
+            aria-label={`Visit ${name} website`}
             className="flex-1 py-2 rounded-lg border border-neutral-200 bg-neutral-50 text-center text-xs font-semibold text-neutral-900 transition hover:bg-neutral-100 hover:border-neutral-300"
           >
             Website

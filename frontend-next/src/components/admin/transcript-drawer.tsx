@@ -36,7 +36,7 @@ export function TranscriptDrawer({
               Session {sessionId.slice(0, 12)}…
             </Dialog.Title>
             <Dialog.Close asChild>
-              <button className="w-8 h-8 rounded-lg border border-neutral-200 bg-neutral-50 text-neutral-400 flex items-center justify-center transition hover:border-red-300 hover:text-red-500">
+              <button aria-label="Close transcript" className="w-8 h-8 rounded-lg border border-neutral-200 bg-neutral-50 text-neutral-400 flex items-center justify-center transition hover:border-red-300 hover:text-red-500">
                 <X size={16} />
               </button>
             </Dialog.Close>
