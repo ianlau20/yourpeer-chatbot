@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 444 tests across 14 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Claude API is mocked where needed.
+The test suite covers 482 tests across 15 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Claude API is mocked where needed.
 
 ## Running Tests
 
@@ -132,9 +132,9 @@ Validates location normalization, borough expansion, proximity search, and that 
 | Neighborhood proximity | 15 | All neighborhoods have coordinates within NYC bounds, proximity search integration |
 | DB connection | 1 | `test_connection` returns False without DATABASE_URL |
 
-### `test_query_templates.py` — 76 tests
+### `test_query_templates.py` — 82 tests
 
-Validates query template correctness, SQL structure, service card formatting, and schedule computation.
+Validates query template correctness, SQL structure, service card formatting, schedule computation, and result sorting.
 
 | Category | Tests | What's covered |
 |---|---|---|
@@ -145,6 +145,7 @@ Validates query template correctness, SQL structure, service card formatting, an
 | Time formatting | 6 | Cross-platform (no %-I), all periods, no leading zeros |
 | Deduplication | 5 | Removes by service_id, keeps first, edge cases |
 | Generated SQL | 4 | Parameterized (no injection), strict vs relaxed params |
+| Result sorting | 6 | Open-now priority, proximity-first with distance, freshness ordering, relaxed sort consistency |
 
 ### `test_crisis_detector.py` — 36 tests
 
@@ -257,6 +258,19 @@ Validates session CRUD and thread safety.
 |---|---|---|
 | Basic operations | 5 | Save/get round-trip with deep copy, nonexistent returns {}, clear, clear nonexistent, overwrite |
 | Thread safety | 2 | 30 concurrent threads (1,500 operations), lock existence |
+
+### `test_geolocation.py` — 11 tests
+
+Validates browser geolocation support: coordinate acceptance, session storage, "near me" + coords flow, and proximity query integration.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Pydantic model | 2 | ChatRequest accepts lat/lng, coordinates optional |
+| Session storage | 2 | Coords stored when provided, absent when not |
+| Near-me + coords | 3 | Triggers confirmation (not borough ask), shows "near your location", sentinel not exposed |
+| Full flow | 1 | food near me → confirmation → confirm → results with coords passed to query_services |
+| RAG integration | 2 | Direct coords build proximity params, coords override location name |
+| Cross-turn persistence | 1 | Coords persist in session across messages |
 
 ### `test_main.py` — 7 tests
 

@@ -134,7 +134,7 @@ Two Claude models are used across the system, each assigned to specific tasks ba
 
 These are tracked issues identified during DB audits and pilot testing, deferred for post-pilot resolution.
 
-**Result ordering favors large organizations.** The base query orders results alphabetically by `o.name, s.name`. Large systems like NYC Health + Hospitals or CAMBA have many services per borough and will consistently appear at the top of results, crowding out smaller community organizations. A better ordering strategy — randomized within results, or weighted by data completeness (has phone, has hours, recently verified) — would give users more varied and actionable results.
+**Result ordering.** Results are sorted by: (1) open now — services currently open appear first, (2) recently verified — freshest data via `l.last_validated_at DESC NULLS LAST`, (3) service name as a stable tiebreaker. When browser geolocation is available, distance is the primary sort with open-now and freshness as secondary tiebreakers.
 
 **`additional_info` field is effectively empty.** DB audit (Apr 2026) shows 3,240 of 3,251 services (99.7%) have no `additional_info`. The field is selected in the base query and rendered conditionally in the card, but it adds negligible value. Consider removing it from the SELECT in a future query optimization pass to reduce payload size.
 

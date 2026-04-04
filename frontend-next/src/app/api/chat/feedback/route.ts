@@ -11,7 +11,7 @@ const BACKEND_URL = process.env.CHAT_BACKEND_URL || "http://localhost:8000";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const clientIp = req.headers.get("x-forwarded-for") || req.ip || "";
+    const clientIp = req.headers.get("x-forwarded-for") || "";
     const res = await fetch(`${BACKEND_URL}/chat/feedback`, {
       method: "POST",
       headers: {

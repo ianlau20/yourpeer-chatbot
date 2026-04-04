@@ -14,6 +14,7 @@ from app.services.slot_extractor import (
     is_enough_to_answer,
     merge_slots,
     next_follow_up_question,
+    NEAR_ME_SENTINEL,
 )
 from app.rag import query_services
 from app.privacy.pii_redactor import redact_pii
@@ -450,11 +451,19 @@ def _build_confirmation_message(slots: dict) -> str:
     location = slots.get("location", "your area")
     age = slots.get("age")
 
-    # Redact any PII that may have been captured in slot values
-    # (e.g. street addresses extracted as location)
-    location, _ = redact_pii(location)
+    # When using browser geolocation, show "near your location"
+    # instead of the raw "__near_me__" sentinel.
+    if (
+        location == NEAR_ME_SENTINEL
+        and slots.get("_latitude") is not None
+    ):
+        location = "near your location"
+    else:
+        # Redact any PII that may have been captured in slot values
+        # (e.g. street addresses extracted as location)
+        location, _ = redact_pii(location)
 
-    parts = [f"I'll search for {service_label} in {location}"]
+    parts = [f"I'll search for {service_label} {location}"]
     if age:
         parts[0] += f" (age {age})"
     parts[0] += "."
@@ -477,9 +486,10 @@ def _follow_up_quick_replies(slots: dict) -> list:
     if not slots.get("service_type"):
         return list(_WELCOME_QUICK_REPLIES)
 
-    # Missing location — suggest common boroughs
-    if not slots.get("location") or slots.get("location") == "__near_me__":
+    # Missing location — suggest common boroughs + geolocation option
+    if not slots.get("location") or slots.get("location") == NEAR_ME_SENTINEL:
         return [
+            {"label": "📍 Use my location", "value": "__use_geolocation__"},
             {"label": "Manhattan", "value": "Manhattan"},
             {"label": "Brooklyn", "value": "Brooklyn"},
             {"label": "Queens", "value": "Queens"},
@@ -687,7 +697,12 @@ def _empty_reply(
 # MAIN ENTRY POINT
 # ---------------------------------------------------------------------------
 
-def generate_reply(message: str, session_id: str | None = None) -> dict:
+def generate_reply(
+    message: str,
+    session_id: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> dict:
     if not session_id:
         session_id = str(uuid.uuid4())
 
@@ -714,6 +729,14 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         )
 
     existing = get_session_slots(session_id)
+
+    # Store browser geolocation coords in session if provided
+    has_coords = latitude is not None and longitude is not None
+    if has_coords:
+        existing["_latitude"] = latitude
+        existing["_longitude"] = longitude
+        save_session_slots(session_id, existing)
+
     category = _classify_message(message)  # classify on original for accuracy
 
     # --- Crisis ---
@@ -978,11 +1001,23 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
     save_session_slots(session_id, merged)
 
+    # Geolocation: if location is "near me" but we have browser coords,
+    # that's enough to run a proximity search.
+    _has_session_coords = (
+        merged.get("_latitude") is not None
+        and merged.get("_longitude") is not None
+    )
+    _geolocation_ready = (
+        bool(merged.get("service_type"))
+        and merged.get("location") == NEAR_ME_SENTINEL
+        and _has_session_coords
+    )
+
     # If enough detail exists AND this message contributed new info,
     # go to CONFIRMATION step. If the user just typed "no" or something
     # conversational and the old slots happen to be complete, don't
     # re-trigger confirmation — route to general conversation instead.
-    if is_enough_to_answer(merged) and has_new_slots:
+    if (is_enough_to_answer(merged) or _geolocation_ready) and has_new_slots:
         # Set pending confirmation flag
         merged["_pending_confirmation"] = True
         save_session_slots(session_id, merged)
@@ -1050,6 +1085,8 @@ def _execute_and_respond(session_id: str, message: str, slots: dict) -> dict:
             service_type=slots.get("service_type"),
             location=slots.get("location"),
             age=slots.get("age"),
+            latitude=slots.get("_latitude"),
+            longitude=slots.get("_longitude"),
         )
 
         # Log the query execution

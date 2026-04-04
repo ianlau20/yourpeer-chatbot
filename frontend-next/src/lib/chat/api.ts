@@ -22,11 +22,16 @@ import type {
 export async function sendChatMessage(
   message: string,
   sessionId: string | null,
+  coords?: { latitude: number; longitude: number } | null,
 ): Promise<ChatResponse> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      ...(coords && { latitude: coords.latitude, longitude: coords.longitude }),
+    }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => null);

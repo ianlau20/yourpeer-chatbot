@@ -85,7 +85,8 @@ information, preventing hallucination.
 - **Two-stage classification**: regex for fast deterministic routing, LLM for ambiguous messages
 - **Complexity-based LLM routing**: regex handles simple inputs, Claude Haiku handles complex/implicit/slang
 - **Confirmation step**: user confirms before any DB query executes
-- **Quick-reply buttons**: welcome categories, borough selection, confirmation actions
+- **Quick-reply buttons**: welcome categories, borough selection, geolocation ("Use my location"), confirmation actions
+- **Browser geolocation**: opt-in "Use my location" via Geolocation API; falls back to borough buttons on denial
 - **Borough + neighborhood search**: direct borough column filter or PostGIS proximity (59 NYC neighborhoods)
 - **Relaxed fallback**: auto-broadens filters when 0 results, suggests boroughs with more data
 - **Crisis detection**: regex + Sonnet LLM, covers suicide/self-harm, DV, trafficking, medical emergency, violence, youth runaway; fail-open policy returns safety response if LLM unavailable
@@ -98,16 +99,18 @@ information, preventing hallucination.
 - **Accessibility**: screen reader support, keyboard navigation, voice input (Web Speech API)
 - **Anonymized audit logging**: conversation turns, query executions, crisis events
 - **In-memory sessions**: no persistent conversation storage, 30-min TTL
-- **Test suite**: 14 pytest files covering all services, routes, and edge cases (no live API/DB needed)
+- **Result sorting**: open-now first, then recently verified, then name; proximity-first when geolocation available
+- **Error boundaries**: route-level (chat, admin, global) + component-level (ServiceCarousel) + custom 404
+- **Test suite**: 15 pytest files covering all services, routes, and edge cases (no live API/DB needed)
 
 ## Known Gaps / In Progress
 
 - **Multi-intent requests** — cannot handle "food AND shelter" in a single message
-- **Real-time location** — no GPS support; relies on user-provided location text
+- **Real-time location** — browser geolocation supported (opt-in); falls back to text-based location when denied
 - **Caching** — DB queries are not cached
 - **Multilingual support** — English only
 - **Adversarial service handling** — requests for impossible services proceed to search
-- **Result ordering** — alphabetical, which favors large organizations over small community orgs
+- **Result ordering** — sorted by open now, then recently verified, then name; proximity-first when geolocation is available
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage
 - **`additional_info` field** — 99.7% null in DB, always empty in results
 - **Eval runs in web server process** — background task can block request handling during long runs

@@ -34,6 +34,8 @@ def query_services(
     weekday: int = None,
     current_time: str = None,
     max_results: int = 10,
+    latitude: float = None,
+    longitude: float = None,
 ) -> dict:
     """
     High-level entry point: go from intake slots to service results.
@@ -46,6 +48,8 @@ def query_services(
         weekday:      Day of week 0=Mon..6=Sun (for schedule filtering)
         current_time: HH:MM string (for "open now" filtering)
         max_results:  Max service cards to return
+        latitude:     User's latitude from browser geolocation
+        longitude:    User's longitude from browser geolocation
 
     Returns:
         dict with keys: services, result_count, template_used,
@@ -70,7 +74,13 @@ def query_services(
 
     # Normalize location to DB-compatible value and build query params
     user_params = {}
-    if location:
+
+    # Direct browser geolocation: use lat/lng for proximity search
+    if latitude is not None and longitude is not None:
+        user_params["lat"] = latitude
+        user_params["lon"] = longitude
+        user_params["radius_meters"] = DEFAULT_NEIGHBORHOOD_RADIUS_METERS
+    elif location:
         normalized_city = normalize_location(location)
         user_location_is_borough = is_borough(location)
 

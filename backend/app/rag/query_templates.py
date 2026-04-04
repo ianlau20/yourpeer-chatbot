@@ -63,7 +63,9 @@ SELECT
     today_sched.opens_at   AS today_opens,
     today_sched.closes_at  AS today_closes,
 
-    membership_elig.requires_membership AS requires_membership
+    membership_elig.requires_membership AS requires_membership,
+
+    l.last_validated_at AS last_validated_at
 
 FROM services s
     JOIN service_taxonomy st       ON s.id = st.service_id
@@ -254,14 +256,38 @@ FILTER_NOT_HIDDEN = (
 # ---------------------------------------------------------------------------
 # ORDER + LIMIT
 # ---------------------------------------------------------------------------
-_ORDER_LIMIT = """
-ORDER BY o.name, s.name
+# Sorting priority:
+#   1. Open now — services open right now appear first (when schedule exists)
+#   2. Recently verified — freshest data first (NULLS LAST)
+#   3. Service name — stable tiebreaker
+#
+# When proximity (lat/lon) is available, distance is the primary sort and
+# open-now becomes secondary.
+
+# Open-now sort expression: returns 0 for currently open, 1 for closed/unknown.
+# Uses the today_opens/today_closes already selected by the lateral join.
+_OPEN_NOW_RANK = """CASE
+    WHEN today_sched.opens_at IS NOT NULL
+         AND today_sched.closes_at IS NOT NULL
+         AND today_sched.opens_at <= CURRENT_TIME
+         AND today_sched.closes_at >= CURRENT_TIME
+    THEN 0 ELSE 1
+END"""
+
+_ORDER_LIMIT = f"""
+ORDER BY {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
 LIMIT :max_results
 """
 
-# Distance-aware ORDER BY — used when proximity params are present
-_ORDER_BY_DISTANCE_LIMIT = """
-ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography), s.name
+# Distance-aware ORDER BY — used when proximity params are present.
+# Distance first, then open-now, then freshness.
+_ORDER_BY_DISTANCE_LIMIT = f"""
+ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
 LIMIT :max_results
 """
 

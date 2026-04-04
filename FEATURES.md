@@ -37,7 +37,7 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 
 - **Borough-level search** — uses `pa.borough` column directly (not city name expansion), which is clean and consistent across all five boroughs including Staten Island
 - **Neighborhood proximity search** — PostGIS `ST_DWithin` with 59 neighborhood center coordinates returns genuinely local results; falls back to full-borough on no results
-- **Near-me handling** — detects "food near me" and asks for a real neighborhood instead of failing
+- **Near-me handling** — detects "food near me" and offers browser geolocation ("Use my location") alongside borough buttons; falls back to asking for a neighborhood if geolocation is denied
 - **Location normalization** — maps all five boroughs and 59 NYC neighborhoods to database-compatible values, including "the Bronx" → "Bronx" and "manhattan" → "Manhattan"
 - **Data-informed nearby borough suggestions** — when a search returns no results, suggests the borough with the highest actual service count for that category (based on DB audit), not just the geographically closest borough. Only offered for borough-level searches, not neighborhood searches
 - **Relaxed fallback** — if strict filters return no results, automatically broadens the search while keeping location boundaries
@@ -92,7 +92,7 @@ The frontend is designed for the population served — people who may be using s
 
 These are tracked issues identified during DB audits and pilot testing, deferred for post-pilot resolution. See [README.md — Known Limitations](README.md#known-limitations--future-work) for detail.
 
-- Result ordering favors large organizations (alphabetical `ORDER BY`)
+- Result ordering uses open-now / recently-verified / name; proximity-first when geolocation available
 - `additional_info` field is effectively empty (99.7% null)
 - Schedule data is sparse for most categories — open/closed filtering intentionally disabled
 - Eval background task runs in the web server process
