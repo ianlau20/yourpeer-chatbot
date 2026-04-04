@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 381 tests across 14 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Claude API is mocked where needed.
+The test suite covers 444 tests across 14 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Claude API is mocked where needed.
 
 ## Running Tests
 
@@ -70,7 +70,7 @@ All 14 backend modules and all 53 public functions are covered:
 
 ## Test Suites
 
-### `test_chatbot.py` — 47 tests
+### `test_chatbot.py` — 50 tests
 
 Validates the main chatbot module — message classification, slot extraction routing, PII redaction integration, confirmation flow, quick replies, and LLM fallback. External dependencies are mocked.
 
@@ -132,7 +132,7 @@ Validates location normalization, borough expansion, proximity search, and that 
 | Neighborhood proximity | 15 | All neighborhoods have coordinates within NYC bounds, proximity search integration |
 | DB connection | 1 | `test_connection` returns False without DATABASE_URL |
 
-### `test_query_templates.py` — 49 tests
+### `test_query_templates.py` — 76 tests
 
 Validates query template correctness, SQL structure, service card formatting, and schedule computation.
 
@@ -146,7 +146,7 @@ Validates query template correctness, SQL structure, service card formatting, an
 | Deduplication | 5 | Removes by service_id, keeps first, edge cases |
 | Generated SQL | 4 | Parameterized (no injection), strict vs relaxed params |
 
-### `test_crisis_detector.py` — 20 tests
+### `test_crisis_detector.py` — 36 tests
 
 Validates crisis detection across five categories with correct hotline resources and no false positives.
 
@@ -237,7 +237,7 @@ Validates PII detection and redaction across six PII types.
 | Clean passthrough | 1 | No PII → no changes |
 | Quick check | 1 | `has_pii()` utility |
 
-### `test_claude_client.py` — 12 tests
+### `test_claude_client.py` — 19 tests
 
 Unit tests for the Claude LLM client. All external calls mocked.
 

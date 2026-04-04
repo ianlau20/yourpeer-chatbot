@@ -158,7 +158,7 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | [EVAL_RESULTS.md](EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
 | [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
-| [TESTING.md](TESTING.md) | Test suite guide — 379 unit tests across 14 suites + 85-scenario LLM-as-judge evaluation framework |
+| [TESTING.md](TESTING.md) | Test suite guide — 444 unit tests across 14 suites + 85-scenario LLM-as-judge evaluation framework |
 | [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories
