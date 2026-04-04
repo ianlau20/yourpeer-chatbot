@@ -5,10 +5,7 @@ Run with: python -m pytest tests/test_slot_extractor.py -v
 Or just:  python tests/test_slot_extractor.py
 """
 
-import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.services.slot_extractor import (
     extract_slots,
@@ -38,7 +35,6 @@ def test_food_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "food", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: food keywords")
 
 
 def test_shelter_keywords():
@@ -56,7 +52,6 @@ def test_shelter_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "shelter", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: shelter keywords")
 
 
 def test_clothing_keywords():
@@ -71,7 +66,6 @@ def test_clothing_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "clothing", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: clothing keywords")
 
 
 def test_personal_care_keywords():
@@ -86,7 +80,6 @@ def test_personal_care_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "personal_care", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: personal care keywords")
 
 
 def test_medical_keywords():
@@ -102,7 +95,6 @@ def test_medical_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "medical", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: medical keywords")
 
 
 def test_mental_health_keywords():
@@ -118,7 +110,6 @@ def test_mental_health_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "mental_health", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: mental health keywords")
 
 
 def test_legal_keywords():
@@ -134,7 +125,6 @@ def test_legal_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "legal", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: legal keywords")
 
 
 def test_employment_keywords():
@@ -149,7 +139,6 @@ def test_employment_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "employment", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: employment keywords")
 
 
 def test_other_keywords():
@@ -164,7 +153,6 @@ def test_other_keywords():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "other", f"Failed on: {phrase} → {slots['service_type']}"
-    print("  PASS: other service keywords")
 
 
 def test_no_service_type():
@@ -179,7 +167,6 @@ def test_no_service_type():
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] is None, f"False positive on: {phrase} → {slots['service_type']}"
-    print("  PASS: no false positive service types")
 
 
 # -----------------------------------------------------------------------
@@ -199,7 +186,6 @@ def test_location_in_pattern():
         assert slots["location"] is not None, f"No location found in: {phrase}"
         assert expected.lower() in slots["location"].lower(), \
             f"Expected '{expected}' in location for: {phrase} → {slots['location']}"
-    print("  PASS: 'in <location>' pattern")
 
 
 def test_location_preposition_variants():
@@ -216,7 +202,6 @@ def test_location_preposition_variants():
         assert slots["location"] is not None, f"No location found in: {phrase}"
         assert expected.lower() in slots["location"].lower(), \
             f"Expected '{expected}' in location for: {phrase} → {slots['location']}"
-    print("  PASS: preposition variants (near/around/by/from)")
 
 
 def test_location_known_names():
@@ -233,7 +218,6 @@ def test_location_known_names():
         assert slots["location"] is not None, f"No location found in: {phrase}"
         assert expected in slots["location"].lower(), \
             f"Expected '{expected}' in location for: {phrase} → {slots['location']}"
-    print("  PASS: known NYC location names")
 
 
 def test_location_false_positives():
@@ -248,7 +232,6 @@ def test_location_false_positives():
         slots = extract_slots(phrase)
         assert slots["location"] is None, \
             f"False positive location in: {phrase} → {slots['location']}"
-    print("  PASS: no false positive locations")
 
 
 def test_near_me_detection():
@@ -265,7 +248,6 @@ def test_near_me_detection():
         slots = extract_slots(phrase)
         assert slots["location"] == NEAR_ME_SENTINEL, \
             f"Expected NEAR_ME_SENTINEL for: {phrase} → {slots['location']}"
-    print("  PASS: near me detection")
 
 
 def test_no_location():
@@ -279,7 +261,6 @@ def test_no_location():
         slots = extract_slots(phrase)
         assert slots["location"] is None, \
             f"False positive location in: {phrase} → {slots['location']}"
-    print("  PASS: no false positive locations on clean messages")
 
 
 # -----------------------------------------------------------------------
@@ -299,7 +280,6 @@ def test_age_extraction():
         slots = extract_slots(phrase)
         assert slots["age"] == expected, \
             f"Expected age {expected} for: {phrase} → {slots['age']}"
-    print("  PASS: age extraction")
 
 
 def test_no_age():
@@ -313,7 +293,6 @@ def test_no_age():
         slots = extract_slots(phrase)
         assert slots["age"] is None, \
             f"False positive age in: {phrase} → {slots['age']}"
-    print("  PASS: no false positive ages")
 
 
 def test_age_out_of_range():
@@ -327,7 +306,6 @@ def test_age_out_of_range():
         slots = extract_slots(phrase)
         assert slots["age"] is None, \
             f"Should reject out-of-range age in: {phrase} → {slots['age']}"
-    print("  PASS: out-of-range ages rejected")
 
 
 # -----------------------------------------------------------------------
@@ -355,14 +333,12 @@ def test_urgency_extraction():
         slots = extract_slots(phrase)
         assert slots["urgency"] == expected, \
             f"Expected urgency '{expected}' for: {phrase} → {slots['urgency']}"
-    print("  PASS: urgency extraction")
 
 
 def test_no_urgency():
     """Messages without urgency keywords should return None."""
     slots = extract_slots("I need food in Brooklyn")
     assert slots["urgency"] is None
-    print("  PASS: no false positive urgency")
 
 
 # -----------------------------------------------------------------------
@@ -376,7 +352,6 @@ def test_multi_slot_single_message():
     assert "queens" in (slots["location"] or "").lower()
     assert slots["urgency"] == "high"
     assert slots["age"] == 17
-    print("  PASS: multi-slot extraction from one message")
 
 
 def test_full_sentence():
@@ -385,7 +360,6 @@ def test_full_sentence():
     assert slots["service_type"] == "food"
     assert "brooklyn" in (slots["location"] or "").lower()
     assert slots["age"] == 22
-    print("  PASS: full sentence extraction")
 
 
 # -----------------------------------------------------------------------
@@ -399,7 +373,6 @@ def test_merge_new_over_empty():
     merged = merge_slots(existing, new)
     assert merged["service_type"] == "food"
     assert "location" not in merged or merged.get("location") is None
-    print("  PASS: merge new over empty")
 
 
 def test_merge_preserves_existing():
@@ -410,7 +383,6 @@ def test_merge_preserves_existing():
     assert merged["service_type"] == "food"
     assert merged["location"] == "Brooklyn"
     assert merged["urgency"] == "high"
-    print("  PASS: merge preserves existing")
 
 
 def test_merge_overrides_with_new():
@@ -420,7 +392,6 @@ def test_merge_overrides_with_new():
     merged = merge_slots(existing, new)
     assert merged["service_type"] == "shelter"
     assert merged["location"] == "Brooklyn"
-    print("  PASS: merge overrides with new values")
 
 
 def test_merge_near_me_doesnt_override_real_location():
@@ -429,7 +400,6 @@ def test_merge_near_me_doesnt_override_real_location():
     new = {"location": NEAR_ME_SENTINEL}
     merged = merge_slots(existing, new)
     assert merged["location"] == "Brooklyn"
-    print("  PASS: near me doesn't override real location")
 
 
 def test_merge_real_location_replaces_near_me():
@@ -438,7 +408,6 @@ def test_merge_real_location_replaces_near_me():
     new = {"location": "Queens"}
     merged = merge_slots(existing, new)
     assert merged["location"] == "Queens"
-    print("  PASS: real location replaces near me")
 
 
 # -----------------------------------------------------------------------
@@ -448,19 +417,16 @@ def test_merge_real_location_replaces_near_me():
 def test_enough_with_service_and_location():
     """Should be enough when both service_type and location are present."""
     assert is_enough_to_answer({"service_type": "food", "location": "Brooklyn"}) is True
-    print("  PASS: enough with service + location")
 
 
 def test_not_enough_missing_service():
     """Should NOT be enough when service_type is missing."""
     assert is_enough_to_answer({"location": "Brooklyn"}) is False
-    print("  PASS: not enough without service type")
 
 
 def test_not_enough_missing_location():
     """Should NOT be enough when location is missing."""
     assert is_enough_to_answer({"service_type": "food"}) is False
-    print("  PASS: not enough without location")
 
 
 def test_not_enough_near_me_sentinel():
@@ -469,13 +435,11 @@ def test_not_enough_near_me_sentinel():
         "service_type": "food",
         "location": NEAR_ME_SENTINEL,
     }) is False
-    print("  PASS: near me sentinel not enough")
 
 
 def test_not_enough_empty():
     """Empty slots should not be enough."""
     assert is_enough_to_answer({}) is False
-    print("  PASS: empty slots not enough")
 
 
 # -----------------------------------------------------------------------
@@ -486,14 +450,12 @@ def test_followup_asks_service_type_first():
     """With no slots, should ask about service type."""
     question = next_follow_up_question({})
     assert "help" in question.lower() or "need" in question.lower()
-    print("  PASS: asks service type first")
 
 
 def test_followup_asks_location_second():
     """With service type but no location, should ask about location."""
     question = next_follow_up_question({"service_type": "food"})
     assert "borough" in question.lower() or "neighborhood" in question.lower() or "area" in question.lower()
-    print("  PASS: asks location second")
 
 
 def test_followup_asks_location_for_near_me():
@@ -503,7 +465,6 @@ def test_followup_asks_location_for_near_me():
         "location": NEAR_ME_SENTINEL,
     })
     assert "borough" in question.lower() or "neighborhood" in question.lower()
-    print("  PASS: asks real location when near me")
 
 
 def test_followup_asks_age_for_shelter():
@@ -513,68 +474,6 @@ def test_followup_asks_age_for_shelter():
         "location": "Brooklyn",
     })
     assert "age" in question.lower()
-    print("  PASS: asks age for shelter")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nSlot Extractor Tests\n" + "=" * 50)
-
-    print("\n--- Service Type Extraction ---")
-    test_food_keywords()
-    test_shelter_keywords()
-    test_clothing_keywords()
-    test_personal_care_keywords()
-    test_medical_keywords()
-    test_mental_health_keywords()
-    test_legal_keywords()
-    test_employment_keywords()
-    test_other_keywords()
-    test_no_service_type()
-
-    print("\n--- Location Extraction ---")
-    test_location_in_pattern()
-    test_location_preposition_variants()
-    test_location_known_names()
-    test_location_false_positives()
-    test_near_me_detection()
-    test_no_location()
-
-    print("\n--- Age Extraction ---")
-    test_age_extraction()
-    test_no_age()
-    test_age_out_of_range()
-
-    print("\n--- Urgency Extraction ---")
-    test_urgency_extraction()
-    test_no_urgency()
-
-    print("\n--- Multi-Slot Extraction ---")
-    test_multi_slot_single_message()
-    test_full_sentence()
-
-    print("\n--- Merge Slots ---")
-    test_merge_new_over_empty()
-    test_merge_preserves_existing()
-    test_merge_overrides_with_new()
-    test_merge_near_me_doesnt_override_real_location()
-    test_merge_real_location_replaces_near_me()
-
-    print("\n--- Is Enough To Answer ---")
-    test_enough_with_service_and_location()
-    test_not_enough_missing_service()
-    test_not_enough_missing_location()
-    test_not_enough_near_me_sentinel()
-    test_not_enough_empty()
-
-    print("\n--- Follow-Up Questions ---")
-    test_followup_asks_service_type_first()
-    test_followup_asks_location_second()
-    test_followup_asks_location_for_near_me()
-    test_followup_asks_age_for_shelter()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

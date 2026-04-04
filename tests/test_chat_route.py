@@ -1,71 +1,24 @@
 """
 Tests for the chat route and Pydantic models.
 
-Priority 3 coverage:
-    - ChatRequest validation (required fields, types, empty string)
-    - ChatResponse schema (required fields, defaults, serialization)
-    - ServiceCard (required vs optional fields, minimal construction)
-    - QuickReply (required fields)
-    - POST /chat/ HTTP round-trip (valid, invalid, multi-turn, session
-      continuity, service card rendering, quick replies, error handling)
-
-Run with: python -m pytest tests/test_chat_route.py -v
-Or just:  python tests/test_chat_route.py
+Run: pytest tests/test_chat_route.py
 """
 
-import sys
-import os
 from unittest.mock import patch
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from pydantic import ValidationError
 from fastapi.testclient import TestClient
 from app.main import app
 from app.models.chat_models import ChatRequest, ChatResponse, ServiceCard, QuickReply
 from app.services.session_store import clear_session
+from conftest import MOCK_SERVICE_CARD, MOCK_QUERY_RESULTS, MOCK_EMPTY_RESULTS
 
 client = TestClient(app)
 
-
-# -----------------------------------------------------------------------
-# MOCK DATA
-# -----------------------------------------------------------------------
-
-_MOCK_SERVICE_CARD = {
-    "service_name": "Brooklyn Food Bank",
-    "organization": "Org A",
-    "description": "Free meals every weekday",
-    "address": "123 Main St, Brooklyn, NY, 11201",
-    "city": "Brooklyn",
-    "phone": "212-555-1234",
-    "email": "info@bfb.org",
-    "website": "https://bfb.org",
-    "fees": "Free",
-    "additional_info": None,
-    "yourpeer_url": "https://yourpeer.nyc/locations/bfb",
-    "hours_today": "9:00 AM – 5:00 PM",
-    "is_open": "open",
-    "service_id": "svc-001",
-}
-
-_MOCK_QUERY_RESULTS = {
-    "services": [_MOCK_SERVICE_CARD],
-    "result_count": 1,
-    "template_used": "FoodQuery",
-    "params_applied": {"taxonomy_name": "Food", "city": "Brooklyn"},
-    "relaxed": False,
-    "execution_ms": 35,
-}
-
-_MOCK_EMPTY_RESULTS = {
-    "services": [],
-    "result_count": 0,
-    "template_used": "FoodQuery",
-    "params_applied": {},
-    "relaxed": False,
-    "execution_ms": 10,
-}
+# Local aliases matching the original names used throughout this file
+_MOCK_SERVICE_CARD = MOCK_SERVICE_CARD
+_MOCK_QUERY_RESULTS = MOCK_QUERY_RESULTS
+_MOCK_EMPTY_RESULTS = MOCK_EMPTY_RESULTS
 
 
 # -----------------------------------------------------------------------
@@ -77,14 +30,12 @@ def test_chat_request_valid():
     r = ChatRequest(message="I need food")
     assert r.message == "I need food"
     assert r.session_id is None
-    print("  PASS: ChatRequest valid")
 
 
 def test_chat_request_with_session_id():
     """ChatRequest should accept an explicit session_id."""
     r = ChatRequest(message="hello", session_id="abc-123")
     assert r.session_id == "abc-123"
-    print("  PASS: ChatRequest with session_id")
 
 
 def test_chat_request_missing_message():
@@ -94,7 +45,6 @@ def test_chat_request_missing_message():
         assert False, "Should have raised ValidationError"
     except ValidationError:
         pass
-    print("  PASS: ChatRequest rejects missing message")
 
 
 def test_chat_request_wrong_type():
@@ -117,7 +67,6 @@ def test_chat_request_empty_string_accepted():
     """
     r = ChatRequest(message="")
     assert r.message == ""
-    print("  PASS: ChatRequest accepts empty string (guarded downstream)")
 
 
 # -----------------------------------------------------------------------
@@ -131,18 +80,16 @@ def test_service_card_minimal():
     assert sc.organization is None
     assert sc.phone is None
     assert sc.is_open is None
-    print("  PASS: ServiceCard minimal")
 
 
 def test_service_card_full():
     """ServiceCard should accept all optional fields."""
     sc = ServiceCard(**_MOCK_SERVICE_CARD)
-    assert sc.service_name == "Brooklyn Food Bank"
-    assert sc.organization == "Org A"
-    assert sc.phone == "212-555-1234"
+    assert sc.service_name == "Test Food Pantry"
+    assert sc.organization == "Test Org"
+    assert sc.phone == "212-555-0001"
     assert sc.is_open == "open"
-    assert sc.yourpeer_url == "https://yourpeer.nyc/locations/bfb"
-    print("  PASS: ServiceCard full")
+    assert sc.yourpeer_url == "https://yourpeer.nyc/locations/test-food-pantry"
 
 
 def test_service_card_missing_service_name():
@@ -152,7 +99,6 @@ def test_service_card_missing_service_name():
         assert False, "Should have raised ValidationError"
     except ValidationError:
         pass
-    print("  PASS: ServiceCard rejects missing service_name")
 
 
 def test_service_card_serialization():
@@ -163,7 +109,6 @@ def test_service_card_serialization():
     assert "phone" in data
     assert "organization" in data  # None but present
     assert len(data) == 13  # all 13 fields
-    print("  PASS: ServiceCard serialization")
 
 
 # -----------------------------------------------------------------------
@@ -175,7 +120,6 @@ def test_quick_reply_valid():
     qr = QuickReply(label="🍽️ Food", value="I need food")
     assert qr.label == "🍽️ Food"
     assert qr.value == "I need food"
-    print("  PASS: QuickReply valid")
 
 
 def test_quick_reply_missing_label():
@@ -185,7 +129,6 @@ def test_quick_reply_missing_label():
         assert False, "Should have raised ValidationError"
     except ValidationError:
         pass
-    print("  PASS: QuickReply rejects missing label")
 
 
 def test_quick_reply_missing_value():
@@ -195,7 +138,6 @@ def test_quick_reply_missing_value():
         assert False, "Should have raised ValidationError"
     except ValidationError:
         pass
-    print("  PASS: QuickReply rejects missing value")
 
 
 # -----------------------------------------------------------------------
@@ -215,7 +157,6 @@ def test_chat_response_minimal():
     assert r.result_count == 0
     assert r.relaxed_search is False
     assert r.quick_replies == []
-    print("  PASS: ChatResponse minimal")
 
 
 def test_chat_response_with_services():
@@ -231,7 +172,6 @@ def test_chat_response_with_services():
     assert len(r.services) == 1
     assert r.services[0].service_name == "Test"
     assert r.result_count == 1
-    print("  PASS: ChatResponse with services")
 
 
 def test_chat_response_missing_required():
@@ -247,7 +187,6 @@ def test_chat_response_missing_required():
             assert False, f"Should reject missing {field}"
         except ValidationError:
             pass
-    print("  PASS: ChatResponse rejects missing required fields")
 
 
 def test_chat_response_serialization_round_trip():
@@ -273,7 +212,6 @@ def test_chat_response_serialization_round_trip():
     assert restored.services[0].phone == "555-0000"
     assert len(restored.quick_replies) == 1
     assert restored.quick_replies[0].label == "New search"
-    print("  PASS: ChatResponse serialization round-trip")
 
 
 # -----------------------------------------------------------------------
@@ -292,7 +230,6 @@ def test_chat_route_valid_request(mock_claude, mock_query):
     assert "response" in data
     assert isinstance(data["services"], list)
     assert isinstance(data["quick_replies"], list)
-    print("  PASS: POST /chat/ valid request")
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
@@ -303,7 +240,6 @@ def test_chat_route_generates_session_id(mock_claude, mock_query):
     data = response.json()
     assert data["session_id"] is not None
     assert len(data["session_id"]) > 0
-    print("  PASS: POST /chat/ generates session_id")
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
@@ -315,14 +251,12 @@ def test_chat_route_preserves_session_id(mock_claude, mock_query):
         "session_id": "my-session-123",
     })
     assert response.json()["session_id"] == "my-session-123"
-    print("  PASS: POST /chat/ preserves session_id")
 
 
 def test_chat_route_missing_message():
     """POST /chat/ without message should return 422."""
     response = client.post("/chat/", json={})
     assert response.status_code == 422
-    print("  PASS: POST /chat/ missing message → 422")
 
 
 def test_chat_route_not_json():
@@ -330,14 +264,12 @@ def test_chat_route_not_json():
     response = client.post("/chat/", content="hello",
                            headers={"Content-Type": "text/plain"})
     assert response.status_code == 422
-    print("  PASS: POST /chat/ non-JSON → 422")
 
 
 def test_chat_route_no_body():
     """POST /chat/ with no body should return 422."""
     response = client.post("/chat/")
     assert response.status_code == 422
-    print("  PASS: POST /chat/ no body → 422")
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
@@ -350,7 +282,6 @@ def test_chat_route_empty_message(mock_claude, mock_query):
     response = client.post("/chat/", json={"message": ""})
     assert response.status_code == 200
     assert "looking for" in response.json()["response"].lower()
-    print("  PASS: POST /chat/ empty message → welcome")
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
@@ -381,7 +312,6 @@ def test_chat_route_response_schema(mock_claude, mock_query):
     assert isinstance(data["result_count"], int)
     assert isinstance(data["relaxed_search"], bool)
     assert isinstance(data["quick_replies"], list)
-    print("  PASS: POST /chat/ response matches schema")
 
 
 # -----------------------------------------------------------------------
@@ -412,11 +342,10 @@ def test_chat_route_multi_turn_with_services(mock_claude, mock_query):
 
     # Verify service card structure
     card = data2["services"][0]
-    assert card["service_name"] == "Brooklyn Food Bank"
-    assert card["phone"] == "212-555-1234"
+    assert card["service_name"] == "Test Food Pantry"
+    assert card["phone"] == "212-555-0001"
     assert card["is_open"] == "open"
     assert card["yourpeer_url"] is not None
-    print("  PASS: POST /chat/ multi-turn with service cards")
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
@@ -437,7 +366,6 @@ def test_chat_route_session_continuity(mock_claude, mock_query):
     data2 = r2.json()
     assert data2["slots"].get("service_type") == "shelter"
     assert data2["slots"].get("location") is not None
-    print("  PASS: POST /chat/ session continuity")
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
@@ -455,7 +383,6 @@ def test_chat_route_reset_clears_session(mock_claude, mock_query):
     data = r.json()
     # After reset, slots should be empty
     assert data["slots"] == {} or data["slots"].get("service_type") is None
-    print("  PASS: POST /chat/ reset clears session")
 
 
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
@@ -471,7 +398,6 @@ def test_chat_route_quick_replies_structure(mock_claude, mock_query):
         assert "value" in qr, "Quick reply missing 'value'"
         assert isinstance(qr["label"], str)
         assert isinstance(qr["value"], str)
-    print("  PASS: POST /chat/ quick reply structure")
 
 
 # -----------------------------------------------------------------------
@@ -489,7 +415,6 @@ def test_chat_route_crisis_returns_resources(mock_claude, mock_query):
     assert "988" in data["response"], "Should include 988 lifeline"
     assert len(data["services"]) == 0
     mock_query.assert_not_called()
-    print("  PASS: POST /chat/ crisis returns resources")
 
 
 # -----------------------------------------------------------------------
@@ -505,61 +430,6 @@ def test_chat_route_get_not_allowed():
     """
     response = client.get("/chat/")
     assert response.status_code in (404, 405)
-    print("  PASS: GET /chat/ → not 200")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nChat Route & Model Tests\n" + "=" * 50)
-
-    print("\n--- ChatRequest Model ---")
-    test_chat_request_valid()
-    test_chat_request_with_session_id()
-    test_chat_request_missing_message()
-    test_chat_request_wrong_type()
-    test_chat_request_empty_string_accepted()
-
-    print("\n--- ServiceCard Model ---")
-    test_service_card_minimal()
-    test_service_card_full()
-    test_service_card_missing_service_name()
-    test_service_card_serialization()
-
-    print("\n--- QuickReply Model ---")
-    test_quick_reply_valid()
-    test_quick_reply_missing_label()
-    test_quick_reply_missing_value()
-
-    print("\n--- ChatResponse Model ---")
-    test_chat_response_minimal()
-    test_chat_response_with_services()
-    test_chat_response_missing_required()
-    test_chat_response_serialization_round_trip()
-
-    print("\n--- HTTP Route: Basics ---")
-    test_chat_route_valid_request()
-    test_chat_route_generates_session_id()
-    test_chat_route_preserves_session_id()
-    test_chat_route_missing_message()
-    test_chat_route_not_json()
-    test_chat_route_no_body()
-    test_chat_route_empty_message()
-    test_chat_route_response_schema()
-
-    print("\n--- HTTP Route: Multi-Turn ---")
-    test_chat_route_multi_turn_with_services()
-    test_chat_route_session_continuity()
-    test_chat_route_reset_clears_session()
-    test_chat_route_quick_replies_structure()
-
-    print("\n--- HTTP Route: Crisis ---")
-    test_chat_route_crisis_returns_resources()
-
-    print("\n--- HTTP Route: Method ---")
-    test_chat_route_get_not_allowed()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

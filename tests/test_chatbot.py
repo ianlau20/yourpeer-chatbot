@@ -5,15 +5,10 @@ multi-turn session state, PII integration, and fallback behavior.
 External dependencies (Claude LLM, Streetlives DB) are mocked so
 tests run without API keys or a database connection.
 
-Run with: python -m pytest tests/test_chatbot.py -v
-Or just:  python tests/test_chatbot.py
+Run: pytest tests/test_chatbot.py
 """
 
-import sys
-import os
 from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.services.chatbot import (
     _classify_message,
@@ -25,6 +20,7 @@ from app.services.chatbot import (
     _HELP_RESPONSE,
 )
 from app.services.session_store import clear_session, get_session_slots
+from conftest import MOCK_QUERY_RESULTS, MOCK_EMPTY_RESULTS
 
 
 # -----------------------------------------------------------------------
@@ -36,7 +32,6 @@ def test_classify_reset():
     phrases = ["start over", "reset", "nevermind", "cancel", "new search"]
     for phrase in phrases:
         assert _classify_message(phrase) == "reset", f"'{phrase}' should be reset"
-    print("  PASS: reset classification")
 
 
 def test_classify_greeting():
@@ -44,14 +39,12 @@ def test_classify_greeting():
     phrases = ["hi", "hey", "hello", "yo", "good morning"]
     for phrase in phrases:
         assert _classify_message(phrase) == "greeting", f"'{phrase}' should be greeting"
-    print("  PASS: greeting classification")
 
 
 def test_classify_greeting_not_long_messages():
     """Long messages starting with 'hi' should NOT be greetings."""
     assert _classify_message("hi I need food in Brooklyn") != "greeting"
     assert _classify_message("hey can you find me a shelter in Queens") != "greeting"
-    print("  PASS: long messages not classified as greeting")
 
 
 def test_classify_thanks():
@@ -59,7 +52,6 @@ def test_classify_thanks():
     phrases = ["thanks", "thank you", "thx", "appreciate it", "that helps"]
     for phrase in phrases:
         assert _classify_message(phrase) == "thanks", f"'{phrase}' should be thanks"
-    print("  PASS: thanks classification")
 
 
 def test_classify_help():
@@ -67,7 +59,6 @@ def test_classify_help():
     phrases = ["help", "what can you do", "how does this work", "who are you"]
     for phrase in phrases:
         assert _classify_message(phrase) == "help", f"'{phrase}' should be help"
-    print("  PASS: help classification")
 
 
 def test_classify_service():
@@ -80,7 +71,6 @@ def test_classify_service():
     ]
     for phrase in phrases:
         assert _classify_message(phrase) == "service", f"'{phrase}' should be service"
-    print("  PASS: service classification")
 
 
 def test_classify_general():
@@ -92,7 +82,6 @@ def test_classify_general():
     ]
     for phrase in phrases:
         assert _classify_message(phrase) == "general", f"'{phrase}' should be general"
-    print("  PASS: general classification")
 
 
 def test_classify_reset_takes_priority():
@@ -101,7 +90,6 @@ def test_classify_reset_takes_priority():
     assert _classify_message("start over") == "reset"
     # "cancel" could be misread but should be reset
     assert _classify_message("cancel") == "reset"
-    print("  PASS: reset takes priority")
 
 
 def test_classify_with_punctuation():
@@ -110,39 +98,12 @@ def test_classify_with_punctuation():
     assert _classify_message("thanks!!!") == "thanks"
     assert _classify_message("start over.") == "reset"
     assert _classify_message("help?") == "help"
-    print("  PASS: punctuation handling")
 
 
 # -----------------------------------------------------------------------
 # GENERATE REPLY — ROUTING PATHS
-# (mock Claude and DB so tests run without external services)
+# MOCK_QUERY_RESULTS and MOCK_EMPTY_RESULTS imported from conftest.py
 # -----------------------------------------------------------------------
-
-MOCK_QUERY_RESULTS = {
-    "services": [
-        {
-            "service_name": "Test Food Pantry",
-            "organization": "Test Org",
-            "address": "123 Test St, Brooklyn, NY",
-            "phone": "212-555-0001",
-            "fees": "Free",
-        }
-    ],
-    "result_count": 1,
-    "template_used": "FoodQuery",
-    "params_applied": {"taxonomy_name": "Food", "city": "Brooklyn"},
-    "relaxed": False,
-    "execution_ms": 50,
-}
-
-MOCK_EMPTY_RESULTS = {
-    "services": [],
-    "result_count": 0,
-    "template_used": "FoodQuery",
-    "params_applied": {"taxonomy_name": "Food", "city": "Brooklyn"},
-    "relaxed": False,
-    "execution_ms": 30,
-}
 
 MOCK_ERROR_RESULTS = {
     "services": [],
@@ -164,7 +125,6 @@ def test_greeting_route(mock_claude, mock_query):
     mock_claude.assert_not_called()
     assert _GREETING_RESPONSE in result["response"]
     assert result["services"] == []
-    print("  PASS: greeting route (no DB, no LLM)")
 
 
 @patch("app.services.chatbot.query_services")
@@ -179,7 +139,6 @@ def test_greeting_with_existing_session(mock_claude, mock_query):
     mock_query.assert_not_called()
 
     clear_session("test-greeting-existing")
-    print("  PASS: greeting with existing session")
 
 
 @patch("app.services.chatbot.query_services")
@@ -197,7 +156,6 @@ def test_reset_clears_session(mock_claude, mock_query):
     # Verify session is actually cleared
     slots = get_session_slots("test-reset")
     assert slots == {}
-    print("  PASS: reset clears session")
 
 
 @patch("app.services.chatbot.query_services")
@@ -207,7 +165,6 @@ def test_thanks_route(mock_claude, mock_query):
     result = generate_reply("thank you", session_id="test-thanks")
     assert _THANKS_RESPONSE in result["response"]
     mock_query.assert_not_called()
-    print("  PASS: thanks route")
 
 
 @patch("app.services.chatbot.query_services")
@@ -217,7 +174,6 @@ def test_help_route(mock_claude, mock_query):
     result = generate_reply("what can you do", session_id="test-help")
     assert "free services" in result["response"].lower() or "find" in result["response"].lower()
     mock_query.assert_not_called()
-    print("  PASS: help route")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -245,7 +201,6 @@ def test_service_with_results(mock_claude, mock_query):
     assert "found" in r2["response"].lower()
 
     clear_session(sid)
-    print("  PASS: service request with confirmation then DB results")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_EMPTY_RESULTS)
@@ -261,7 +216,6 @@ def test_service_no_results(mock_claude, mock_query):
     assert "wasn't able to find" in result["response"] or "try" in result["response"].lower()
 
     clear_session(sid)
-    print("  PASS: service request with no results")
 
 
 @patch("app.services.chatbot.query_services", side_effect=Exception("DB connection failed"))
@@ -278,7 +232,6 @@ def test_db_failure_falls_back_to_claude(mock_claude, mock_query):
     assert result["services"] == []
 
     clear_session(sid)
-    print("  PASS: DB failure falls back to Claude")
 
 
 @patch("app.services.chatbot.query_services", side_effect=Exception("DB down"))
@@ -293,7 +246,6 @@ def test_both_db_and_claude_fail(mock_claude, mock_query):
     assert result["services"] == []
 
     clear_session(sid)
-    print("  PASS: both DB + Claude fail → safe static response")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_ERROR_RESULTS)
@@ -308,7 +260,6 @@ def test_query_error_falls_back(mock_claude, mock_query):
     assert result["response"] == "I can try to help with that."
 
     clear_session(sid)
-    print("  PASS: query error falls back to Claude")
 
 
 # -----------------------------------------------------------------------
@@ -327,7 +278,6 @@ def test_service_needs_followup(mock_claude, mock_query):
     assert "borough" in result["response"].lower() or "neighborhood" in result["response"].lower() or "area" in result["response"].lower()
 
     clear_session("test-followup")
-    print("  PASS: partial slots trigger follow-up")
 
 
 # -----------------------------------------------------------------------
@@ -345,7 +295,6 @@ def test_general_conversation(mock_claude, mock_query):
     assert result["response"] == "I understand. How can I help you find what you need?"
 
     clear_session("test-general")
-    print("  PASS: general conversation routes to Claude")
 
 
 # -----------------------------------------------------------------------
@@ -377,7 +326,6 @@ def test_multi_turn_slot_accumulation(mock_claude, mock_query):
     mock_query.assert_called_once()
 
     clear_session(sid)
-    print("  PASS: multi-turn slot accumulation with confirmation")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -400,7 +348,6 @@ def test_reset_then_new_search(mock_claude, mock_query):
     assert r_new["slots"].get("location") is None or "food" not in str(r_new["slots"])
 
     clear_session(sid)
-    print("  PASS: reset then new search")
 
 
 # -----------------------------------------------------------------------
@@ -434,7 +381,6 @@ def test_pii_redacted_in_transcript(mock_claude, mock_query):
     assert "Brooklyn" in last_msg or "brooklyn" in last_msg
 
     clear_session(sid)
-    print("  PASS: PII redacted in transcript, slots still extracted")
 
 
 @patch("app.services.chatbot.query_services")
@@ -454,7 +400,6 @@ def test_phone_redacted_in_transcript(mock_claude, mock_query):
     assert "[PHONE]" in last_msg
 
     clear_session(sid)
-    print("  PASS: phone redacted in transcript")
 
 
 # -----------------------------------------------------------------------
@@ -470,7 +415,6 @@ def test_session_id_generated_when_none(mock_claude, mock_query):
     assert len(result["session_id"]) > 0
     # Clean up
     clear_session(result["session_id"])
-    print("  PASS: session ID auto-generated")
 
 
 @patch("app.services.chatbot.query_services")
@@ -480,7 +424,6 @@ def test_session_id_preserved(mock_claude, mock_query):
     result = generate_reply("hi", session_id="my-custom-id")
     assert result["session_id"] == "my-custom-id"
     clear_session("my-custom-id")
-    print("  PASS: session ID preserved")
 
 
 # -----------------------------------------------------------------------
@@ -504,7 +447,6 @@ def test_response_has_all_required_keys(mock_claude, mock_query):
             assert key in result, f"Missing key '{key}' in response for: {msg}"
         clear_session(f"test-keys-{msg[:5]}")
 
-    print("  PASS: all response keys present")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -529,7 +471,6 @@ def test_relaxed_search_flag(mock_claude, mock_query):
     assert "broadened" in result2["response"].lower()
 
     clear_session(sid)
-    print("  PASS: relaxed search flag")
 
 
 # -----------------------------------------------------------------------
@@ -560,7 +501,6 @@ def test_classify_confirmation_phrases():
         assert _classify_message(phrase) == "confirm_change_service", \
             f"'{phrase}' should be confirm_change_service"
 
-    print("  PASS: confirmation phrase classification")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -578,7 +518,6 @@ def test_confirmation_step_triggered(mock_claude, mock_query):
     assert len(result["quick_replies"]) >= 3  # yes, change location, change service, start over
 
     clear_session(sid)
-    print("  PASS: confirmation step triggered when slots complete")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -596,7 +535,6 @@ def test_change_location_during_confirmation(mock_claude, mock_query):
     assert len(result["quick_replies"]) > 0  # borough buttons
 
     clear_session(sid)
-    print("  PASS: change location during confirmation")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -614,7 +552,6 @@ def test_change_service_during_confirmation(mock_claude, mock_query):
     assert len(result["quick_replies"]) > 0  # category buttons
 
     clear_session(sid)
-    print("  PASS: change service during confirmation")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -631,7 +568,6 @@ def test_greeting_has_quick_replies(mock_claude, mock_query):
     assert any("Shelter" in l for l in labels)
 
     clear_session(sid)
-    print("  PASS: greeting has quick replies")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -645,7 +581,6 @@ def test_reset_has_quick_replies(mock_claude, mock_query):
     assert len(result["quick_replies"]) > 0
 
     clear_session(sid)
-    print("  PASS: reset has quick replies")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -663,7 +598,6 @@ def test_service_followup_has_quick_replies(mock_claude, mock_query):
         f"Expected borough buttons, got: {labels}"
 
     clear_session(sid)
-    print("  PASS: follow-up has borough quick replies")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -684,7 +618,6 @@ def test_new_input_clears_pending_confirmation(mock_claude, mock_query):
     mock_query.assert_not_called()  # still in confirmation
 
     clear_session(sid)
-    print("  PASS: new input during confirmation re-extracts slots")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -702,7 +635,6 @@ def test_results_have_post_search_quick_replies(mock_claude, mock_query):
     assert any("search" in l.lower() or "new" in l.lower() for l in labels)
 
     clear_session(sid)
-    print("  PASS: results have post-search quick replies")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -726,7 +658,6 @@ def test_general_reply_does_not_retrigger_confirmation(mock_claude, mock_query):
     assert result["follow_up_needed"] is False
 
     clear_session(sid)
-    print("  PASS: 'no' does not re-trigger confirmation from stale slots")
 
 
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
@@ -749,87 +680,11 @@ def test_no_after_escalation_does_not_confirm(mock_claude, mock_query):
     assert "search for" not in result["response"].lower()
 
     clear_session(sid)
-    print("  PASS: 'no' after escalation does not re-trigger confirmation")
 
 
 # -----------------------------------------------------------------------
 # RUNNER
 # -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nChatbot Tests\n" + "=" * 50)
-
-    print("\n--- Message Classification ---")
-    test_classify_reset()
-    test_classify_greeting()
-    test_classify_greeting_not_long_messages()
-    test_classify_thanks()
-    test_classify_help()
-    test_classify_service()
-    test_classify_general()
-    test_classify_reset_takes_priority()
-    test_classify_with_punctuation()
-    test_classify_confirmation_phrases()
-
-    print("\n--- Routing Paths ---")
-    test_greeting_route()
-    test_greeting_with_existing_session()
-    test_reset_clears_session()
-    test_thanks_route()
-    test_help_route()
-    test_service_with_results()
-    test_service_no_results()
-    test_service_needs_followup()
-    test_general_conversation()
-
-    print("\n--- Fallback Behavior ---")
-    test_db_failure_falls_back_to_claude()
-    test_both_db_and_claude_fail()
-    test_query_error_falls_back()
-
-    print("\n--- Multi-Turn Sessions ---")
-    test_multi_turn_slot_accumulation()
-    test_reset_then_new_search()
-
-    print("\n--- PII in Chatbot Flow ---")
-    test_pii_redacted_in_transcript()
-    test_phone_redacted_in_transcript()
-
-    print("\n--- Session ID ---")
-    test_session_id_generated_when_none()
-    test_session_id_preserved()
-
-    print("\n--- Response Structure ---")
-    test_response_has_all_required_keys()
-    test_relaxed_search_flag()
-
-    print("\n--- Confirmation & Quick Replies ---")
-    test_confirmation_step_triggered()
-    test_change_location_during_confirmation()
-    test_change_service_during_confirmation()
-    test_greeting_has_quick_replies()
-    test_reset_has_quick_replies()
-    test_service_followup_has_quick_replies()
-    test_new_input_clears_pending_confirmation()
-    test_results_have_post_search_quick_replies()
-    test_general_reply_does_not_retrigger_confirmation()
-    test_no_after_escalation_does_not_confirm()
-
-    print("\n--- Bug Fix Regression Tests ---")
-    test_confirm_deny_breaks_loop()
-    test_confirm_deny_phrases()
-    test_cancel_variants_reset()
-    test_frustration_expanded_phrases()
-    test_thanks_with_continuation_falls_through()
-    test_empty_message_guard()
-    test_whitespace_message_guard()
-    test_confused_classification()
-    test_confused_does_not_trigger_llm()
-    test_conversation_history_passed_to_llm()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")
-
 
 # -----------------------------------------------------------------------
 # BUG FIX REGRESSION TESTS
@@ -863,7 +718,6 @@ def test_confirm_deny_breaks_loop(mock_claude, mock_query):
     r3 = generate_reply("no", session_id=sid)
     assert "just to make sure" not in r3["response"].lower(), \
         "Should NOT re-show confirmation after denial"
-    print("  PASS: confirm_deny breaks the infinite loop")
 
 
 def test_confirm_deny_phrases():
@@ -880,7 +734,6 @@ def test_confirm_deny_phrases():
         result = _classify_message(phrase)
         assert result in ("confirm_deny", "thanks", "reset"), \
             f"'{phrase}' should classify as confirm_deny, thanks, or reset, got '{result}'"
-    print("  PASS: confirm_deny phrases classified correctly")
 
 
 def test_cancel_variants_reset():
@@ -895,7 +748,6 @@ def test_cancel_variants_reset():
     for phrase in phrases:
         assert _classify_message(phrase) == "reset", \
             f"'{phrase}' should classify as reset, got '{_classify_message(phrase)}'"
-    print("  PASS: cancel variants trigger reset")
 
 
 def test_frustration_expanded_phrases():
@@ -916,7 +768,6 @@ def test_frustration_expanded_phrases():
         result = _classify_message(phrase)
         assert result == "frustration", \
             f"'{phrase}' should classify as frustration, got '{result}'"
-    print("  PASS: expanded frustration phrases detected")
 
 
 def test_thanks_with_continuation_falls_through():
@@ -941,7 +792,6 @@ def test_thanks_with_continuation_falls_through():
         result = _classify_message(phrase)
         assert result != "thanks", \
             f"'{phrase}' should NOT classify as thanks, got '{result}'"
-    print("  PASS: thanks with continuation falls through")
 
 
 @patch("app.services.chatbot.query_services")
@@ -957,7 +807,6 @@ def test_empty_message_guard(mock_claude, mock_query):
     assert len(r["quick_replies"]) == 9, \
         "Empty message should show all 9 category buttons"
     mock_claude.assert_not_called()
-    print("  PASS: empty message returns welcome")
 
 
 @patch("app.services.chatbot.query_services")
@@ -973,7 +822,6 @@ def test_whitespace_message_guard(mock_claude, mock_query):
     assert len(r["quick_replies"]) == 9, \
         "Whitespace message should show all 9 category buttons"
     mock_claude.assert_not_called()
-    print("  PASS: whitespace message returns welcome")
 
 
 def test_confused_classification():
@@ -1004,7 +852,6 @@ def test_confused_classification():
     # These should NOT be confused
     assert _classify_message("I need food") == "service"
     assert _classify_message("hello") == "greeting"
-    print("  PASS: confused phrases classified correctly")
 
 
 @patch("app.services.chatbot.query_services")
@@ -1030,7 +877,6 @@ def test_confused_does_not_trigger_llm(mock_claude, mock_query):
 
     # Claude should NOT have been called
     mock_claude.assert_not_called()
-    print("  PASS: confused does not trigger LLM")
 
 
 @patch("app.services.chatbot.query_services")
@@ -1056,4 +902,3 @@ def test_conversation_history_passed_to_llm(mock_claude, mock_query):
     entry = slots["transcript"][0]
     assert entry["role"] == "user"
     assert "food" in entry["text"].lower()
-    print("  PASS: conversation history stored and available for LLM")

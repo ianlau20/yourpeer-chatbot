@@ -8,12 +8,10 @@ Run unit tests:  python tests/test_llm_slot_extractor.py
 Run live tests:  ANTHROPIC_API_KEY=sk-... python tests/test_llm_slot_extractor.py --live
 """
 
-import sys
 import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.services.llm_slot_extractor import (
     extract_slots_llm,
@@ -49,7 +47,7 @@ def _mock_client_with_response(**slots):
 # UNIT TESTS — LLM EXTRACTION (mocked)
 # -----------------------------------------------------------------------
 
-@patch("app.services.llm_slot_extractor._get_client")
+@patch("app.services.llm_slot_extractor.get_client")
 def test_llm_extracts_service_and_location(mock_get_client):
     """LLM should extract service type and location."""
     mock_get_client.return_value = _mock_client_with_response(
@@ -59,10 +57,9 @@ def test_llm_extracts_service_and_location(mock_get_client):
     result = extract_slots_llm("I need food in Brooklyn")
     assert result["service_type"] == "food"
     assert result["location"] == "Brooklyn"
-    print("  PASS: LLM extracts service + location")
 
 
-@patch("app.services.llm_slot_extractor._get_client")
+@patch("app.services.llm_slot_extractor.get_client")
 def test_llm_extracts_age_and_gender(mock_get_client):
     """LLM should extract age and gender when mentioned."""
     mock_get_client.return_value = _mock_client_with_response(
@@ -76,10 +73,9 @@ def test_llm_extracts_age_and_gender(mock_get_client):
     assert result["age"] == 17
     assert result["gender"] == "female"
     assert result["urgency"] == "high"
-    print("  PASS: LLM extracts age, gender, urgency")
 
 
-@patch("app.services.llm_slot_extractor._get_client")
+@patch("app.services.llm_slot_extractor.get_client")
 def test_llm_handles_third_person(mock_get_client):
     """LLM should extract info about a third person ('my son is 12')."""
     mock_get_client.return_value = _mock_client_with_response(
@@ -89,10 +85,9 @@ def test_llm_handles_third_person(mock_get_client):
     result = extract_slots_llm("my son is 12 and needs a coat")
     assert result["service_type"] == "clothing"
     assert result["age"] == 12
-    print("  PASS: LLM handles third-person requests")
 
 
-@patch("app.services.llm_slot_extractor._get_client")
+@patch("app.services.llm_slot_extractor.get_client")
 def test_llm_handles_contradicting_locations(mock_get_client):
     """LLM should pick the intended location, not the current one."""
     mock_get_client.return_value = _mock_client_with_response(
@@ -101,26 +96,23 @@ def test_llm_handles_contradicting_locations(mock_get_client):
     )
     result = extract_slots_llm("I'm in Queens but looking for food in the Bronx")
     assert result["location"] == "Bronx"
-    print("  PASS: LLM picks intended location over current")
 
 
-@patch("app.services.llm_slot_extractor._get_client")
+@patch("app.services.llm_slot_extractor.get_client")
 def test_llm_handles_empty_message(mock_get_client):
     """LLM should return empty slots for non-service messages."""
     mock_get_client.return_value = _mock_client_with_response()
     result = extract_slots_llm("hello")
     assert result["service_type"] is None
     assert result["location"] is None
-    print("  PASS: LLM returns empty for non-service messages")
 
 
-@patch("app.services.llm_slot_extractor._get_client")
+@patch("app.services.llm_slot_extractor.get_client")
 def test_llm_failure_returns_empty(mock_get_client):
     """If the LLM call fails, should return empty slots, not crash."""
     mock_get_client.side_effect = RuntimeError("API key missing")
     result = extract_slots_llm("I need food in Brooklyn")
     assert result == _empty_slots()
-    print("  PASS: LLM failure returns empty slots")
 
 
 # -----------------------------------------------------------------------
@@ -134,7 +126,6 @@ def test_smart_uses_regex_for_simple_messages(mock_llm):
     mock_llm.assert_not_called()
     assert result["service_type"] == "food"
     assert "brooklyn" in result["location"].lower()
-    print("  PASS: simple message skips LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -155,7 +146,6 @@ def test_smart_uses_llm_for_long_messages(mock_llm):
     mock_llm.assert_called_once()
     assert result["service_type"] == "shelter"  # LLM gets this right
     assert "east new york" in result["location"].lower()
-    print("  PASS: long message goes to LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -170,7 +160,6 @@ def test_smart_uses_llm_when_regex_partial(mock_llm):
     }
     result = extract_slots_smart("I need food")
     mock_llm.assert_called_once()
-    print("  PASS: partial regex triggers LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -188,7 +177,6 @@ def test_smart_uses_llm_for_implicit_needs(mock_llm):
     assert result["service_type"] == "shelter"
     assert result["urgency"] == "high"
     assert result["gender"] == "female"
-    print("  PASS: implicit needs go to LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -208,7 +196,6 @@ def test_smart_llm_supplements_with_regex(mock_llm):
     assert result["location"] == "Harlem"
     # Regex urgency should supplement the LLM gap
     assert result["urgency"] == "high"
-    print("  PASS: regex supplements LLM gaps")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -217,7 +204,6 @@ def test_smart_llm_failure_falls_back_to_regex(mock_llm):
     mock_llm.return_value = _empty_slots()  # LLM failed
     result = extract_slots_smart("I need food")
     assert result["service_type"] == "food"  # regex still works
-    print("  PASS: LLM failure falls back to regex")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -233,7 +219,6 @@ def test_smart_conflicting_keywords_go_to_llm(mock_llm):
     # "hospital" (medical) + "shelter" — conflicting keywords
     result = extract_slots_smart("hospital near Manhattan for shelter")
     mock_llm.assert_called_once()
-    print("  PASS: conflicting keywords go to LLM")
 
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
@@ -248,9 +233,7 @@ def test_smart_unknown_location_goes_to_llm(mock_llm):
     }
     result = extract_slots_smart("food near City Hall")
     mock_llm.assert_called_once()
-    print("  PASS: unknown location goes to LLM")
     assert result["service_type"] == "food"  # regex still got this
-    print("  PASS: LLM failure falls back to regex")
 
 
 # -----------------------------------------------------------------------
@@ -261,7 +244,7 @@ def test_history_passed_to_llm():
     """extract_slots_llm should forward conversation history to Claude."""
     mock_response = _mock_tool_response_from_dict({"location": "Brooklyn"})
 
-    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+    with patch("app.services.llm_slot_extractor.get_client") as mock_get:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_response
         mock_get.return_value = mock_client
@@ -279,14 +262,13 @@ def test_history_passed_to_llm():
         assert messages[1]["role"] == "assistant"
         assert messages[2]["content"] == "What about in Brooklyn?"
         assert result["location"] == "Brooklyn"
-    print("  PASS: history passed to LLM")
 
 
 def test_history_alternating_messages_enforced():
     """Consecutive same-role messages in history should get placeholders."""
     mock_response = _mock_tool_response_from_dict({})
 
-    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+    with patch("app.services.llm_slot_extractor.get_client") as mock_get:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_response
         mock_get.return_value = mock_client
@@ -302,14 +284,13 @@ def test_history_alternating_messages_enforced():
         for i in range(1, len(messages)):
             assert messages[i]["role"] != messages[i - 1]["role"], \
                 f"Messages {i-1} and {i} have same role: {messages[i]['role']}"
-    print("  PASS: alternating messages enforced")
 
 
 def test_history_none_and_empty():
     """None and empty history should work (single-message extraction)."""
     mock_response = _mock_tool_response_from_dict({"service_type": "food"})
 
-    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+    with patch("app.services.llm_slot_extractor.get_client") as mock_get:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_response
         mock_get.return_value = mock_client
@@ -321,14 +302,13 @@ def test_history_none_and_empty():
         extract_slots_llm("food in Brooklyn", conversation_history=[])
         msgs_empty = mock_client.messages.create.call_args.kwargs["messages"]
         assert len(msgs_empty) == 1
-    print("  PASS: None and empty history work")
 
 
 def test_history_truncated_to_six():
     """Only the last 6 history turns should be included."""
     mock_response = _mock_tool_response_from_dict({})
 
-    with patch("app.services.llm_slot_extractor._get_client") as mock_get:
+    with patch("app.services.llm_slot_extractor.get_client") as mock_get:
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_response
         mock_get.return_value = mock_client
@@ -343,7 +323,6 @@ def test_history_truncated_to_six():
         messages = mock_client.messages.create.call_args.kwargs["messages"]
         # 6 history messages + 1 current = 7
         assert len(messages) == 7
-    print("  PASS: history truncated to 6")
 
 
 def test_smart_extractor_passes_history():
@@ -363,7 +342,6 @@ def test_smart_extractor_passes_history():
         call_kwargs = mock_llm.call_args.kwargs
         assert "conversation_history" in call_kwargs
         assert call_kwargs["conversation_history"] == history
-    print("  PASS: smart extractor passes history")
 
 
 def _mock_tool_response_from_dict(slot_values):
@@ -439,41 +417,3 @@ def test_live_complex_sentence():
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    run_live = "--live" in sys.argv
-
-    print("\nLLM Slot Extractor Tests\n" + "=" * 50)
-
-    print("\n--- LLM Extraction (mocked) ---")
-    test_llm_extracts_service_and_location()
-    test_llm_extracts_age_and_gender()
-    test_llm_handles_third_person()
-    test_llm_handles_contradicting_locations()
-    test_llm_handles_empty_message()
-    test_llm_failure_returns_empty()
-
-    print("\n--- Smart Extractor (complexity routing) ---")
-    test_smart_uses_regex_for_simple_messages()
-    test_smart_uses_llm_for_long_messages()
-    test_smart_uses_llm_when_regex_partial()
-    test_smart_uses_llm_for_implicit_needs()
-    test_smart_llm_supplements_with_regex()
-    test_smart_llm_failure_falls_back_to_regex()
-    test_smart_conflicting_keywords_go_to_llm()
-    test_smart_unknown_location_goes_to_llm()
-
-    if run_live:
-        print("\n--- Integration Tests (LIVE API) ---")
-        test_live_simple_extraction()
-        test_live_third_person()
-        test_live_contradicting_locations()
-        test_live_implicit_needs()
-        test_live_complex_sentence()
-    else:
-        print("\n--- Integration Tests: SKIPPED (run with --live) ---")
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

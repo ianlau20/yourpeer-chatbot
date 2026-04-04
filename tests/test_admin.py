@@ -14,12 +14,10 @@ Run with: python -m pytest tests/test_admin.py -v
 Or just:  python tests/test_admin.py
 """
 
-import sys
 import os
 import json
 import tempfile
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from fastapi.testclient import TestClient
 from app.main import app
@@ -106,7 +104,6 @@ def test_stats_empty():
     assert data["total_resets"] == 0
     assert data["unique_sessions"] == 0
     assert data["relaxed_query_rate"] == 0
-    print("  PASS: GET /admin/api/stats empty")
 
 
 def test_stats_with_data():
@@ -123,7 +120,6 @@ def test_stats_with_data():
     assert data["unique_sessions"] == 3
     assert "service" in data["category_distribution"]
     assert "food" in data["service_type_distribution"]
-    print("  PASS: GET /admin/api/stats with data")
 
 
 # -----------------------------------------------------------------------
@@ -145,7 +141,6 @@ def test_conversations_list():
     assert abc is not None
     assert abc["turn_count"] == 2
     assert abc["services_delivered"] >= 3
-    print("  PASS: GET /admin/api/conversations list")
 
 
 def test_conversations_limit():
@@ -154,7 +149,6 @@ def test_conversations_limit():
     response = client.get("/admin/api/conversations?limit=1")
     assert response.status_code == 200
     assert len(response.json()) == 1
-    print("  PASS: GET /admin/api/conversations?limit=1")
 
 
 def test_conversations_limit_validation():
@@ -164,7 +158,6 @@ def test_conversations_limit_validation():
 
     response = client.get("/admin/api/conversations?limit=999")
     assert response.status_code == 422
-    print("  PASS: GET /admin/api/conversations limit validation")
 
 
 # -----------------------------------------------------------------------
@@ -181,7 +174,6 @@ def test_conversation_detail():
     assert isinstance(data, list)
     assert len(data) == 3  # 2 turns + 1 query
     assert all(e["session_id"] == "sess-abc" for e in data)
-    print("  PASS: GET /admin/api/conversations/sess-abc")
 
 
 def test_conversation_detail_not_found():
@@ -190,7 +182,6 @@ def test_conversation_detail_not_found():
     response = client.get("/admin/api/conversations/nonexistent-session")
     assert response.status_code == 404
     assert "No conversation found" in response.json()["detail"]
-    print("  PASS: GET /admin/api/conversations/nonexistent → 404")
 
 
 def test_conversation_detail_crisis_session():
@@ -203,7 +194,6 @@ def test_conversation_detail_crisis_session():
     types = [e["type"] for e in data]
     assert "conversation_turn" in types
     assert "crisis_detected" in types
-    print("  PASS: GET /admin/api/conversations/sess-xyz (crisis)")
 
 
 # -----------------------------------------------------------------------
@@ -219,7 +209,6 @@ def test_events_all():
     data = response.json()
     assert isinstance(data, list)
     assert len(data) == 6  # 3 turns + 1 query + 1 crisis + 1 reset
-    print("  PASS: GET /admin/api/events all")
 
 
 def test_events_filter_by_type():
@@ -236,14 +225,12 @@ def test_events_filter_by_type():
     data = response.json()
     assert len(data) == 1
     assert data[0]["type"] == "session_reset"
-    print("  PASS: GET /admin/api/events?event_type=...")
 
 
 def test_events_invalid_type_rejected():
     """Invalid event_type should be rejected by the regex validator."""
     response = client.get("/admin/api/events?event_type=invalid_type")
     assert response.status_code == 422
-    print("  PASS: GET /admin/api/events?event_type=invalid → 422")
 
 
 def test_events_limit():
@@ -252,7 +239,6 @@ def test_events_limit():
     response = client.get("/admin/api/events?limit=2")
     assert response.status_code == 200
     assert len(response.json()) == 2
-    print("  PASS: GET /admin/api/events?limit=2")
 
 
 def test_events_limit_validation():
@@ -262,7 +248,6 @@ def test_events_limit_validation():
 
     response = client.get("/admin/api/events?limit=999")
     assert response.status_code == 422
-    print("  PASS: GET /admin/api/events limit validation")
 
 
 # -----------------------------------------------------------------------
@@ -281,7 +266,6 @@ def test_queries_list():
     assert data[0]["template_name"] == "FoodQuery"
     assert data[0]["result_count"] == 3
     assert "max_results" not in data[0]["params"]
-    print("  PASS: GET /admin/api/queries")
 
 
 def test_queries_limit():
@@ -293,7 +277,6 @@ def test_queries_limit():
     response = client.get("/admin/api/queries?limit=3")
     assert response.status_code == 200
     assert len(response.json()) == 3
-    print("  PASS: GET /admin/api/queries?limit=3")
 
 
 # -----------------------------------------------------------------------
@@ -308,7 +291,6 @@ def test_eval_no_results():
     data = response.json()
     assert data["results"] is None
     assert "No evaluation results" in data["detail"]
-    print("  PASS: GET /admin/api/eval → 200 with null results when empty")
 
 
 def test_eval_with_results():
@@ -328,7 +310,6 @@ def test_eval_with_results():
     data = response.json()
     assert data["scenarios_run"] == 10
     assert data["average_score"] == 4.2
-    print("  PASS: GET /admin/api/eval with results")
 
 
 # -----------------------------------------------------------------------
@@ -340,47 +321,6 @@ def test_health_endpoint():
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-    print("  PASS: GET /api/health")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nAdmin Route Tests\n" + "=" * 50)
-
-    print("\n--- Stats Endpoint ---")
-    test_stats_empty()
-    test_stats_with_data()
-
-    print("\n--- Conversations List ---")
-    test_conversations_list()
-    test_conversations_limit()
-    test_conversations_limit_validation()
-
-    print("\n--- Conversation Detail ---")
-    test_conversation_detail()
-    test_conversation_detail_not_found()
-    test_conversation_detail_crisis_session()
-
-    print("\n--- Events ---")
-    test_events_all()
-    test_events_filter_by_type()
-    test_events_invalid_type_rejected()
-    test_events_limit()
-    test_events_limit_validation()
-
-    print("\n--- Queries ---")
-    test_queries_list()
-    test_queries_limit()
-
-    print("\n--- Eval ---")
-    test_eval_no_results()
-    test_eval_with_results()
-
-    print("\n--- Health ---")
-    test_health_endpoint()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

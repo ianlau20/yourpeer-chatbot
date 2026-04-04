@@ -142,17 +142,24 @@ That's it. Changes to either backend Python or frontend TypeScript will hot-relo
 
 ## 4. Running Tests
 
-All 221 backend tests run without external services (database and LLM calls are mocked):
+All backend tests run without external services (database and LLM calls are mocked):
 
 ```
-cd tests
-python test_pii_redactor.py && python test_slot_extractor.py && python test_edge_cases.py && python test_chatbot.py && python test_location_boundaries.py && python test_query_templates.py && python test_crisis_detector.py && python test_llm_slot_extractor.py && python test_claude_client.py
+pytest
+```
+
+That's it. `pyproject.toml` configures the test paths and Python path automatically. To run a single file or see full output:
+
+```
+pytest tests/test_chatbot.py          # one file
+pytest tests/test_chatbot.py -k reset # one test by name
+pytest -s                             # show print output
 ```
 
 To run LLM integration tests against the real Claude API:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-... python tests/test_llm_slot_extractor.py --live
+ANTHROPIC_API_KEY=sk-ant-... pytest tests/test_llm_slot_extractor.py -k live
 ```
 
 ## IDE Setup (Cursor / VS Code)

@@ -10,11 +10,9 @@ Run with: python -m pytest tests/test_claude_client.py -v
 Or just:  python tests/test_claude_client.py
 """
 
-import sys
 import os
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 import app.llm.claude_client as cc
 
@@ -34,7 +32,6 @@ def test_model_constants_are_set():
     assert cc.CONVERSATIONAL_MODEL, "CONVERSATIONAL_MODEL should be set"
     assert cc.SLOT_EXTRACTION_MODEL, "SLOT_EXTRACTION_MODEL should be set"
     assert cc.CRISIS_DETECTION_MODEL, "CRISIS_DETECTION_MODEL should be set"
-    print("  PASS: model constants are set")
 
 
 def test_recommended_model_assignments():
@@ -49,7 +46,6 @@ def test_recommended_model_assignments():
         f"Slot extraction should use Haiku, got {cc.SLOT_EXTRACTION_MODEL}"
     assert "sonnet" in cc.CRISIS_DETECTION_MODEL.lower(), \
         f"Crisis detection should use Sonnet, got {cc.CRISIS_DETECTION_MODEL}"
-    print("  PASS: model assignments match recommended config")
 
 
 # -----------------------------------------------------------------------
@@ -66,7 +62,6 @@ def test_lazy_init_creates_client(mock_anthropic):
     client = cc.get_client()
     assert client is not None
     mock_anthropic.Anthropic.assert_called_once_with(api_key="fake-key")
-    print("  PASS: lazy init creates client")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -82,7 +77,6 @@ def test_lazy_init_reuses_client(mock_anthropic):
 
     assert client1 is client2
     mock_anthropic.Anthropic.assert_called_once()  # only called once
-    print("  PASS: lazy init reuses client")
 
 
 # -----------------------------------------------------------------------
@@ -98,7 +92,6 @@ def test_missing_api_key_raises():
         assert False, "Should have raised RuntimeError"
     except RuntimeError as e:
         assert "ANTHROPIC_API_KEY" in str(e)
-    print("  PASS: missing API key raises")
 
 
 # -----------------------------------------------------------------------
@@ -125,7 +118,6 @@ def test_init_error_cached():
         assert False, "Should have raised cached error"
     except RuntimeError as e:
         assert "ANTHROPIC_API_KEY" in str(e)
-    print("  PASS: init error is cached")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -147,7 +139,6 @@ def test_client_creation_failure_cached(mock_anthropic):
     except RuntimeError:
         pass
     mock_anthropic.Anthropic.assert_not_called()
-    print("  PASS: client creation failure cached")
 
 
 # -----------------------------------------------------------------------
@@ -176,7 +167,6 @@ def test_claude_reply_success(mock_anthropic):
     # Verify model used is CONVERSATIONAL_MODEL (Haiku)
     call_kwargs = mock_client.messages.create.call_args
     assert call_kwargs[1]["model"] == cc.CONVERSATIONAL_MODEL
-    print("  PASS: claude_reply success")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -199,7 +189,6 @@ def test_claude_reply_uses_haiku(mock_anthropic):
     model_used = call_kwargs[1]["model"]
     assert "haiku" in model_used.lower(), \
         f"claude_reply should use Haiku for speed, got {model_used}"
-    print("  PASS: claude_reply uses Haiku model")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -222,7 +211,6 @@ def test_claude_reply_max_tokens_bounded(mock_anthropic):
     max_tokens = call_kwargs[1]["max_tokens"]
     assert max_tokens <= 200, \
         f"Conversational max_tokens should be small, got {max_tokens}"
-    print("  PASS: claude_reply max_tokens is bounded")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -241,7 +229,6 @@ def test_claude_reply_empty_text(mock_anthropic):
 
     result = cc.claude_reply("test")
     assert result == ""
-    print("  PASS: claude_reply with None text returns empty string")
 
 
 # -----------------------------------------------------------------------
@@ -261,7 +248,6 @@ def test_claude_reply_api_failure(mock_anthropic):
 
     assert "trouble connecting" in result.lower()
     assert "try again" in result.lower()
-    print("  PASS: claude_reply API failure returns fallback")
 
 
 def test_claude_reply_init_failure():
@@ -270,7 +256,6 @@ def test_claude_reply_init_failure():
     with patch.dict(os.environ, {}, clear=True):
         result = cc.claude_reply("test")
         assert "trouble connecting" in result.lower()
-    print("  PASS: claude_reply init failure returns fallback")
 
 
 # -----------------------------------------------------------------------
@@ -293,7 +278,6 @@ def test_classify_returns_valid_category(mock_anthropic):
 
     result = cc.classify_message_llm("I just got released and have nowhere to go")
     assert result == "service"
-    print("  PASS: classify returns valid category")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -317,7 +301,6 @@ def test_classify_uses_classification_model(mock_anthropic):
     assert model_used == cc.CLASSIFICATION_MODEL
     assert "haiku" in model_used.lower(), \
         f"Classifier should use Haiku, got {model_used}"
-    print("  PASS: classify uses Haiku model")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -336,7 +319,6 @@ def test_classify_rejects_invalid_category(mock_anthropic):
 
     result = cc.classify_message_llm("test")
     assert result is None
-    print("  PASS: classify rejects invalid category")
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
@@ -355,7 +337,6 @@ def test_classify_handles_whitespace(mock_anthropic):
 
     result = cc.classify_message_llm("this is useless")
     assert result == "frustration"
-    print("  PASS: classify handles whitespace in response")
 
 
 # -----------------------------------------------------------------------
@@ -373,7 +354,6 @@ def test_classify_api_failure_returns_none(mock_anthropic):
 
     result = cc.classify_message_llm("test")
     assert result is None
-    print("  PASS: classify API failure returns None")
 
 
 def test_classify_init_failure_returns_none():
@@ -382,50 +362,6 @@ def test_classify_init_failure_returns_none():
     with patch.dict(os.environ, {}, clear=True):
         result = cc.classify_message_llm("test")
         assert result is None
-    print("  PASS: classify init failure returns None")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nClaude Client Tests\n" + "=" * 50)
-
-    print("\n--- Model Constants ---")
-    test_model_constants_are_set()
-    test_recommended_model_assignments()
-
-    print("\n--- Lazy Initialization ---")
-    test_lazy_init_creates_client()
-    test_lazy_init_reuses_client()
-
-    print("\n--- Missing Env Vars ---")
-    test_missing_api_key_raises()
-
-    print("\n--- Error Caching ---")
-    test_init_error_cached()
-    test_client_creation_failure_cached()
-
-    print("\n--- Reply Success ---")
-    test_claude_reply_success()
-    test_claude_reply_uses_haiku()
-    test_claude_reply_max_tokens_bounded()
-    test_claude_reply_empty_text()
-
-    print("\n--- Reply Failure ---")
-    test_claude_reply_api_failure()
-    test_claude_reply_init_failure()
-
-    print("\n--- Classifier Success ---")
-    test_classify_returns_valid_category()
-    test_classify_uses_classification_model()
-    test_classify_rejects_invalid_category()
-    test_classify_handles_whitespace()
-
-    print("\n--- Classifier Failure ---")
-    test_classify_api_failure_returns_none()
-    test_classify_init_failure_returns_none()
-
-    print("\n" + "=" * 50)
-    print("ALL 18 TESTS PASSED")

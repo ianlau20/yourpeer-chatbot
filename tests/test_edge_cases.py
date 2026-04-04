@@ -6,10 +6,7 @@ Run with: python -m pytest tests/test_edge_cases.py -v
 Or just:  python tests/test_edge_cases.py
 """
 
-import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.services.slot_extractor import (
     extract_slots,
@@ -39,7 +36,6 @@ def test_borough_normalization():
     for raw, expected in cases:
         result = normalize_location(raw)
         assert result == expected, f"normalize('{raw}') = '{result}', expected '{expected}'"
-    print("  PASS: borough normalization")
 
 
 def test_neighborhood_normalization():
@@ -59,7 +55,6 @@ def test_neighborhood_normalization():
     for raw, expected in cases:
         result = normalize_location(raw)
         assert result == expected, f"normalize('{raw}') = '{result}', expected '{expected}'"
-    print("  PASS: neighborhood normalization")
 
 
 def test_unknown_location_passes_through():
@@ -68,14 +63,12 @@ def test_unknown_location_passes_through():
     for loc in unknowns:
         result = normalize_location(loc)
         assert result == loc, f"normalize('{loc}') should pass through, got '{result}'"
-    print("  PASS: unknown locations pass through")
 
 
 def test_normalize_strips_whitespace():
     """Leading/trailing whitespace should be stripped."""
     assert normalize_location("  brooklyn  ") == "Brooklyn"
     assert normalize_location("queens ") == "Queens"
-    print("  PASS: whitespace stripping")
 
 
 # -----------------------------------------------------------------------
@@ -92,7 +85,6 @@ def test_all_service_types_resolve():
     for stype in service_types:
         key = resolve_template_key(stype)
         assert key is not None, f"No template for service_type='{stype}'"
-    print("  PASS: all service types resolve to templates")
 
 
 def test_unknown_service_type_returns_none():
@@ -100,7 +92,6 @@ def test_unknown_service_type_returns_none():
     assert resolve_template_key("xyz_unknown") is None
     assert resolve_template_key("") is None
     assert resolve_template_key(None) is None
-    print("  PASS: unknown service types return None")
 
 
 # -----------------------------------------------------------------------
@@ -126,7 +117,6 @@ def test_location_outside_nyc():
     # "in Springfield" should extract as a location via the regex pattern
     assert slots["service_type"] == "food"
     assert slots["location"] is not None
-    print("  PASS: non-NYC location still extracted")
 
 
 def test_location_with_mixed_case():
@@ -134,7 +124,6 @@ def test_location_with_mixed_case():
     slots = extract_slots("food in BROOKLYN")
     assert slots["location"] is not None
     assert "brooklyn" in slots["location"].lower()
-    print("  PASS: mixed case location")
 
 
 def test_location_change_mid_conversation():
@@ -144,7 +133,6 @@ def test_location_change_mid_conversation():
     merged = merge_slots(existing, new_slots)
     assert "queens" in merged["location"].lower(), \
         f"Location should update to Queens, got '{merged['location']}'"
-    print("  PASS: location change mid-conversation")
 
 
 def test_service_change_mid_conversation():
@@ -154,7 +142,6 @@ def test_service_change_mid_conversation():
     merged = merge_slots(existing, new_slots)
     assert merged["service_type"] == "shelter"
     assert merged["location"] == "Brooklyn"  # location preserved
-    print("  PASS: service type change mid-conversation")
 
 
 # -----------------------------------------------------------------------
@@ -168,7 +155,6 @@ def test_minor_urgent_shelter():
     assert slots["age"] == 17
     assert slots["urgency"] == "high"
     assert "queens" in (slots["location"] or "").lower()
-    print("  PASS: minor urgent shelter scenario")
 
 
 def test_shelter_asks_age_followup():
@@ -178,7 +164,6 @@ def test_shelter_asks_age_followup():
         "location": "Brooklyn",
     })
     assert "age" in question.lower()
-    print("  PASS: shelter triggers age follow-up")
 
 
 def test_non_shelter_doesnt_ask_age():
@@ -188,7 +173,6 @@ def test_non_shelter_doesnt_ask_age():
         "location": "Brooklyn",
     })
     assert "age" not in question.lower()
-    print("  PASS: food doesn't ask for age")
 
 
 # -----------------------------------------------------------------------
@@ -206,7 +190,6 @@ def test_pii_redaction_preserves_service_extraction():
     # But the redacted version should hide the name
     assert "Sarah" not in redacted
     assert "[NAME]" in redacted
-    print("  PASS: PII redaction doesn't break slot extraction")
 
 
 def test_pii_redaction_preserves_age():
@@ -218,7 +201,6 @@ def test_pii_redaction_preserves_age():
     # And slot extraction should still find the age
     slots = extract_slots(msg)
     assert slots["age"] == 17
-    print("  PASS: age not redacted as PII")
 
 
 def test_pii_with_phone_and_location():
@@ -230,7 +212,6 @@ def test_pii_with_phone_and_location():
     slots = extract_slots(msg)
     assert slots["service_type"] == "food"
     assert "queens" in (slots["location"] or "").lower()
-    print("  PASS: phone redacted, location preserved")
 
 
 # -----------------------------------------------------------------------
@@ -256,7 +237,6 @@ def test_near_me_then_real_location_flow():
     assert session["location"] == "brooklyn"
     assert session["location"] != NEAR_ME_SENTINEL
     assert is_enough_to_answer(session) is True
-    print("  PASS: near me → real location multi-turn flow")
 
 
 # -----------------------------------------------------------------------
@@ -270,7 +250,6 @@ def test_empty_message():
     assert slots["location"] is None
     assert slots["age"] is None
     assert slots["urgency"] is None
-    print("  PASS: empty message handled")
 
 
 def test_whitespace_only():
@@ -278,7 +257,6 @@ def test_whitespace_only():
     slots = extract_slots("   \n\t  ")
     assert slots["service_type"] is None
     assert slots["location"] is None
-    print("  PASS: whitespace-only handled")
 
 
 def test_single_word_location_answer():
@@ -286,14 +264,12 @@ def test_single_word_location_answer():
     slots = extract_slots("Brooklyn")
     assert slots["location"] is not None
     assert "brooklyn" in slots["location"].lower()
-    print("  PASS: single-word borough answer")
 
 
 def test_single_word_service_answer():
     """When user replies with just a service keyword, it should extract."""
     slots = extract_slots("food")
     assert slots["service_type"] == "food"
-    print("  PASS: single-word service answer")
 
 
 def test_numbers_only():
@@ -315,7 +291,6 @@ def test_health_vs_mental_health():
     slots = extract_slots("I need mental health support")
     assert slots["service_type"] == "mental_health", \
         f"Expected 'mental_health', got '{slots['service_type']}'"
-    print("  PASS: 'mental health' → mental_health (not medical)")
 
 
 def test_health_alone_is_medical():
@@ -323,7 +298,6 @@ def test_health_alone_is_medical():
     slots = extract_slots("I need health care")
     assert slots["service_type"] == "medical", \
         f"Expected 'medical', got '{slots['service_type']}'"
-    print("  PASS: 'health care' → medical")
 
 
 def test_food_stamps_is_other():
@@ -331,75 +305,18 @@ def test_food_stamps_is_other():
     slots = extract_slots("How do I apply for food stamps")
     assert slots["service_type"] == "other", \
         f"Expected 'other', got '{slots['service_type']}'"
-    print("  PASS: 'food stamps' → other (not food)")
 
 
 def test_legal_aid_is_legal():
     """'Legal aid' should match legal."""
     slots = extract_slots("Where can I find legal aid?")
     assert slots["service_type"] == "legal"
-    print("  PASS: 'legal aid' → legal")
 
 
 def test_job_training_is_employment():
     """'Job training' should match employment."""
     slots = extract_slots("I'm looking for job training programs")
     assert slots["service_type"] == "employment"
-    print("  PASS: 'job training' → employment")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nEdge Case Tests\n" + "=" * 50)
-
-    print("\n--- Location Normalization ---")
-    test_borough_normalization()
-    test_neighborhood_normalization()
-    test_unknown_location_passes_through()
-    test_normalize_strips_whitespace()
-
-    print("\n--- Template Resolution ---")
-    test_all_service_types_resolve()
-    test_unknown_service_type_returns_none()
-
-    print("\n--- Multi-Intent ---")
-    test_multi_intent_picks_first()
-
-    print("\n--- Location Edge Cases ---")
-    test_location_outside_nyc()
-    test_location_with_mixed_case()
-    test_location_change_mid_conversation()
-    test_service_change_mid_conversation()
-
-    print("\n--- Minor + Urgency ---")
-    test_minor_urgent_shelter()
-    test_shelter_asks_age_followup()
-    test_non_shelter_doesnt_ask_age()
-
-    print("\n--- PII + Slot Extraction ---")
-    test_pii_redaction_preserves_service_extraction()
-    test_pii_redaction_preserves_age()
-    test_pii_with_phone_and_location()
-
-    print("\n--- Near Me Multi-Turn ---")
-    test_near_me_then_real_location_flow()
-
-    print("\n--- Empty / Garbage Input ---")
-    test_empty_message()
-    test_whitespace_only()
-    test_single_word_location_answer()
-    test_single_word_service_answer()
-    test_numbers_only()
-
-    print("\n--- Keyword Overlap Prevention ---")
-    test_health_vs_mental_health()
-    test_health_alone_is_medical()
-    test_food_stamps_is_other()
-    test_legal_aid_is_legal()
-    test_job_training_is_employment()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

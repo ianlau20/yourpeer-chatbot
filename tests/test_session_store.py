@@ -9,12 +9,9 @@ Run with: python -m pytest tests/test_session_store.py -v
 Or just:  python tests/test_session_store.py
 """
 
-import sys
-import os
 import time
 import threading
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.services.session_store import (
     get_session_slots,
@@ -49,7 +46,6 @@ def test_save_and_get():
     original = get_session_slots("s1")
     assert original["service_type"] == "food", \
         "Returned slots should be a deep copy — mutation should not propagate"
-    print("  PASS: save and get")
 
 
 def test_get_nonexistent():
@@ -57,7 +53,6 @@ def test_get_nonexistent():
     _clear_all()
     slots = get_session_slots("nonexistent")
     assert slots == {}
-    print("  PASS: get nonexistent session")
 
 
 def test_clear_session():
@@ -68,14 +63,12 @@ def test_clear_session():
 
     clear_session("s1")
     assert get_session_slots("s1") == {}
-    print("  PASS: clear session")
 
 
 def test_clear_nonexistent():
     """Clearing a nonexistent session should not raise."""
     _clear_all()
     clear_session("nonexistent")  # should not raise
-    print("  PASS: clear nonexistent session")
 
 
 def test_overwrite():
@@ -86,7 +79,6 @@ def test_overwrite():
     slots = get_session_slots("s1")
     assert slots["service_type"] == "shelter"
     assert slots["location"] == "Queens"
-    print("  PASS: overwrite session")
 
 
 # -----------------------------------------------------------------------
@@ -149,26 +141,6 @@ def test_lock_exists():
     assert hasattr(threading, 'Lock')
     assert _lock is not None
     assert isinstance(_lock, type(threading.Lock()))
-    print("  PASS: threading lock exists")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nSession Store Tests\n" + "=" * 40)
-
-    print("\n--- Basic Operations ---")
-    test_save_and_get()
-    test_get_nonexistent()
-    test_clear_session()
-    test_clear_nonexistent()
-    test_overwrite()
-
-    print("\n--- Thread Safety (Bug 7) ---")
-    test_concurrent_read_write()
-    test_lock_exists()
-
-    print("\n" + "=" * 40)
-    print("ALL TESTS PASSED")
