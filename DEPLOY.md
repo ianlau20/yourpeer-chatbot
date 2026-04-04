@@ -15,7 +15,7 @@ The Next.js frontend proxies API calls to the FastAPI backend via `rewrites` in 
 
 - All changes pushed to GitHub
 - A [Render](https://render.com) account (sign up with GitHub)
-- Node.js 18.18+ (Render handles this via the `nodeVersion` in `render.yaml`)
+- Node.js 18.18+ (set via `NODE_VERSION` env var in `render.yaml`)
 - Your `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)
 - Your `DATABASE_URL` in the format: `postgresql://user:password@host:port/streetlives`
 - Your `ANTHROPIC_API_KEY` from [Anthropic Console](https://console.anthropic.com/) (optional but recommended — enables LLM-enhanced slot extraction)
@@ -73,13 +73,14 @@ Render automatically redeploys both services when you push to the branch configu
 | `GEMINI_MODEL` | Yes | Model name (use `gemini-3-flash-preview`) — set automatically by `render.yaml` |
 | `DATABASE_URL` | Yes | PostgreSQL connection string for Streetlives DB |
 | `ANTHROPIC_API_KEY` | No | Enables LLM-enhanced slot extraction and the LLM-as-judge evaluation suite. Without this, the system falls back to regex-only slot extraction (still functional, less accurate on complex inputs) |
+| `PYTHON_VERSION` | No | Python version (e.g. `3.12.0`) — set automatically by `render.yaml`. Render uses its default if not set |
 
 #### Frontend service (`yourpeer-chatbot`)
 
 | Variable | Required | Description |
 |---|---|---|
 | `CHAT_BACKEND_URL` | Yes | Full URL of the backend service (e.g. `https://yourpeer-chatbot-api.onrender.com`) — set automatically by `render.yaml` |
-| `PORT` | Yes | Port for Next.js to listen on — set automatically by `render.yaml` to `3000` |
+| `NODE_VERSION` | No | Node.js version (e.g. `24.0.0`) — set automatically by `render.yaml`. Render uses its default if not set |
 
 ### Outbound IPs
 
@@ -91,7 +92,7 @@ The frontend service does not connect to the database directly.
 
 **Backend build fails with missing module:** Make sure `backend/requirements.txt` includes `sqlalchemy`, `psycopg2-binary`, and `anthropic`.
 
-**Frontend build fails with Node version error:** The `render.yaml` specifies `nodeVersion: "24"`. If you see syntax errors like `Unexpected token '??='`, Render may be using an older Node. Check the Render dashboard to confirm the Node version matches.
+**Frontend build fails with Node version error:** The `render.yaml` sets `NODE_VERSION` to `24.0.0`. If you see syntax errors like `Unexpected token '??='`, Render may be using an older Node. Check the `NODE_VERSION` env var in the Render dashboard.
 
 **Frontend build fails with missing modules:** Run `cd frontend-next && rm package-lock.json && npm install` locally, commit the regenerated `package-lock.json`, and push.
 

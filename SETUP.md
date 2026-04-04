@@ -28,7 +28,7 @@ The app runs as **two processes** locally:
 | **FastAPI backend** | `:8000` | Chat API (`/chat/`), Admin API (`/admin/api/*`), health check |
 | **Next.js frontend** | `:3000` | All pages (`/chat`, `/admin/*`, existing yourpeer.nyc routes) |
 
-Next.js proxies API calls to FastAPI via `rewrites` in `next.config.js`. In production, the Next.js API routes in `app/api/` handle the proxying via server-side fetch.
+Next.js proxies API calls to FastAPI via `rewrites` in `next.config.js`.
 
 ```
 Browser (:3000)
@@ -198,7 +198,7 @@ yourpeer-chatbot/
 │   └── requirements.txt
 ├── frontend-next/        # Next.js frontend
 │   ├── src/
-│   │   ├── app/          # routes: /chat, /admin/*, /api/*
+│   │   ├── app/          # routes: /chat, /admin/*
 │   │   ├── components/   # chat/ and admin/ components
 │   │   ├── hooks/        # use-chat, use-speech-recognition
 │   │   └── lib/          # store, API wrappers, types

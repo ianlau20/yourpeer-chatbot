@@ -170,7 +170,7 @@ The prompt is `_LLM_SYSTEM_PROMPT` in `crisis_detector.py`. Keep it narrow and f
 
 ### Monitoring
 
-The audit log records every crisis detection event via `log_crisis_detected()`. The staff admin console at `/admin/` shows crisis events with timestamps and anonymized message snippets. All LLM-stage detections and fail-open events are logged at `WARNING` level with the message prefix `LLM crisis detected` or `LLM crisis detection failed`.
+The audit log records every crisis detection event via `log_crisis_detected()`. The staff admin console at `/admin` shows crisis events with timestamps and anonymized message snippets. All LLM-stage detections and fail-open events are logged at `WARNING` level with the message prefix `LLM crisis detected` or `LLM crisis detection failed`.
 
 ## Testing
 
