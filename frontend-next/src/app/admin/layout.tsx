@@ -19,21 +19,23 @@ export default function AdminLayout({
 }) {
   // TODO: wrap with auth guard (Amplify or role check)
   return (
-    <div className="max-w-[1280px] mx-auto px-7 py-6">
-      <header className="flex items-center justify-between pb-5 border-b border-neutral-200 mb-6">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-xl font-bold tracking-tight text-amber-500">
-            YourPeer
-          </h1>
-          <span className="text-sm text-neutral-400">
-            Staff Review Console
-          </span>
-        </div>
-      </header>
+    <div className="min-h-dvh bg-neutral-100">
+      <div className="max-w-[1280px] mx-auto px-7 py-6">
+        <header className="flex items-center justify-between pb-5 border-b border-neutral-300 mb-6">
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-xl font-bold tracking-tight text-amber-500">
+              YourPeer
+            </h1>
+            <span className="text-sm text-neutral-400">
+              Staff Review Console
+            </span>
+          </div>
+        </header>
 
-      <AdminNav />
+        <AdminNav />
 
-      {children}
+        {children}
+      </div>
     </div>
   );
 }

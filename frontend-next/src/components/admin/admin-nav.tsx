@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Database,
   FlaskConical,
+  Cpu,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/admin/conversations", label: "Conversations", icon: MessageSquare },
   { href: "/admin/queries", label: "Query Log", icon: Database },
   { href: "/admin/evals", label: "Eval Results", icon: FlaskConical },
+  { href: "/admin/models", label: "Model Analysis", icon: Cpu },
 ];
 
 export function AdminNav() {

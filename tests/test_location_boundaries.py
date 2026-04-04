@@ -10,11 +10,9 @@ Run with: python -m pytest tests/test_location_boundaries.py -v
 Or just:  python tests/test_location_boundaries.py
 """
 
-import sys
+
+
 import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
-
 from app.rag.query_templates import build_query, build_relaxed_query, TEMPLATES
 from app.rag.query_executor import (
     normalize_location,
@@ -37,7 +35,6 @@ def test_state_filter_in_all_templates():
             f"Template '{key}' is missing state filter in SQL"
         assert "'ny'" in sql.lower(), \
             f"Template '{key}' state filter doesn't restrict to NY"
-    print("  PASS: state filter present in all templates")
 
 
 def test_state_filter_in_relaxed_queries():
@@ -48,7 +45,6 @@ def test_state_filter_in_relaxed_queries():
             f"Relaxed template '{key}' dropped the state filter"
         assert "'ny'" in sql.lower(), \
             f"Relaxed template '{key}' state filter doesn't restrict to NY"
-    print("  PASS: state filter preserved in all relaxed queries")
 
 
 def test_state_filter_without_city():
@@ -56,7 +52,6 @@ def test_state_filter_without_city():
     sql, params = build_query("food", {"max_results": 5})
     assert "state_province" in sql.lower(), \
         "State filter missing when no city provided"
-    print("  PASS: state filter present even without city")
 
 
 # -----------------------------------------------------------------------
@@ -72,7 +67,6 @@ def test_city_filter_exact_match():
     assert params["city"] == "Brooklyn"
     assert "city_pattern" not in params, \
         "Strict query should not have city_pattern param"
-    print("  PASS: strict query uses exact city match")
 
 
 def test_city_filter_with_normalized_borough():
@@ -80,7 +74,6 @@ def test_city_filter_with_normalized_borough():
     city = normalize_location("manhattan")
     sql, params = build_query("food", {"city": city, "max_results": 5})
     assert params["city"] == "New York"
-    print("  PASS: normalized borough in query params")
 
 
 # -----------------------------------------------------------------------
@@ -94,7 +87,6 @@ def test_relaxed_broadens_city_to_like():
     assert params["city_pattern"] == "%Brooklyn%", \
         f"Expected '%Brooklyn%', got '{params.get('city_pattern')}'"
     assert "LIKE" in sql, "Relaxed query should use LIKE for city"
-    print("  PASS: relaxed query broadens city to LIKE")
 
 
 def test_relaxed_does_not_drop_city():
@@ -103,7 +95,6 @@ def test_relaxed_does_not_drop_city():
     # Either city or city_pattern should be in params — city is never fully dropped
     has_city_constraint = "city" in params or "city_pattern" in params
     assert has_city_constraint, "Relaxed query dropped city filter entirely"
-    print("  PASS: relaxed query keeps city constraint")
 
 
 def test_relaxed_drops_eligibility_but_keeps_location():
@@ -121,7 +112,6 @@ def test_relaxed_drops_eligibility_but_keeps_location():
     assert "city_pattern" in params, "Relaxed query should keep city as LIKE"
     # State should still be there
     assert "state_province" in sql.lower(), "Relaxed query dropped state filter"
-    print("  PASS: relaxed drops eligibility, keeps location")
 
 
 def test_relaxed_drops_schedule_but_keeps_location():
@@ -135,7 +125,6 @@ def test_relaxed_drops_schedule_but_keeps_location():
     assert "weekday" not in params, "Relaxed query should drop weekday"
     assert "current_time" not in params, "Relaxed query should drop current_time"
     assert "city_pattern" in params, "Relaxed query should keep city"
-    print("  PASS: relaxed drops schedule, keeps location")
 
 
 # -----------------------------------------------------------------------
@@ -155,7 +144,6 @@ def test_all_five_boroughs_normalize():
     for raw, expected in boroughs.items():
         result = normalize_location(raw)
         assert result == expected, f"'{raw}' → '{result}', expected '{expected}'"
-    print("  PASS: all 5 boroughs normalize correctly")
 
 
 def test_all_neighborhoods_in_map():
@@ -164,7 +152,6 @@ def test_all_neighborhoods_in_map():
     for alias, city in NYC_LOCATION_ALIASES.items():
         assert city in valid_cities, \
             f"Alias '{alias}' maps to '{city}' which is not a valid NYC city"
-    print("  PASS: all neighborhood aliases map to valid NYC cities")
 
 
 def test_case_insensitive_normalization():
@@ -180,7 +167,6 @@ def test_case_insensitive_normalization():
     for raw, expected in cases:
         result = normalize_location(raw)
         assert result == expected, f"'{raw}' → '{result}', expected '{expected}'"
-    print("  PASS: case-insensitive normalization")
 
 
 # -----------------------------------------------------------------------
@@ -201,7 +187,6 @@ def test_borough_in_full_sentence():
         assert slots["location"] is not None, f"No location in: {phrase}"
         assert expected_loc in slots["location"].lower(), \
             f"Expected '{expected_loc}' in: {phrase} → {slots['location']}"
-    print("  PASS: boroughs extracted from full sentences")
 
 
 def test_neighborhood_in_full_sentence():
@@ -217,7 +202,6 @@ def test_neighborhood_in_full_sentence():
         assert slots["location"] is not None, f"No location in: {phrase}"
         assert expected_loc in slots["location"].lower(), \
             f"Expected '{expected_loc}' in: {phrase} → {slots['location']}"
-    print("  PASS: neighborhoods extracted from full sentences")
 
 
 def test_non_nyc_location_extracted_but_wont_match():
@@ -234,7 +218,6 @@ def test_non_nyc_location_extracted_but_wont_match():
         normalized = normalize_location(slots["location"])
         assert normalized not in ["New York", "Brooklyn", "Queens", "Bronx", "Staten Island"], \
             f"Non-NYC location '{raw_location}' incorrectly normalized to an NYC borough"
-    print("  PASS: non-NYC locations don't normalize to NYC boroughs")
 
 
 def test_near_me_with_borough_override():
@@ -284,7 +267,6 @@ def test_query_with_city_includes_city_filter():
     assert "lower(pa.city) = lower(:city)" in sql_lower, \
         "City filter not in query SQL"
     assert params["city"] == "Brooklyn"
-    print("  PASS: city filter included when city provided")
 
 
 def test_query_without_city_omits_city_filter():
@@ -295,7 +277,6 @@ def test_query_without_city_omits_city_filter():
         "City param should not be present when no city provided"
     assert "state_province" in sql_lower, \
         "State filter should still be present"
-    print("  PASS: city filter omitted when no city provided, state still present")
 
 
 def test_query_with_age_includes_eligibility():
@@ -303,7 +284,6 @@ def test_query_with_age_includes_eligibility():
     sql, params = build_query("shelter", {"city": "Brooklyn", "age": 17, "max_results": 5})
     assert "eligibility" in sql.lower(), "Age eligibility filter not in query"
     assert params["age"] == 17
-    print("  PASS: age triggers eligibility filter")
 
 
 def test_query_without_age_omits_eligibility():
@@ -311,7 +291,6 @@ def test_query_without_age_omits_eligibility():
     sql, params = build_query("food", {"city": "Brooklyn", "max_results": 5})
     # The eligibility subquery should not be in the WHERE clause
     assert "age_min" not in sql, "Age eligibility in query without age param"
-    print("  PASS: eligibility filter omitted without age")
 
 
 def test_hidden_filter_always_present():
@@ -320,7 +299,6 @@ def test_hidden_filter_always_present():
         sql, params = build_query(key, {"max_results": 5})
         assert "hidden_from_search" in sql.lower(), \
             f"Template '{key}' missing hidden_from_search filter"
-    print("  PASS: hidden filter present in all templates")
 
 
 def test_taxonomy_filter_always_present():
@@ -331,21 +309,18 @@ def test_taxonomy_filter_always_present():
             f"Template '{key}' missing taxonomy filter"
         assert "taxonomy_name" in params, \
             f"Template '{key}' missing taxonomy_name param"
-    print("  PASS: taxonomy filter present in all templates")
 
 
 def test_max_results_default():
     """max_results should default to 10 if not provided."""
     sql, params = build_query("food", {"city": "Brooklyn"})
     assert params["max_results"] == 10
-    print("  PASS: max_results defaults to 10")
 
 
 def test_max_results_override():
     """max_results should be overridable."""
     sql, params = build_query("food", {"city": "Brooklyn", "max_results": 3})
     assert params["max_results"] == 3
-    print("  PASS: max_results override works")
 
 
 # -----------------------------------------------------------------------
@@ -387,7 +362,6 @@ def test_relaxed_params_compared_to_strict():
     assert "state_province" in strict_sql.lower()
     assert "state_province" in relaxed_sql.lower()
 
-    print("  PASS: strict vs relaxed param comparison")
 
 
 def test_relaxed_without_city_still_has_state():
@@ -395,7 +369,6 @@ def test_relaxed_without_city_still_has_state():
     sql, params = build_relaxed_query("food", {"max_results": 5})
     assert "state_province" in sql.lower()
     assert "city_pattern" not in params  # no city to broaden
-    print("  PASS: relaxed without city still has state filter")
 
 
 # -----------------------------------------------------------------------
@@ -412,7 +385,6 @@ def test_queens_expands_to_neighborhoods():
     assert "long island city" in cities
     assert "jackson heights" in cities
     assert "far rockaway" in cities
-    print("  PASS: Queens expands to neighborhoods")
 
 
 def test_brooklyn_expands_to_neighborhoods():
@@ -423,7 +395,6 @@ def test_brooklyn_expands_to_neighborhoods():
     assert "bushwick" in cities
     assert "flatbush" in cities
     assert "crown heights" in cities
-    print("  PASS: Brooklyn expands to neighborhoods")
 
 
 def test_manhattan_expands_to_neighborhoods():
@@ -434,14 +405,12 @@ def test_manhattan_expands_to_neighborhoods():
     assert "midtown" in cities
     assert "chelsea" in cities
     assert "soho" in cities
-    print("  PASS: Manhattan expands to neighborhoods")
 
 
 def test_non_borough_does_not_expand():
     """Non-borough locations should return a single-item list."""
     cities = get_borough_city_names("Springfield")
     assert cities == ["springfield"]
-    print("  PASS: non-borough returns single item")
 
 
 def test_borough_expansion_in_query():
@@ -455,7 +424,6 @@ def test_borough_expansion_in_query():
     assert "any(:city_list)" in sql.lower(), \
         "SQL should contain ANY(:city_list) for borough expansion"
     assert params["city_list"] == city_list
-    print("  PASS: borough expansion generates ANY() SQL")
 
 
 def test_borough_expansion_in_relaxed_query():
@@ -469,7 +437,6 @@ def test_borough_expansion_in_relaxed_query():
     assert "city_list" in params, "Relaxed query should keep city_list"
     assert "city" not in params, "Relaxed query should drop exact city when city_list present"
     assert "city_pattern" not in params, "Relaxed query should not add LIKE when city_list present"
-    print("  PASS: relaxed query keeps borough expansion")
 
 
 def test_no_expansion_uses_like_in_relaxed():
@@ -480,7 +447,6 @@ def test_no_expansion_uses_like_in_relaxed():
     })
     assert "city_pattern" in params, "Should fall back to LIKE without city_list"
     assert params["city_pattern"] == "%Springfield%"
-    print("  PASS: no expansion falls back to LIKE in relaxed")
 
 
 # -----------------------------------------------------------------------
@@ -492,7 +458,6 @@ def test_is_borough_true():
     boroughs = ["manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island"]
     for b in boroughs:
         assert is_borough(b) is True, f"'{b}' should be a borough"
-    print("  PASS: boroughs identified correctly")
 
 
 def test_is_borough_false_neighborhoods():
@@ -500,7 +465,6 @@ def test_is_borough_false_neighborhoods():
     neighborhoods = ["harlem", "midtown", "bushwick", "astoria", "mott haven"]
     for n in neighborhoods:
         assert is_borough(n) is False, f"'{n}' should not be a borough"
-    print("  PASS: neighborhoods not identified as boroughs")
 
 
 def test_is_borough_false_other():
@@ -508,7 +472,6 @@ def test_is_borough_false_other():
     assert is_borough("Springfield") is False
     assert is_borough("") is False
     assert is_borough(None) is False
-    print("  PASS: non-NYC locations not boroughs")
 
 
 def test_is_borough_case_insensitive():
@@ -516,7 +479,6 @@ def test_is_borough_case_insensitive():
     assert is_borough("BROOKLYN") is True
     assert is_borough("Brooklyn") is True
     assert is_borough("HARLEM") is False
-    print("  PASS: is_borough case insensitive")
 
 
 # -----------------------------------------------------------------------
@@ -545,7 +507,6 @@ def test_neighborhood_strict_uses_borough_city():
         assert not is_borough(neighborhood), \
             f"{neighborhood} should not be classified as a borough"
 
-    print("  PASS: all neighborhoods normalize to correct borough city value")
 
 
 def test_neighborhood_query_params_match_db():
@@ -584,7 +545,6 @@ def test_neighborhood_query_params_match_db():
         assert "lower(pa.city) = lower(:city)" in sql.lower(), \
             f"{neighborhood}: strict should have exact city filter"
 
-    print("  PASS: neighborhood query params match DB city values")
 
 
 def test_neighborhood_and_borough_produce_same_strict_query():
@@ -617,7 +577,6 @@ def test_neighborhood_and_borough_produce_same_strict_query():
     # Both should have city_list with the same neighborhoods
     assert sorted(chelsea_bound["city_list"]) == sorted(manhattan_bound["city_list"])
 
-    print("  PASS: neighborhood and borough produce same strict query")
 
 
 def test_neighborhood_relaxed_stays_in_borough():
@@ -644,7 +603,6 @@ def test_neighborhood_relaxed_stays_in_borough():
             assert excluded not in relaxed_list, \
                 f"Relaxed {neighborhood_city} should not include {excluded}"
 
-    print("  PASS: neighborhood relaxed stays within borough")
 
 
 def test_neighborhood_relaxed_drops_eligibility():
@@ -673,7 +631,6 @@ def test_neighborhood_relaxed_drops_eligibility():
     assert "gender" not in relaxed_bound
     assert "city_list" in relaxed_bound
 
-    print("  PASS: neighborhood relaxed drops eligibility, keeps location")
 
 
 def test_all_neighborhoods_produce_valid_queries():
@@ -718,7 +675,6 @@ def test_borough_strict_uses_expansion():
     assert "any(:city_list)" in sql.lower(), \
         "Borough strict query should use ANY()"
     assert "city_list" in bound
-    print("  PASS: borough strict uses expansion immediately")
 
 
 def test_multiple_neighborhoods_same_borough():
@@ -729,7 +685,6 @@ def test_multiple_neighborhoods_same_borough():
 
     assert harlem_relaxed == midtown_relaxed == chelsea_relaxed, \
         "All Manhattan neighborhoods should expand to the same borough list"
-    print("  PASS: same-borough neighborhoods expand identically")
 
 
 def test_end_to_end_neighborhood_via_query_services():
@@ -757,7 +712,6 @@ def test_end_to_end_neighborhood_via_query_services():
             assert user_params["city"] == normalized, \
                 f"{neighborhood}: expected city={normalized}, got city={user_params.get('city')}"
 
-    print("  PASS: end-to-end query_services uses correct city for neighborhoods")
 
 
 def test_harlem_full_query_path():
@@ -799,7 +753,6 @@ def test_harlem_full_query_path():
     assert "bronx" not in relaxed_cities, "Harlem should not include Bronx"
     assert "flushing" not in relaxed_cities, "Harlem should not include Flushing"
 
-    print("  PASS: Harlem full query path — strict, relaxed, and cross-borough isolation")
 
 
 def test_neighborhood_proximity_params():
@@ -818,7 +771,6 @@ def test_neighborhood_proximity_params():
         center = get_neighborhood_center(borough)
         assert center is None, f"{borough} should NOT have center coordinates"
 
-    print("  PASS: neighborhood proximity params present, boroughs excluded")
 
 
 def test_neighborhood_proximity_in_strict_query():
@@ -845,7 +797,6 @@ def test_neighborhood_proximity_in_strict_query():
     # Should also order by distance
     assert "st_distance" in sql.lower(), "Strict should order by distance"
 
-    print("  PASS: neighborhood strict query includes proximity filter + distance ordering")
 
 
 def test_neighborhood_relaxed_drops_proximity():
@@ -877,7 +828,6 @@ def test_neighborhood_relaxed_drops_proximity():
     # Should NOT order by distance (no lat/lon)
     assert "st_distance" not in sql.lower(), "Relaxed should not order by distance"
 
-    print("  PASS: relaxed query drops proximity, falls back to borough")
 
 
 def test_all_neighborhoods_have_coordinates():
@@ -933,7 +883,6 @@ def test_end_to_end_proximity_via_query_services():
         assert "lat" not in user_params, "Manhattan should NOT have lat"
         assert "lon" not in user_params, "Manhattan should NOT have lon"
 
-    print("  PASS: end-to-end proximity for neighborhoods, not boroughs")
 
 
 def test_all_alias_neighborhoods_have_coordinates():
@@ -985,7 +934,6 @@ def test_neighborhood_case_insensitive_lookup():
         center = get_neighborhood_center(variant)
         assert center is not None, f"get_neighborhood_center('{variant}') should not be None"
 
-    print("  PASS: neighborhood center lookup is case-insensitive")
 
 
 def test_neighborhood_whitespace_handling():
@@ -996,7 +944,6 @@ def test_neighborhood_whitespace_handling():
         center = get_neighborhood_center(padded)
         assert center is not None, f"get_neighborhood_center('{padded}') should not be None"
 
-    print("  PASS: neighborhood center lookup handles whitespace")
 
 
 def test_duplicate_neighborhood_names_same_coords():
@@ -1011,7 +958,6 @@ def test_duplicate_neighborhood_names_same_coords():
     c4 = get_neighborhood_center("hell's kitchen")
     assert c3 == c4, f"hells kitchen {c3} != hell's kitchen {c4}"
 
-    print("  PASS: duplicate neighborhood names have identical coordinates")
 
 
 def test_new_neighborhoods_extracted_from_messages():
@@ -1036,7 +982,6 @@ def test_new_neighborhoods_extracted_from_messages():
         assert expected_location in location, \
             f"'{msg}' should extract location containing '{expected_location}', got '{location}'"
 
-    print("  PASS: new neighborhoods extracted from messages correctly")
 
 
 def test_unknown_location_falls_back_gracefully():
@@ -1063,7 +1008,6 @@ def test_unknown_location_falls_back_gracefully():
         # Should still have the raw location as city for a LIKE match attempt
         assert "city" in user_params
 
-    print("  PASS: unknown location falls back to city filter without proximity")
 
 
 def test_proximity_radius_is_reasonable():
@@ -1094,109 +1038,8 @@ def test_proximity_does_not_break_non_location_queries():
         assert "lon" not in user_params
         assert "radius_meters" not in user_params
 
-    print("  PASS: no proximity params when location is None")
 
 
-# -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nLocation Boundary Tests\n" + "=" * 50)
-
-    print("\n--- State Filter (required) ---")
-    test_state_filter_in_all_templates()
-    test_state_filter_in_relaxed_queries()
-    test_state_filter_without_city()
-
-    print("\n--- City Filter (strict) ---")
-    test_city_filter_exact_match()
-    test_city_filter_with_normalized_borough()
-
-    print("\n--- Relaxed Query Boundaries ---")
-    test_relaxed_broadens_city_to_like()
-    test_relaxed_does_not_drop_city()
-    test_relaxed_drops_eligibility_but_keeps_location()
-    test_relaxed_drops_schedule_but_keeps_location()
-
-    print("\n--- Borough Normalization ---")
-    test_all_five_boroughs_normalize()
-    test_all_neighborhoods_in_map()
-    test_case_insensitive_normalization()
-
-    print("\n--- Location Extraction Edge Cases ---")
-    test_borough_in_full_sentence()
-    test_neighborhood_in_full_sentence()
-    test_non_nyc_location_extracted_but_wont_match()
-    test_near_me_with_borough_override()
-    test_two_boroughs_in_message()
-    test_borough_with_typos()
-
-    print("\n--- Query Builder Filters ---")
-    test_query_with_city_includes_city_filter()
-    test_query_without_city_omits_city_filter()
-    test_query_with_age_includes_eligibility()
-    test_query_without_age_omits_eligibility()
-    test_hidden_filter_always_present()
-    test_taxonomy_filter_always_present()
-    test_max_results_default()
-    test_max_results_override()
-
-    print("\n--- Relaxed Query Parameters ---")
-    test_relaxed_params_compared_to_strict()
-    test_relaxed_without_city_still_has_state()
-
-    print("\n--- Borough Expansion ---")
-    test_queens_expands_to_neighborhoods()
-    test_brooklyn_expands_to_neighborhoods()
-    test_manhattan_expands_to_neighborhoods()
-    test_non_borough_does_not_expand()
-    test_borough_expansion_in_query()
-    test_borough_expansion_in_relaxed_query()
-    test_no_expansion_uses_like_in_relaxed()
-
-    print("\n--- Is Borough ---")
-    test_is_borough_true()
-    test_is_borough_false_neighborhoods()
-    test_is_borough_false_other()
-    test_is_borough_case_insensitive()
-
-    print("\n--- Neighborhood Logic ---")
-    test_neighborhood_strict_uses_borough_city()
-    test_neighborhood_query_params_match_db()
-    test_neighborhood_and_borough_produce_same_strict_query()
-    test_neighborhood_relaxed_stays_in_borough()
-    test_neighborhood_relaxed_drops_eligibility()
-    test_all_neighborhoods_produce_valid_queries()
-    test_borough_strict_uses_expansion()
-    test_multiple_neighborhoods_same_borough()
-    test_end_to_end_neighborhood_via_query_services()
-    test_harlem_full_query_path()
-
-    print("\n--- PostGIS Proximity Search ---")
-    test_neighborhood_proximity_params()
-    test_neighborhood_proximity_in_strict_query()
-    test_neighborhood_relaxed_drops_proximity()
-    test_all_neighborhoods_have_coordinates()
-    test_end_to_end_proximity_via_query_services()
-
-    print("\n--- Proximity Edge Cases ---")
-    test_all_alias_neighborhoods_have_coordinates()
-    test_all_known_locations_have_aliases()
-    test_all_coordinates_within_nyc_bounds()
-    test_neighborhood_case_insensitive_lookup()
-    test_neighborhood_whitespace_handling()
-    test_duplicate_neighborhood_names_same_coords()
-    test_new_neighborhoods_extracted_from_messages()
-    test_unknown_location_falls_back_gracefully()
-    test_proximity_radius_is_reasonable()
-    test_proximity_does_not_break_non_location_queries()
-
-    print("\n--- DB Connection ---")
-    test_test_connection_without_db()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")
 
 
 # -----------------------------------------------------------------------
@@ -1221,4 +1064,3 @@ def test_test_connection_without_db():
             assert result is False, "test_connection should return False without a DB"
     finally:
         qe._engine = saved_engine
-    print("  PASS: test_connection returns False without DB")

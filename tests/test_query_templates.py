@@ -10,12 +10,9 @@ Run with: python -m pytest tests/test_query_templates.py -v
 Or just:  python tests/test_query_templates.py
 """
 
-import sys
-import os
 from datetime import time, datetime
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.rag.query_templates import (
     build_query,
@@ -123,7 +120,6 @@ def test_all_templates_use_taxonomy_names_list():
             f"Template '{key}' taxonomy_names must be a list, got {type(params['taxonomy_names'])}"
         assert len(params["taxonomy_names"]) > 0, \
             f"Template '{key}' taxonomy_names list is empty."
-    print("  PASS: all templates use taxonomy_names list")
 
 
 def test_all_taxonomy_names_are_lowercase():
@@ -133,7 +129,6 @@ def test_all_taxonomy_names_are_lowercase():
             assert name == name.lower(), \
                 f"Template '{key}' has non-lowercase taxonomy name: '{name}'. " \
                 f"All entries must be lowercase for ANY() matching."
-    print("  PASS: all taxonomy_names entries are lowercase")
 
 
 def test_all_taxonomy_names_exist_in_db():
@@ -144,7 +139,6 @@ def test_all_taxonomy_names_exist_in_db():
             assert name in valid_lower, \
                 f"Template '{key}' has taxonomy_name '{name}' not found in DB. " \
                 f"Run the taxonomy audit query to verify it exists."
-    print("  PASS: all taxonomy names exist in DB")
 
 
 def test_no_taxonomy_name_duplicates_within_template():
@@ -153,7 +147,6 @@ def test_no_taxonomy_name_duplicates_within_template():
         names = template["default_params"]["taxonomy_names"]
         assert len(names) == len(set(names)), \
             f"Template '{key}' has duplicate taxonomy names: {[n for n in names if names.count(n) > 1]}"
-    print("  PASS: no duplicate taxonomy names within any template")
 
 
 def test_no_taxonomy_name_in_wrong_template():
@@ -164,7 +157,6 @@ def test_no_taxonomy_name_in_wrong_template():
     assert not overlap, \
         f"'medical' and 'mental_health' templates share taxonomy names: {overlap}. " \
         f"Mental Health (114 services) must only be in mental_health template."
-    print("  PASS: health and mental_health templates have no overlapping taxonomy names")
 
 
 def test_food_includes_soup_kitchen():
@@ -172,7 +164,6 @@ def test_food_includes_soup_kitchen():
     names = TEMPLATES["food"]["default_params"]["taxonomy_names"]
     assert "soup kitchen" in names, "soup kitchen missing from food template"
     assert "mobile soup kitchen" in names, "mobile soup kitchen missing from food template"
-    print("  PASS: food template includes soup kitchen variants")
 
 
 def test_food_includes_food_pantry():
@@ -180,7 +171,6 @@ def test_food_includes_food_pantry():
     names = TEMPLATES["food"]["default_params"]["taxonomy_names"]
     assert "food pantry" in names, \
         "food pantry missing from food template — this is the largest food taxonomy (732 services)"
-    print("  PASS: food template includes food pantry")
 
 
 def test_shelter_includes_warming_center_and_safe_haven():
@@ -188,7 +178,6 @@ def test_shelter_includes_warming_center_and_safe_haven():
     names = TEMPLATES["shelter"]["default_params"]["taxonomy_names"]
     assert "warming center" in names, "warming center missing from shelter template"
     assert "safe haven" in names, "safe haven missing from shelter template"
-    print("  PASS: shelter template includes warming center and safe haven")
 
 
 def test_clothing_includes_clothing_pantry():
@@ -196,7 +185,6 @@ def test_clothing_includes_clothing_pantry():
     names = TEMPLATES["clothing"]["default_params"]["taxonomy_names"]
     assert "clothing pantry" in names, \
         "clothing pantry missing from clothing template — this caused 0 results for clothing in Queens"
-    print("  PASS: clothing template includes clothing pantry")
 
 
 def test_mental_health_includes_substance_use():
@@ -204,7 +192,6 @@ def test_mental_health_includes_substance_use():
     names = TEMPLATES["mental_health"]["default_params"]["taxonomy_names"]
     assert "substance use treatment" in names, \
         "substance use treatment missing from mental_health template"
-    print("  PASS: mental_health template includes substance use treatment")
 
 
 def test_legal_includes_immigration():
@@ -212,7 +199,6 @@ def test_legal_includes_immigration():
     names = TEMPLATES["legal"]["default_params"]["taxonomy_names"]
     assert "immigration services" in names, \
         "immigration services missing from legal template"
-    print("  PASS: legal template includes immigration services")
 
 
 def test_personal_care_includes_hygiene_and_haircut():
@@ -220,7 +206,6 @@ def test_personal_care_includes_hygiene_and_haircut():
     names = TEMPLATES["personal_care"]["default_params"]["taxonomy_names"]
     assert "hygiene" in names, "hygiene missing from personal_care template"
     assert "haircut" in names, "haircut missing from personal_care template"
-    print("  PASS: personal_care template includes hygiene and haircut")
 
 
 def test_other_includes_benefits_and_drop_in():
@@ -228,7 +213,6 @@ def test_other_includes_benefits_and_drop_in():
     names = TEMPLATES["other"]["default_params"]["taxonomy_names"]
     assert "benefits" in names, "benefits missing from other template"
     assert "drop-in center" in names, "drop-in center missing from other template"
-    print("  PASS: other template includes benefits and drop-in center")
 
 
 def test_exact_taxonomy_names_match_expected():
@@ -245,7 +229,6 @@ def test_exact_taxonomy_names_match_expected():
             f"Template '{key}' is MISSING taxonomy names (add them): {missing}"
         assert not extra, \
             f"Template '{key}' has EXTRA taxonomy names not in DB audit (verify & update EXPECTED_TAXONOMY_NAMES): {extra}"
-    print("  PASS: all template taxonomy_names match DB-audited expected sets exactly")
 
 
 def test_taxonomy_aliases_match_taxonomy_names():
@@ -261,7 +244,6 @@ def test_taxonomy_aliases_match_taxonomy_names():
         assert not missing_from_aliases, \
             f"Template '{key}' has taxonomy names not reflected in taxonomy_aliases: " \
             f"{missing_from_aliases}. Add them so slot extraction can route correctly."
-    print("  PASS: all taxonomy_names are covered by taxonomy_aliases")
 
 
 # -----------------------------------------------------------------------
@@ -277,7 +259,6 @@ def test_base_query_joins():
     assert "join locations" in sql_lower
     assert "left join organizations" in sql_lower
     assert "left join physical_addresses" in sql_lower
-    print("  PASS: base query has all required joins")
 
 
 def test_base_query_phone_is_lateral():
@@ -286,7 +267,6 @@ def test_base_query_phone_is_lateral():
     assert "lateral" in sql_lower, "Phone should use LATERAL join"
     assert "best_phone" in sql_lower, "Phone subquery should be aliased as best_phone"
     assert "limit 1" in sql_lower, "Phone subquery should LIMIT 1"
-    print("  PASS: phone uses LATERAL join with LIMIT 1")
 
 
 def test_base_query_phone_priority_order():
@@ -296,7 +276,6 @@ def test_base_query_phone_priority_order():
     assert "when ph.location_id" in sql_lower
     assert "when ph.service_id" in sql_lower
     assert "when ph.organization_id" in sql_lower
-    print("  PASS: phone priority order is location > service > org")
 
 
 def test_base_query_schedule_lateral():
@@ -305,7 +284,6 @@ def test_base_query_schedule_lateral():
     assert "today_sched" in sql_lower
     assert "regular_schedules" in sql_lower
     assert "isodow" in sql_lower
-    print("  PASS: schedule uses LATERAL join for today")
 
 
 def test_base_query_selects_slug():
@@ -313,7 +291,6 @@ def test_base_query_selects_slug():
     sql_lower = _BASE_QUERY.lower()
     assert "l.slug" in sql_lower
     assert "location_slug" in sql_lower
-    print("  PASS: base query selects location slug")
 
 
 # -----------------------------------------------------------------------
@@ -359,21 +336,18 @@ def test_format_card_all_fields():
     assert "NY" in card["address"]
     assert card["fees"] == "Free"
     assert card["email"] == "info@example.com"
-    print("  PASS: card formats all fields")
 
 
 def test_format_card_yourpeer_url():
     """Card should build YourPeer URL from location slug."""
     card = format_service_card(_mock_row(location_slug="my-location"))
     assert card["yourpeer_url"] == "https://yourpeer.nyc/locations/my-location"
-    print("  PASS: YourPeer URL from slug")
 
 
 def test_format_card_no_slug():
     """Card should have None yourpeer_url if no slug."""
     card = format_service_card(_mock_row(location_slug=None))
     assert card["yourpeer_url"] is None
-    print("  PASS: no slug → no YourPeer URL")
 
 
 def test_format_card_missing_optional_fields():
@@ -390,14 +364,12 @@ def test_format_card_missing_optional_fields():
     assert card["phone"] is None
     assert card["email"] is None
     assert card["fees"] is None
-    print("  PASS: missing optional fields handled")
 
 
 def test_format_card_website_fallback():
     """Card should fall back to org URL if service URL is missing."""
     card = format_service_card(_mock_row(service_url=None, organization_url="https://org.com"))
     assert card["website"] == "https://org.com"
-    print("  PASS: website falls back to org URL")
 
 
 def test_format_card_website_prefers_service():
@@ -407,7 +379,6 @@ def test_format_card_website_prefers_service():
         organization_url="https://org.com",
     ))
     assert card["website"] == "https://service.com"
-    print("  PASS: website prefers service URL")
 
 
 def test_format_card_website_normalizes_missing_protocol():
@@ -447,7 +418,6 @@ def test_format_card_website_normalizes_missing_protocol():
     card = format_service_card(_mock_row(service_url="  ", organization_url=None))
     assert card["website"] is None
 
-    print("  PASS: website URLs normalized with protocol")
 
 
 def test_format_card_no_address():
@@ -456,21 +426,18 @@ def test_format_card_no_address():
         address=None, city=None, state=None, zip_code=None,
     ))
     assert card["address"] is None
-    print("  PASS: no address parts → None")
 
 
 def test_format_card_partial_address():
     """Card should build address from whatever parts are available."""
     card = format_service_card(_mock_row(address=None, state=None, zip_code=None))
     assert card["address"] == "Brooklyn"
-    print("  PASS: partial address builds from available parts")
 
 
 def test_format_card_default_service_name():
     """Card should show 'Unknown Service' if service_name is missing."""
     card = format_service_card(_mock_row(service_name=None))
     assert card["service_name"] == "Unknown Service"
-    print("  PASS: missing service_name → 'Unknown Service'")
 
 
 # -----------------------------------------------------------------------
@@ -482,14 +449,12 @@ def test_schedule_none_values():
     result = _compute_schedule_status(None, None)
     assert result["hours_today"] is None
     assert result["is_open"] is None
-    print("  PASS: None schedule → no data")
 
 
 def test_schedule_one_none():
     """One None value should return no schedule data."""
     assert _compute_schedule_status("09:00:00", None)["is_open"] is None
     assert _compute_schedule_status(None, "17:00:00")["is_open"] is None
-    print("  PASS: partial None schedule → no data")
 
 
 def test_schedule_string_times():
@@ -497,14 +462,12 @@ def test_schedule_string_times():
     result = _compute_schedule_status("09:00:00", "17:00:00")
     assert result["hours_today"] == "9:00 AM – 5:00 PM"
     assert result["is_open"] in ("open", "closed")  # depends on current time
-    print("  PASS: string times parse correctly")
 
 
 def test_schedule_time_objects():
     """Python time objects should work."""
     result = _compute_schedule_status(time(9, 0), time(17, 0))
     assert result["hours_today"] == "9:00 AM – 5:00 PM"
-    print("  PASS: time objects work")
 
 
 def test_schedule_midnight_wrap():
@@ -512,7 +475,6 @@ def test_schedule_midnight_wrap():
     result = _compute_schedule_status(time(20, 0), time(6, 0))
     assert result["hours_today"] == "8:00 PM – 6:00 AM"
     assert result["is_open"] in ("open", "closed")
-    print("  PASS: midnight wrap formats correctly")
 
 
 def test_schedule_invalid_string():
@@ -520,14 +482,12 @@ def test_schedule_invalid_string():
     result = _compute_schedule_status("not-a-time", "also-bad")
     assert result["hours_today"] is None
     assert result["is_open"] is None
-    print("  PASS: invalid strings → graceful None")
 
 
 def test_schedule_mixed_types():
     """Mixed string + time object should work."""
     result = _compute_schedule_status("09:00:00", time(17, 0))
     assert result["hours_today"] == "9:00 AM – 5:00 PM"
-    print("  PASS: mixed types work")
 
 
 def test_schedule_with_card():
@@ -538,7 +498,6 @@ def test_schedule_with_card():
     ))
     assert card["hours_today"] == "9:00 AM – 5:00 PM"
     assert card["is_open"] in ("open", "closed")
-    print("  PASS: schedule flows through to card")
 
 
 def test_schedule_no_data_in_card():
@@ -546,7 +505,6 @@ def test_schedule_no_data_in_card():
     card = format_service_card(_mock_row())
     assert card["hours_today"] is None
     assert card["is_open"] is None
-    print("  PASS: no schedule → None in card")
 
 
 # -----------------------------------------------------------------------
@@ -556,28 +514,23 @@ def test_schedule_no_data_in_card():
 def test_format_time_morning():
     assert _format_time(time(9, 0)) == "9:00 AM"
     assert _format_time(time(9, 30)) == "9:30 AM"
-    print("  PASS: morning times")
 
 
 def test_format_time_afternoon():
     assert _format_time(time(14, 0)) == "2:00 PM"
     assert _format_time(time(17, 45)) == "5:45 PM"
-    print("  PASS: afternoon times")
 
 
 def test_format_time_noon():
     assert _format_time(time(12, 0)) == "12:00 PM"
-    print("  PASS: noon")
 
 
 def test_format_time_midnight():
     assert _format_time(time(0, 0)) == "12:00 AM"
-    print("  PASS: midnight")
 
 
 def test_format_time_just_after_midnight():
     assert _format_time(time(0, 30)) == "12:30 AM"
-    print("  PASS: 12:30 AM")
 
 
 def test_format_time_no_leading_zero():
@@ -586,7 +539,6 @@ def test_format_time_no_leading_zero():
     assert not result.startswith("0"), f"Leading zero in: {result}"
     result2 = _format_time(time(1, 0))
     assert not result2.startswith("0"), f"Leading zero in: {result2}"
-    print("  PASS: no leading zeros")
 
 
 # -----------------------------------------------------------------------
@@ -604,7 +556,6 @@ def test_deduplicate_removes_dupes():
     assert len(result) == 2
     assert result[0]["service_id"] == "aaa"
     assert result[1]["service_id"] == "bbb"
-    print("  PASS: duplicates removed")
 
 
 def test_deduplicate_keeps_first():
@@ -616,13 +567,11 @@ def test_deduplicate_keeps_first():
     result = deduplicate_results(rows)
     assert len(result) == 1
     assert result[0]["phone"] == "first"
-    print("  PASS: keeps first occurrence")
 
 
 def test_deduplicate_empty():
     """Empty list should return empty list."""
     assert deduplicate_results([]) == []
-    print("  PASS: empty list")
 
 
 def test_deduplicate_no_service_id():
@@ -634,7 +583,6 @@ def test_deduplicate_no_service_id():
     result = deduplicate_results(rows)
     assert len(result) == 1
     assert result[0]["service_id"] == "aaa"
-    print("  PASS: rows without service_id skipped")
 
 
 def test_deduplicate_all_unique():
@@ -646,7 +594,6 @@ def test_deduplicate_all_unique():
     ]
     result = deduplicate_results(rows)
     assert len(result) == 3
-    print("  PASS: all unique rows kept")
 
 
 # -----------------------------------------------------------------------
@@ -665,7 +612,6 @@ def test_generated_sql_is_parameterized():
         assert "'Brooklyn'" not in sql, f"Template '{key}' has raw value in SQL"
         assert "17" not in sql.split("ISODOW")[0], \
             f"Template '{key}' may have raw age in SQL (check carefully)"
-    print("  PASS: all SQL is parameterized")
 
 
 def test_both_city_and_city_like_dont_conflict():
@@ -674,7 +620,6 @@ def test_both_city_and_city_like_dont_conflict():
     # Should have exact city but NOT city_pattern (that's for relaxed only)
     assert "city" in params
     assert "city_pattern" not in params
-    print("  PASS: strict query has city but not city_pattern")
 
 
 def test_relaxed_has_city_pattern_not_city():
@@ -683,7 +628,6 @@ def test_relaxed_has_city_pattern_not_city():
     assert "city_pattern" in params
     assert "city" not in params
     assert params["city_pattern"] == "%Brooklyn%"
-    print("  PASS: relaxed query has city_pattern, not city")
 
 
 def test_unknown_template_raises():
@@ -693,7 +637,6 @@ def test_unknown_template_raises():
         assert False, "Should have raised ValueError"
     except ValueError as e:
         assert "nonexistent" in str(e)
-    print("  PASS: unknown template raises ValueError")
 
 
 # -----------------------------------------------------------------------
@@ -712,7 +655,6 @@ def test_all_templates_have_borough_filter():
         assert FILTER_BY_BOROUGH in optional, \
             f"Template '{key}' is missing FILTER_BY_BOROUGH in optional_filters. " \
             f"Add it so borough-level searches use pa.borough directly."
-    print("  PASS: all templates include FILTER_BY_BOROUGH")
 
 
 def test_borough_filter_uses_pa_borough_column():
@@ -725,7 +667,6 @@ def test_borough_filter_uses_pa_borough_column():
         "FILTER_BY_BOROUGH must not use pa.city — that column has casing issues"
     assert ":borough" in sql_fragment, \
         "FILTER_BY_BOROUGH must use :borough param placeholder"
-    print("  PASS: FILTER_BY_BOROUGH uses pa.borough column with :borough param")
 
 
 def test_borough_param_included_in_sql_when_provided():
@@ -734,7 +675,6 @@ def test_borough_param_included_in_sql_when_provided():
     assert "pa.borough" in sql, \
         "Borough filter not in SQL when borough param provided"
     assert params["borough"] == "Queens"
-    print("  PASS: borough param produces pa.borough filter in SQL")
 
 
 def test_borough_filter_absent_when_no_borough_param():
@@ -742,7 +682,6 @@ def test_borough_filter_absent_when_no_borough_param():
     sql, params = build_query("food", {"city": "Brooklyn", "max_results": 5})
     assert "pa.borough" not in sql, \
         "Borough filter appeared in SQL without a borough param — optional filters broken"
-    print("  PASS: borough filter absent when no borough param")
 
 
 def test_relaxed_query_drops_borough():
@@ -756,7 +695,6 @@ def test_relaxed_query_drops_borough():
         "Relaxed query must drop borough param — it should broaden, not stay borough-restricted"
     assert "pa.borough" not in sql, \
         "Borough filter must not appear in relaxed query SQL"
-    print("  PASS: relaxed query drops borough param")
 
 
 def test_borough_filter_before_city_filters_in_optional():
@@ -774,7 +712,6 @@ def test_borough_filter_before_city_filters_in_optional():
             assert borough_idx < city_idx, \
                 f"Template '{key}': FILTER_BY_BOROUGH (idx {borough_idx}) should come " \
                 f"before FILTER_BY_CITY (idx {city_idx})"
-    print("  PASS: FILTER_BY_BOROUGH precedes FILTER_BY_CITY in all templates")
 
 
 # -----------------------------------------------------------------------
@@ -790,7 +727,6 @@ def test_normalize_borough_names():
     assert normalize_location("bronx") == "Bronx"
     assert normalize_location("the bronx") == "Bronx"
     assert normalize_location("staten island") == "Staten Island"
-    print("  PASS: borough names normalize to canonical pa.borough values")
 
 
 def test_normalize_manhattan_not_new_york():
@@ -805,7 +741,6 @@ def test_normalize_manhattan_not_new_york():
         f"'manhattan' normalized to '{result}' but must be 'Manhattan' for pa.borough matching"
     assert result != "New York", \
         "'manhattan' must not normalize to 'New York' — that was the old city-field approach"
-    print("  PASS: manhattan normalizes to 'Manhattan' (not 'New York')")
 
 
 def test_get_borough_city_names_manhattan():
@@ -814,7 +749,6 @@ def test_get_borough_city_names_manhattan():
     cities = get_borough_city_names("Manhattan")
     assert "new york" in cities, \
         "Manhattan city expansion must include 'new york' for pa.city fallback queries"
-    print("  PASS: Manhattan expands to include 'new york' city values")
 
 
 def test_get_borough_city_names_queens():
@@ -824,7 +758,6 @@ def test_get_borough_city_names_queens():
     for expected in ["queens", "jamaica", "flushing", "astoria", "long island city"]:
         assert expected in cities, \
             f"Queens city expansion missing '{expected}'"
-    print("  PASS: Queens expands to all Queens neighborhood city values")
 
 
 def test_is_borough_all_five():
@@ -833,7 +766,6 @@ def test_is_borough_all_five():
     for b in ["manhattan", "brooklyn", "queens", "bronx", "the bronx", "staten island",
               "Manhattan", "QUEENS", "The Bronx"]:
         assert is_borough(b), f"is_borough('{b}') returned False"
-    print("  PASS: is_borough recognizes all five NYC boroughs")
 
 
 def test_is_borough_false_for_neighborhoods():
@@ -841,7 +773,6 @@ def test_is_borough_false_for_neighborhoods():
     from app.rag.query_executor import is_borough
     for n in ["harlem", "williamsburg", "astoria", "jamaica", "chelsea", ""]:
         assert not is_borough(n), f"is_borough('{n}') returned True — should be False"
-    print("  PASS: is_borough returns False for neighborhoods")
 
 
 # -----------------------------------------------------------------------
@@ -857,7 +788,6 @@ def test_requires_membership_true_when_true_only():
     card = format_service_card(_mock_row(requires_membership=True))
     assert card["requires_membership"] is True, \
         "requires_membership should be True when DB returns True"
-    print("  PASS: requires_membership=True when membership rule is true-only")
 
 
 def test_requires_membership_false_when_null():
@@ -865,7 +795,6 @@ def test_requires_membership_false_when_null():
     card = format_service_card(_mock_row(requires_membership=None))
     assert card["requires_membership"] is False, \
         "requires_membership should be False when DB returns NULL (no rule)"
-    print("  PASS: requires_membership=False when no membership eligibility rule")
 
 
 def test_requires_membership_false_when_false():
@@ -873,7 +802,6 @@ def test_requires_membership_false_when_false():
     card = format_service_card(_mock_row(requires_membership=False))
     assert card["requires_membership"] is False, \
         "requires_membership should be False when DB returns False (['true','false'])"
-    print("  PASS: requires_membership=False when membership accepts non-members")
 
 
 def test_requires_membership_always_present_in_card():
@@ -881,7 +809,6 @@ def test_requires_membership_always_present_in_card():
     card = format_service_card(_mock_row())
     assert "requires_membership" in card, \
         "requires_membership field missing from service card — frontend badge logic will break"
-    print("  PASS: requires_membership key always present in card")
 
 
 def test_base_query_selects_requires_membership():
@@ -892,7 +819,6 @@ def test_base_query_selects_requires_membership():
         "Base query missing membership_elig LATERAL join alias"
     assert "eligibility_parameters" in _BASE_QUERY.lower(), \
         "Base query missing eligibility_parameters join in membership LATERAL"
-    print("  PASS: base query selects requires_membership via membership LATERAL join")
 
 
 # -----------------------------------------------------------------------
@@ -931,7 +857,6 @@ def test_open_now_requires_both_weekday_and_current_time():
         "schedule params appeared with no schedule input"
     assert "weekday" in params_both and "current_time" in params_both, \
         "open-now filter did not bind both params when both provided"
-    print("  PASS: FILTER_BY_OPEN_NOW only fires with both weekday and current_time")
 
 
 def test_weekday_filter_fires_without_current_time():
@@ -945,7 +870,6 @@ def test_weekday_filter_fires_without_current_time():
         "weekday param missing from bound params — FILTER_BY_WEEKDAY did not fire"
     assert "current_time" not in params, \
         "current_time appeared without being passed — open-now filter should not have fired"
-    print("  PASS: FILTER_BY_WEEKDAY fires with weekday alone, open-now does not")
 
 
 def test_relaxed_query_drops_schedule_params():
@@ -964,7 +888,6 @@ def test_relaxed_query_drops_schedule_params():
         "Relaxed query kept weekday param — must drop all schedule filters"
     assert "current_time" not in params, \
         "Relaxed query kept current_time param — must drop all schedule filters"
-    print("  PASS: relaxed query drops weekday and current_time params")
 
 
 def test_schedule_filters_are_optional_not_required():
@@ -980,7 +903,6 @@ def test_schedule_filters_are_optional_not_required():
             f"Template '{key}' has FILTER_BY_OPEN_NOW in required_filters — must be optional only"
         assert FILTER_BY_WEEKDAY not in required, \
             f"Template '{key}' has FILTER_BY_WEEKDAY in required_filters — must be optional only"
-    print("  PASS: schedule filters are optional in all templates, never required")
 
 
 def test_no_schedule_data_card_is_none():
@@ -994,115 +916,6 @@ def test_no_schedule_data_card_is_none():
         f"is_open should be None when no schedule data, got '{card['is_open']}'"
     assert card["hours_today"] is None, \
         f"hours_today should be None when no schedule data, got '{card['hours_today']}'"
-    print("  PASS: no schedule data → is_open=None and hours_today=None (triggers 'Call for hours')")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nQuery Templates Tests\n" + "=" * 50)
-
-    print("\n--- Taxonomy Names: Structure ---")
-    test_all_templates_use_taxonomy_names_list()
-    test_all_taxonomy_names_are_lowercase()
-    test_all_taxonomy_names_exist_in_db()
-    test_no_taxonomy_name_duplicates_within_template()
-    test_no_taxonomy_name_in_wrong_template()
-    test_taxonomy_aliases_match_taxonomy_names()
-
-    print("\n--- Taxonomy Names: Per-Category Regression Guards ---")
-    test_food_includes_food_pantry()
-    test_food_includes_soup_kitchen()
-    test_shelter_includes_warming_center_and_safe_haven()
-    test_clothing_includes_clothing_pantry()
-    test_mental_health_includes_substance_use()
-    test_legal_includes_immigration()
-    test_personal_care_includes_hygiene_and_haircut()
-    test_other_includes_benefits_and_drop_in()
-    test_exact_taxonomy_names_match_expected()
-
-    print("\n--- Base Query Structure ---")
-    test_base_query_joins()
-    test_base_query_phone_is_lateral()
-    test_base_query_phone_priority_order()
-    test_base_query_schedule_lateral()
-    test_base_query_selects_slug()
-
-    print("\n--- Service Card Formatting ---")
-    test_format_card_all_fields()
-    test_format_card_yourpeer_url()
-    test_format_card_no_slug()
-    test_format_card_missing_optional_fields()
-    test_format_card_website_fallback()
-    test_format_card_website_prefers_service()
-    test_format_card_website_normalizes_missing_protocol()
-    test_format_card_no_address()
-    test_format_card_partial_address()
-    test_format_card_default_service_name()
-
-    print("\n--- Schedule Status ---")
-    test_schedule_none_values()
-    test_schedule_one_none()
-    test_schedule_string_times()
-    test_schedule_time_objects()
-    test_schedule_midnight_wrap()
-    test_schedule_invalid_string()
-    test_schedule_mixed_types()
-    test_schedule_with_card()
-    test_schedule_no_data_in_card()
-
-    print("\n--- Time Formatting ---")
-    test_format_time_morning()
-    test_format_time_afternoon()
-    test_format_time_noon()
-    test_format_time_midnight()
-    test_format_time_just_after_midnight()
-    test_format_time_no_leading_zero()
-
-    print("\n--- Deduplication ---")
-    test_deduplicate_removes_dupes()
-    test_deduplicate_keeps_first()
-    test_deduplicate_empty()
-    test_deduplicate_no_service_id()
-    test_deduplicate_all_unique()
-
-    print("\n--- Generated SQL ---")
-    test_generated_sql_is_parameterized()
-    test_both_city_and_city_like_dont_conflict()
-    test_relaxed_has_city_pattern_not_city()
-    test_unknown_template_raises()
-
-    print("\n--- Borough Filter: Templates ---")
-    test_all_templates_have_borough_filter()
-    test_borough_filter_uses_pa_borough_column()
-    test_borough_param_included_in_sql_when_provided()
-    test_borough_filter_absent_when_no_borough_param()
-    test_relaxed_query_drops_borough()
-    test_borough_filter_before_city_filters_in_optional()
-
-    print("\n--- Borough Normalization: Executor ---")
-    test_normalize_borough_names()
-    test_normalize_manhattan_not_new_york()
-    test_get_borough_city_names_manhattan()
-    test_get_borough_city_names_queens()
-    test_is_borough_all_five()
-    test_is_borough_false_for_neighborhoods()
-
-    print("\n--- Schedule Filters: Safety ---")
-    test_open_now_requires_both_weekday_and_current_time()
-    test_weekday_filter_fires_without_current_time()
-    test_relaxed_query_drops_schedule_params()
-    test_schedule_filters_are_optional_not_required()
-    test_no_schedule_data_card_is_none()
-
-    print("\n--- Membership / Referral Badge ---")
-    test_requires_membership_true_when_true_only()
-    test_requires_membership_false_when_null()
-    test_requires_membership_false_when_false()
-    test_requires_membership_always_present_in_card()
-    test_base_query_selects_requires_membership()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

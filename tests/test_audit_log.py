@@ -7,14 +7,12 @@ Run with: python -m pytest tests/test_audit_log.py -v
 Or just:  python tests/test_audit_log.py
 """
 
-import sys
 import os
 import json
 import time
 import tempfile
 import threading
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.services.audit_log import (
     log_conversation_turn,
@@ -85,7 +83,6 @@ def test_log_conversation_turn_basic():
     assert e["services_count"] == 3
     assert e["follow_up_needed"] is False
     assert "timestamp" in e
-    print("  PASS: log_conversation_turn basic fields")
 
 
 def test_log_turn_strips_internal_slots():
@@ -112,7 +109,6 @@ def test_log_turn_strips_internal_slots():
     assert "_pending_confirmation" not in slots, "Internal keys should be stripped"
     assert "transcript" not in slots, "Transcript should be stripped"
     assert "age" not in slots, "None-valued slots should be stripped"
-    print("  PASS: internal slots stripped")
 
 
 def test_log_turn_quick_replies_extracts_labels():
@@ -133,7 +129,6 @@ def test_log_turn_quick_replies_extracts_labels():
     events = get_recent_events()
     qr = events[0]["quick_replies"]
     assert qr == ["🍽️ Food", "🏠 Shelter"]
-    print("  PASS: quick reply labels extracted")
 
 
 def test_log_turn_none_slots():
@@ -149,7 +144,6 @@ def test_log_turn_none_slots():
 
     events = get_recent_events()
     assert events[0]["slots"] == {}
-    print("  PASS: None slots handled")
 
 
 def test_log_turn_registers_conversation():
@@ -166,7 +160,6 @@ def test_log_turn_registers_conversation():
     conv = get_conversation("s1")
     assert len(conv) == 1
     assert conv[0]["session_id"] == "s1"
-    print("  PASS: conversation registered")
 
 
 # -----------------------------------------------------------------------
@@ -201,7 +194,6 @@ def test_log_query_execution():
     queries = get_query_log()
     assert len(queries) == 1
     assert queries[0]["template_name"] == "FoodQuery"
-    print("  PASS: log_query_execution")
 
 
 # -----------------------------------------------------------------------
@@ -225,7 +217,6 @@ def test_log_crisis_detected():
     # Should be associated with the session
     conv = get_conversation("s1")
     assert len(conv) == 1
-    print("  PASS: log_crisis_detected")
 
 
 # -----------------------------------------------------------------------
@@ -241,7 +232,6 @@ def test_log_session_reset():
     assert len(events) == 1
     assert events[0]["type"] == "session_reset"
     assert events[0]["session_id"] == "s1"
-    print("  PASS: log_session_reset")
 
 
 # -----------------------------------------------------------------------
@@ -256,7 +246,6 @@ def test_get_recent_events_limit():
 
     assert len(get_recent_events(limit=5)) == 5
     assert len(get_recent_events(limit=100)) == 20
-    print("  PASS: get_recent_events respects limit")
 
 
 def test_get_recent_events_filter_by_type():
@@ -272,7 +261,6 @@ def test_get_recent_events_filter_by_type():
 
     crises = get_recent_events(event_type="crisis_detected")
     assert len(crises) == 1
-    print("  PASS: get_recent_events filters by type")
 
 
 def test_get_recent_events_returns_latest():
@@ -288,7 +276,6 @@ def test_get_recent_events_returns_latest():
     assert "s-7" in session_ids
     assert "s-8" in session_ids
     assert "s-9" in session_ids
-    print("  PASS: get_recent_events returns latest")
 
 
 # -----------------------------------------------------------------------
@@ -313,14 +300,12 @@ def test_get_conversation_multiple_event_types():
     assert "query_execution" in types
     assert "crisis_detected" in types
     assert "session_reset" in types
-    print("  PASS: get_conversation returns all event types")
 
 
 def test_get_conversation_nonexistent():
     """Should return empty list for unknown session."""
     clear_audit_log()
     assert get_conversation("nonexistent") == []
-    print("  PASS: get_conversation returns [] for unknown session")
 
 
 # -----------------------------------------------------------------------
@@ -342,7 +327,6 @@ def test_get_conversations_summary_basic():
     assert a["services_delivered"] == 2  # last turn had services_count=2
     assert "service" in a["categories"]
     assert a["final_slots"]["service_type"] == "food"
-    print("  PASS: conversations_summary basic aggregation")
 
 
 def test_get_conversations_summary_crisis_flag():
@@ -354,7 +338,6 @@ def test_get_conversations_summary_crisis_flag():
     summaries = get_conversations_summary()
     assert len(summaries) == 1
     assert summaries[0]["crisis_detected"] is True
-    print("  PASS: conversations_summary crisis flag")
 
 
 def test_get_conversations_summary_limit():
@@ -364,7 +347,6 @@ def test_get_conversations_summary_limit():
         log_conversation_turn(f"s-{i}", "test", "test", {}, "service")
 
     assert len(get_conversations_summary(limit=3)) == 3
-    print("  PASS: conversations_summary limit")
 
 
 def test_get_conversations_summary_sorted_by_recency():
@@ -377,7 +359,6 @@ def test_get_conversations_summary_sorted_by_recency():
     summaries = get_conversations_summary()
     assert summaries[0]["session_id"] == "s-new"
     assert summaries[1]["session_id"] == "s-old"
-    print("  PASS: conversations_summary sorted by recency")
 
 
 def test_get_conversations_summary_categories_are_lists():
@@ -391,7 +372,6 @@ def test_get_conversations_summary_categories_are_lists():
     assert isinstance(cats, list), f"Expected list, got {type(cats)}"
     assert "greeting" in cats
     assert "service" in cats
-    print("  PASS: categories are serializable lists")
 
 
 # -----------------------------------------------------------------------
@@ -411,7 +391,6 @@ def test_get_query_log_only_queries():
     assert all(q["type"] == "query_execution" for q in queries)
     assert queries[0]["template_name"] == "FoodQuery"
     assert queries[1]["template_name"] == "ShelterQuery"
-    print("  PASS: query_log only contains queries")
 
 
 def test_get_query_log_limit():
@@ -421,7 +400,6 @@ def test_get_query_log_limit():
         log_query_execution("s1", f"Query{i}", {}, i, False, 10)
 
     assert len(get_query_log(limit=3)) == 3
-    print("  PASS: query_log respects limit")
 
 
 # -----------------------------------------------------------------------
@@ -445,7 +423,6 @@ def test_get_stats_counts():
     assert stats["total_crises"] == 1
     assert stats["total_resets"] == 1
     assert stats["unique_sessions"] == 3
-    print("  PASS: get_stats counts")
 
 
 def test_get_stats_category_distribution():
@@ -458,7 +435,6 @@ def test_get_stats_category_distribution():
     stats = get_stats()
     assert stats["category_distribution"]["service"] == 2
     assert stats["category_distribution"]["greeting"] == 1
-    print("  PASS: get_stats category distribution")
 
 
 def test_get_stats_service_type_distribution():
@@ -471,7 +447,6 @@ def test_get_stats_service_type_distribution():
     stats = get_stats()
     assert stats["service_type_distribution"]["food"] == 2
     assert stats["service_type_distribution"]["shelter"] == 1
-    print("  PASS: get_stats service type distribution")
 
 
 def test_get_stats_relaxed_query_rate():
@@ -485,7 +460,6 @@ def test_get_stats_relaxed_query_rate():
     stats = get_stats()
     # 2 relaxed out of 4 total = 0.5
     assert stats["relaxed_query_rate"] == 0.5
-    print("  PASS: get_stats relaxed query rate")
 
 
 def test_get_stats_empty():
@@ -496,7 +470,6 @@ def test_get_stats_empty():
     assert stats["total_turns"] == 0
     assert stats["unique_sessions"] == 0
     assert stats["relaxed_query_rate"] == 0
-    print("  PASS: get_stats empty")
 
 
 # -----------------------------------------------------------------------
@@ -511,7 +484,6 @@ def test_eval_results_set_and_get():
 
     result = get_eval_results()
     assert result == data
-    print("  PASS: eval results set and get")
 
 
 def test_eval_results_deep_copy():
@@ -525,14 +497,12 @@ def test_eval_results_deep_copy():
 
     original = get_eval_results()
     assert len(original["scores"]) == 3, "Mutation should not leak"
-    print("  PASS: eval results deep copy")
 
 
 def test_eval_results_none_when_not_set():
     """Should return None when no eval results are stored."""
     clear_audit_log()
     assert get_eval_results() is None
-    print("  PASS: eval results None when not set")
 
 
 def test_load_eval_results_from_file():
@@ -550,7 +520,6 @@ def test_load_eval_results_from_file():
         assert get_eval_results() == data
     finally:
         os.unlink(tmp_path)
-    print("  PASS: load eval results from file")
 
 
 def test_load_eval_results_missing_file():
@@ -558,7 +527,6 @@ def test_load_eval_results_missing_file():
     clear_audit_log()
     result = load_eval_results_from_file("/nonexistent/path.json")
     assert result is False
-    print("  PASS: load eval results missing file")
 
 
 # -----------------------------------------------------------------------
@@ -580,7 +548,6 @@ def test_clear_audit_log():
     assert get_eval_results() is None
     stats = get_stats()
     assert stats["total_events"] == 0
-    print("  PASS: clear_audit_log wipes everything")
 
 
 # -----------------------------------------------------------------------
@@ -614,7 +581,6 @@ def test_ring_buffer_evicts_oldest():
     assert "s-0" not in session_ids, "s-0 should have been evicted"
     assert "s-9" not in session_ids, "s-9 should have been evicted"
     assert f"s-{MAX_EVENTS + 9}" in session_ids, "Latest should be present"
-    print("  PASS: ring buffer evicts oldest events")
 
 
 def test_conversation_limit_eviction():
@@ -683,72 +649,3 @@ def test_concurrent_logging():
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nAudit Log Tests\n" + "=" * 50)
-
-    print("\n--- Log Conversation Turn ---")
-    test_log_conversation_turn_basic()
-    test_log_turn_strips_internal_slots()
-    test_log_turn_quick_replies_extracts_labels()
-    test_log_turn_none_slots()
-    test_log_turn_registers_conversation()
-
-    print("\n--- Log Query Execution ---")
-    test_log_query_execution()
-
-    print("\n--- Log Crisis Detected ---")
-    test_log_crisis_detected()
-
-    print("\n--- Log Session Reset ---")
-    test_log_session_reset()
-
-    print("\n--- Get Recent Events ---")
-    test_get_recent_events_limit()
-    test_get_recent_events_filter_by_type()
-    test_get_recent_events_returns_latest()
-
-    print("\n--- Get Conversation ---")
-    test_get_conversation_multiple_event_types()
-    test_get_conversation_nonexistent()
-
-    print("\n--- Get Conversations Summary ---")
-    test_get_conversations_summary_basic()
-    test_get_conversations_summary_crisis_flag()
-    test_get_conversations_summary_limit()
-    test_get_conversations_summary_sorted_by_recency()
-    test_get_conversations_summary_categories_are_lists()
-
-    print("\n--- Get Query Log ---")
-    test_get_query_log_only_queries()
-    test_get_query_log_limit()
-
-    print("\n--- Get Stats ---")
-    test_get_stats_counts()
-    test_get_stats_category_distribution()
-    test_get_stats_service_type_distribution()
-    test_get_stats_relaxed_query_rate()
-    test_get_stats_empty()
-
-    print("\n--- Eval Results ---")
-    test_eval_results_set_and_get()
-    test_eval_results_deep_copy()
-    test_eval_results_none_when_not_set()
-    test_load_eval_results_from_file()
-    test_load_eval_results_missing_file()
-
-    print("\n--- Clear ---")
-    test_clear_audit_log()
-
-    print("\n--- Ring Buffer ---")
-    test_ring_buffer_caps_events()
-    test_ring_buffer_evicts_oldest()
-    test_conversation_limit_eviction()
-
-    print("\n--- Thread Safety ---")
-    test_concurrent_logging()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

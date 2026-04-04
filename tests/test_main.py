@@ -12,10 +12,7 @@ Run with: python -m pytest tests/test_main.py -v
 Or just:  python tests/test_main.py
 """
 
-import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from fastapi.testclient import TestClient
 from app.main import app
@@ -32,7 +29,6 @@ def test_health():
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
-    print("  PASS: GET /api/health")
 
 
 # -----------------------------------------------------------------------
@@ -46,7 +42,6 @@ def test_root_returns_json():
     data = r.json()
     assert "message" in data
     assert "running" in data["message"].lower()
-    print("  PASS: GET / returns JSON message")
 
 
 # -----------------------------------------------------------------------
@@ -58,7 +53,6 @@ def test_api_health_routed():
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
-    print("  PASS: /api/health routed correctly")
 
 
 def test_chat_route_exists():
@@ -66,14 +60,12 @@ def test_chat_route_exists():
     # Will fail validation without a body, but should not be a 404
     r = client.post("/chat/", json={})
     assert r.status_code != 404
-    print("  PASS: POST /chat/ is routed (not 404)")
 
 
 def test_admin_api_stats_routed():
     """GET /admin/api/stats should be handled by the admin router."""
     r = client.get("/admin/api/stats")
     assert r.status_code == 200
-    print("  PASS: GET /admin/api/stats is routed")
 
 
 # -----------------------------------------------------------------------
@@ -86,7 +78,6 @@ def test_cors_headers_present():
     assert r.status_code == 200
     origin = r.headers.get("access-control-allow-origin")
     assert origin in ("*", "https://example.com"), f"Expected CORS origin, got: {origin}"
-    print("  PASS: CORS headers present")
 
 
 def test_cors_preflight():
@@ -103,30 +94,6 @@ def test_cors_preflight():
     origin = r.headers.get("access-control-allow-origin")
     assert origin in ("*", "https://example.com"), f"Expected CORS origin, got: {origin}"
     assert "POST" in r.headers.get("access-control-allow-methods", "")
-    print("  PASS: CORS preflight")
 
 
 # -----------------------------------------------------------------------
-# RUNNER
-# -----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    print("\nMain App Tests\n" + "=" * 50)
-
-    print("\n--- Health ---")
-    test_health()
-
-    print("\n--- Root ---")
-    test_root_returns_json()
-
-    print("\n--- API Routing ---")
-    test_api_health_routed()
-    test_chat_route_exists()
-    test_admin_api_stats_routed()
-
-    print("\n--- CORS ---")
-    test_cors_headers_present()
-    test_cors_preflight()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

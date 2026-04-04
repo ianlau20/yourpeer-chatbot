@@ -31,8 +31,7 @@ pip install -r backend/requirements.txt
 
 # Configure backend environment
 cp .env.example .env
-# Edit .env with your GEMINI_API_KEY, GEMINI_MODEL, and DATABASE_URL
-# Optional: add ANTHROPIC_API_KEY for LLM-enhanced slot extraction and crisis detection
+# Edit .env with your ANTHROPIC_API_KEY and DATABASE_URL
 
 # Run backend (Terminal 1)
 cd backend
@@ -56,10 +55,10 @@ See [SETUP.md](SETUP.md) for detailed instructions including prerequisites, IDE 
 User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Confirmation → Query Templates → Streetlives DB
           ↑                      ↓                     ↓               ↓                                   ↓
    Quick-reply            Crisis Detection        PII Redaction    User confirms                      Service Cards
-   buttons                (regex + LLM)               ↓          or changes slots                         ↓
+   buttons                (regex + Sonnet)            ↓          or changes slots                         ↓
                           Greeting / Reset        Session Store                                       YourPeer links
                           Thanks / Help                ↓
-                          Escalation             Gemini LLM (fallback
+                          Escalation             Claude Haiku (fallback
                           Frustration            for general conversation
                           Bot identity           and DB failures only)
                           Confused/overwhelmed
@@ -69,11 +68,12 @@ User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Conf
 Staff → Admin Console (/admin) → Audit Log API → Anonymized transcripts, query logs, crisis events, stats
                                        ↓
                                   Eval Results → LLM-as-judge scores (from eval_llm_judge.py)
+                                  Model Analysis → Per-task cost/capability analysis
 ```
 
 The system follows a **Safer, Limited RAG** pattern with four phases:
 
-1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Quick-reply buttons let users tap instead of type. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude Sonnet for complex or ambiguous inputs. Crisis detection runs on every message before anything else, using regex pre-check followed by Claude Haiku LLM classification when regex misses. The message classifier routes greetings, resets, escalation, frustration, bot-identity questions, confusion, and help before slot extraction runs. PII is redacted from stored transcripts.
+1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Quick-reply buttons let users tap instead of type. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude Haiku for complex or ambiguous inputs. Crisis detection runs on every message before anything else, using regex pre-check followed by Claude Sonnet LLM classification when regex misses (Sonnet is used here for its stronger nuance on indirect crisis language). The message classifier routes greetings, resets, escalation, frustration, bot-identity questions, confusion, and help before slot extraction runs. PII is redacted from stored transcripts.
 2. **Confirmation** — When service type and location are filled, the bot summarizes the search ("I'll search for food in Brooklyn") and presents quick-reply options: confirm, change location, change service, or start over. The database is only queried after explicit user confirmation.
 3. **Query** — Pre-defined, parameterized SQL templates run against the Streetlives PostgreSQL database. Borough-level queries use the `pa.borough` column directly — more reliable than expanding city name lists. Neighborhood queries use PostGIS proximity search (`ST_DWithin`) with coordinates for 59 NYC neighborhoods. If the strict query returns no results, filters are automatically relaxed while keeping location boundaries. Data-informed nearby borough suggestions are offered when results are thin.
 4. **Rendering** — Results are returned as structured service cards, never as LLM-generated text. Cards include address, hours, phone, fees, a "Referral may be required" badge for membership-gated services, and direct links to YourPeer.
@@ -87,62 +87,44 @@ See [FEATURES.md](FEATURES.md) for the full feature reference, organized by area
 | Layer | Technology |
 |---|---|
 | Backend | Python, FastAPI, SQLAlchemy |
-| Slot Extraction | Regex (default) + Claude Sonnet via Anthropic API (optional, for complex inputs) |
-| Crisis Detection | Regex pre-check + Claude Haiku (LLM stage, when ANTHROPIC_API_KEY is set) |
-| Conversational Fallback | Google Gemini (dialog only, not for service data) |
+| Slot Extraction | Regex (default) + Claude Haiku via Anthropic API (for complex inputs) |
+| Crisis Detection | Regex pre-check + Claude Sonnet (LLM stage for nuanced/indirect language) |
+| Conversational Fallback | Claude Haiku (dialog only, not for service data) |
 | Database | Streetlives PostgreSQL on AWS RDS (read-only), PostGIS for neighborhood proximity |
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS, Zustand, Radix UI, Lucide icons |
 | Deployment | Render (two services: FastAPI API + Next.js frontend) |
 
 ## Models
 
-Four models are used across the system. Each has a specific, bounded role — none of them generate service data.
+Two Claude models are used across the system, each assigned to specific tasks based on a cost/capability analysis (see the Model Analysis tab in the admin panel). None of them generate service data. Model selection is centralized in `backend/app/llm/claude_client.py`.
 
 ### Claude Haiku (`claude-haiku-4-5-20251001`)
 
-**Used for:** Crisis detection — Stage 2 LLM classification.
+**Used for:** Conversational fallback and slot extraction.
 
-**When it runs:** Only when the regex pre-check returns no match. Clear crisis language ("I want to kill myself") is caught by regex in <1ms and never reaches the LLM. The LLM handles indirect and paraphrased expressions that can't be enumerated — "I've been on the streets for months and nothing helps anymore", "no one would notice if I disappeared."
+**Conversational fallback** — General responses to messages that don't match any routing category and don't contain service slots. Only runs when all other routing paths have been exhausted. The vast majority of messages never reach the LLM. It handles genuinely open-ended conversational turns: a user telling a story before stating their need, an ambiguous follow-up after results are delivered, or a message the classifier couldn't route. Also used as a database fallback — if a database query throws an exception, the bot calls Haiku with a prompt asking it to acknowledge the issue and keep the user engaged. Haiku never generates service data. Its system prompt explicitly prohibits fabricating service names, addresses, or phone numbers.
 
-**Why Haiku:** Latency. Crisis detection is on the critical path for every message that bypasses regex. Haiku is the fastest available Claude model. `max_tokens` is capped at 60 — the JSON response (`{"crisis": true, "category": "..."}`) is about 15 tokens.
+**Slot extraction** — Extracting structured fields (service type, location, age, urgency, gender) from natural language. Only runs for messages classified as "complex" by a lightweight complexity check. Simple, clear requests ("I need food in Brooklyn") are handled by regex alone. Haiku runs for long messages, implicit needs, slang, or conflicting signals. Uses the `extract_intake_slots` tool with a strict JSON schema — the model is constrained to return only the defined fields and enum values.
 
-**Fail-open:** If the Haiku call fails for any reason, the system returns a general safety response rather than falling through to normal conversation. See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for full details.
+**Why Haiku:** Speed. Haiku is 4-5x faster than Sonnet, which directly improves chat UX for real-time conversation. Both tasks have simple output constraints (1-3 sentences for conversation, 5-field JSON for slots) where Sonnet's deeper reasoning adds no measurable value.
 
-**Requires:** `ANTHROPIC_API_KEY` in `.env`. If absent, the LLM stage is disabled and only regex detection runs.
-
----
-
-### Claude Sonnet (`claude-sonnet-4-20250514`)
-
-**Used for:** Slot extraction — extracting structured fields (service type, location, age, urgency, gender) from natural language messages.
-
-**When it runs:** Only for messages classified as "complex" by a lightweight complexity check. Simple, clear requests ("I need food in Brooklyn") are handled by regex alone. Sonnet runs for long messages, implicit needs, slang, multi-part sentences, or conflicting signals — "I just got out of the hospital and need somewhere to stay", "my son is 12 and needs a coat, we're in Flatbush."
-
-**Why Sonnet:** Accuracy. Slot extraction errors cascade — a wrong service type means wrong results. The complexity check routes only the cases where regex is likely to fail, so Sonnet is invoked selectively rather than on every message.
-
-**Tool calling:** Uses the `extract_intake_slots` function with a strict JSON schema. The model is constrained to return only the defined fields and enum values — it cannot fabricate service types or locations not in the schema.
-
-**Requires:** `ANTHROPIC_API_KEY` in `.env`. If absent, all slot extraction uses regex only.
+**Requires:** `ANTHROPIC_API_KEY` in `.env`.
 
 ---
 
-### Gemini (`GEMINI_MODEL` env var, e.g. `gemini-2.5-flash`)
+### Claude Sonnet (`claude-sonnet-4-6`)
 
-**Used for:** Conversational fallback — general responses to messages that don't match any routing category and don't contain service slots.
+**Used for:** Crisis detection (Stage 2 LLM classification) and LLM-as-judge evaluation.
 
-**When it runs:** Only when all other routing paths have been exhausted. The vast majority of messages never reach Gemini. It handles genuinely open-ended conversational turns: a user telling a story before stating their need, an ambiguous follow-up after results are delivered, or a message the classifier couldn't route.
+**Crisis detection** — Only invoked when the regex pre-check returns no match. Clear crisis language ("I want to kill myself") is caught by regex in <1ms and never reaches the LLM. Sonnet handles indirect and paraphrased expressions — "I've been on the streets for months and nothing helps anymore", "no one would notice if I disappeared." `max_tokens` is capped at 60 — the JSON response (`{"crisis": true, "category": "..."}`) is about 15 tokens.
 
-**What it cannot do:** Gemini never generates service data. It receives a system prompt that explicitly prohibits fabricating service names, addresses, or phone numbers, and instructs it to steer the user toward stating their need and location so the database can be queried. All real service information comes from deterministic SQL templates.
+**Why Sonnet for crisis:** This is a safety-critical classification where false negatives have real consequences for vulnerable people. Sonnet's adaptive thinking adjusts reasoning depth to ambiguity, which is exactly what's needed for indirect crisis language. The volume is very low (~5% of turns reach the LLM stage) so the 3x cost premium over Haiku adds negligible total cost.
 
-**Also used as:** Database fallback. If a database query throws an exception, the bot calls Gemini with a prompt asking it to acknowledge the issue and keep the user engaged — rather than showing a raw error.
+**Fail-open:** If the Sonnet call fails for any reason, the system returns a general safety response rather than falling through to normal conversation. See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for full details.
 
-**Requires:** `GEMINI_API_KEY` and `GEMINI_MODEL` in `.env`. Both are required — the service will not start without them.
+**LLM-as-judge** — `eval_llm_judge.py` uses Sonnet to score conversations across 8 dimensions. This runs only during evaluation, not in production.
 
----
-
-### LLM-as-Judge (eval only, `claude-sonnet-4-20250514`)
-
-**Used for:** Automated evaluation — `eval_llm_judge.py` uses Claude Sonnet to score conversations across 8 dimensions (slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, error recovery).
+**Requires:** `ANTHROPIC_API_KEY` in `.env`. If absent, the LLM crisis detection stage is disabled and only regex detection runs.
 
 **When it runs:** Only when the eval suite is triggered manually — either via `python tests/eval_llm_judge.py` on the command line or via the "Run Evals" button in the admin console. Never runs during normal user interactions.
 
@@ -176,7 +158,7 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | [EVAL_RESULTS.md](EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
 | [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
-| [TESTING.md](TESTING.md) | Test suite guide — 379 unit tests across 14 suites + 85-scenario LLM-as-judge evaluation framework |
+| [TESTING.md](TESTING.md) | Test suite guide — 444 unit tests across 14 suites + 85-scenario LLM-as-judge evaluation framework |
 | [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories

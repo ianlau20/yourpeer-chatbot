@@ -3,7 +3,7 @@ import re
 import os
 import logging
 
-from app.llm.gemini_client import gemini_reply
+from app.llm.claude_client import claude_reply
 from app.services.session_store import (
     get_session_slots,
     save_session_slots,
@@ -27,15 +27,16 @@ from app.services.audit_log import (
 
 logger = logging.getLogger(__name__)
 
-# Use LLM-based slot extraction when ANTHROPIC_API_KEY is available.
+# Use LLM-based features when ANTHROPIC_API_KEY is available.
 # Falls back to regex-only if the key is not set.
-_USE_LLM_EXTRACTION = bool(os.getenv("ANTHROPIC_API_KEY"))
+_USE_LLM = bool(os.getenv("ANTHROPIC_API_KEY"))
 
-if _USE_LLM_EXTRACTION:
+if _USE_LLM:
     from app.services.llm_slot_extractor import extract_slots_smart
-    logger.info("LLM slot extraction enabled (ANTHROPIC_API_KEY found)")
+    from app.llm.claude_client import classify_message_llm
+    logger.info("LLM features enabled (ANTHROPIC_API_KEY found)")
 else:
-    logger.info("LLM slot extraction disabled — using regex only")
+    logger.info("LLM features disabled — using regex only")
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +204,23 @@ _CONFIRM_DENY_PHRASES = [
 
 def _classify_message(text: str) -> str:
     """
-    Classify a message into a routing category.
+    Classify a message into a routing category using a two-stage approach:
+
+    Stage 1 — Regex (< 1ms, always runs):
+        Handles deterministic cases: crisis, reset, greetings, thanks,
+        confirmation responses, and clear service keywords. These are
+        button taps, short phrases, or unambiguous keyword matches where
+        the LLM would add latency without improving accuracy.
+
+    Stage 2 — LLM (only when regex falls through to "general"):
+        Messages that regex can't classify are often the most important:
+        indirect service needs ("I just got out of the hospital"),
+        ambiguous frustration vs. service ("this isn't working, I need
+        something else"), or mixed intent. The LLM sees the full message
+        and returns a category.
+
+    Fail-safe: If the LLM is unavailable or returns an unexpected value,
+    falls back to the regex result (which is "general" at that point).
 
     Returns one of:
         "crisis"           — suicide, violence, DV, trafficking, medical emergency
@@ -226,6 +243,8 @@ def _classify_message(text: str) -> str:
 
     # Strip punctuation for matching
     cleaned = re.sub(r"[^\w\s']", "", lower).strip()
+
+    # --- STAGE 1: Regex classification ---
 
     # CRISIS — highest priority. Someone typing "I want to kill myself,
     # start over" MUST get crisis resources, not a session reset.
@@ -304,9 +323,6 @@ def _classify_message(text: str) -> str:
             return "frustration"
 
     # Check confusion/overwhelm — BEFORE help and BEFORE slot extraction.
-    # "I don't know what to do" must NOT reach the LLM, which would
-    # interpret it as a mental health request and trigger a false
-    # confirmation for a service the user never asked for.
     for phrase in _CONFUSED_PHRASES:
         if phrase in cleaned:
             return "confused"
@@ -323,6 +339,20 @@ def _classify_message(text: str) -> str:
     )
     if has_new_slot:
         return "service"
+
+    # --- STAGE 2: LLM classification (only for messages regex couldn't route) ---
+    # At this point regex returned "general". For short messages (≤3 words)
+    # that aren't greetings, this is likely correct — don't burn an LLM call.
+    # For longer messages, the LLM may detect implicit service needs,
+    # frustration, or confusion that regex keywords missed.
+    if _USE_LLM and len(cleaned.split()) > 3:
+        llm_category = classify_message_llm(text)
+        if llm_category is not None:
+            logger.info(
+                f"LLM classifier override: regex='general' → llm='{llm_category}' "
+                f"for message: '{text[:60]}...'"
+            )
+            return llm_category
 
     # Nothing matched — general conversation
     return "general"
@@ -609,12 +639,12 @@ def _build_conversational_prompt(user_message: str, slots: dict) -> str:
 
 
 def _fallback_response(message: str, slots: dict) -> str:
-    """Try Gemini for conversational response, with a safe static fallback."""
+    """Try Claude for conversational response, with a safe static fallback."""
     try:
         prompt = _build_conversational_prompt(message, slots)
-        return gemini_reply(prompt)
+        return claude_reply(prompt)
     except Exception as e:
-        logger.error(f"Gemini fallback also failed: {e}")
+        logger.error(f"Claude fallback also failed: {e}")
         return (
             "I'm having trouble right now. "
             "You can try again in a moment, or visit yourpeer.nyc "
@@ -870,7 +900,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
         existing.pop("_pending_confirmation", None)
 
         # Check if the message has new slot data
-        if _USE_LLM_EXTRACTION:
+        if _USE_LLM:
             pending_extracted = extract_slots_smart(
                 message,
                 conversation_history=existing.get("transcript", []),
@@ -909,7 +939,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
     # --- Service request or general conversation ---
     # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
     # Store the REDACTED version in the session transcript.
-    if _USE_LLM_EXTRACTION:
+    if _USE_LLM:
         extracted = extract_slots_smart(
             message,
             conversation_history=existing.get("transcript", []),
@@ -974,7 +1004,7 @@ def generate_reply(message: str, session_id: str | None = None) -> dict:
 
     # --- General conversation ---
     # The message didn't match any service keywords and isn't a greeting/reset.
-    # Use Gemini for a natural conversational response that gently steers
+    # Use Claude Haiku for a natural conversational response that gently steers
     # the user back toward telling us what they need.
     response = _fallback_response(message, merged)
     result = _empty_reply(

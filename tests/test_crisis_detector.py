@@ -6,10 +6,7 @@ Run with: python -m pytest tests/test_crisis_detector.py -v
 Or just:  python tests/test_crisis_detector.py
 """
 
-import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.services.crisis_detector import detect_crisis, is_crisis
 
@@ -34,7 +31,6 @@ def test_suicide_direct_statements():
         assert result is not None, f"Missed crisis: '{phrase}'"
         assert result[0] == "suicide_self_harm", \
             f"Wrong category for '{phrase}': {result[0]}"
-    print("  PASS: suicide direct statements")
 
 
 def test_self_harm():
@@ -49,7 +45,6 @@ def test_self_harm():
         result = detect_crisis(phrase)
         assert result is not None, f"Missed crisis: '{phrase}'"
         assert result[0] == "suicide_self_harm"
-    print("  PASS: self-harm detection")
 
 
 def test_suicide_response_has_988():
@@ -58,14 +53,12 @@ def test_suicide_response_has_988():
     assert result is not None
     assert "988" in result[1]
     assert "741741" in result[1]  # Crisis Text Line
-    print("  PASS: suicide response includes 988 + Crisis Text Line")
 
 
 def test_suicide_response_has_trevor():
     """Suicide response must include Trevor Project for LGBTQ+ youth."""
     result = detect_crisis("I want to die")
     assert "Trevor" in result[1]
-    print("  PASS: suicide response includes Trevor Project")
 
 
 # -----------------------------------------------------------------------
@@ -84,14 +77,12 @@ def test_violence_threats():
         assert result is not None, f"Missed crisis: '{phrase}'"
         assert result[0] == "violence", \
             f"Wrong category for '{phrase}': {result[0]}"
-    print("  PASS: violence threats")
 
 
 def test_violence_response_has_911():
     """Violence response must include 911."""
     result = detect_crisis("I'm going to hurt someone")
     assert "911" in result[1]
-    print("  PASS: violence response includes 911")
 
 
 # -----------------------------------------------------------------------
@@ -115,7 +106,6 @@ def test_domestic_violence():
         assert result is not None, f"Missed crisis: '{phrase}'"
         assert result[0] == "domestic_violence", \
             f"Wrong category for '{phrase}': {result[0]}"
-    print("  PASS: domestic violence detection")
 
 
 def test_dv_threat_language():
@@ -140,18 +130,15 @@ def test_dv_threat_language():
             f"Missed DV threat language: '{phrase}'"
         assert result[0] == "domestic_violence", \
             f"Wrong category for '{phrase}': {result[0]} (expected domestic_violence)"
-    print("  PASS: DV threat language detected (P10 fix)")
     """DV response must include the National DV Hotline."""
     result = detect_crisis("my partner hits me")
     assert "1-800-799-7233" in result[1]
-    print("  PASS: DV response includes National DV Hotline")
 
 
 def test_dv_response_has_nyc_hotline():
     """DV response should include the NYC-specific hotline."""
     result = detect_crisis("domestic violence")
     assert "1-800-621-4673" in result[1]
-    print("  PASS: DV response includes NYC DV Hotline")
 
 
 # -----------------------------------------------------------------------
@@ -173,7 +160,6 @@ def test_trafficking():
         assert result is not None, f"Missed crisis: '{phrase}'"
         assert result[0] == "trafficking", \
             f"Wrong category for '{phrase}': {result[0]}"
-    print("  PASS: trafficking detection")
 
 
 def test_trafficking_response_has_hotline():
@@ -181,7 +167,6 @@ def test_trafficking_response_has_hotline():
     result = detect_crisis("I'm being trafficked")
     assert "1-888-373-7888" in result[1]
     assert "233733" in result[1]  # BeFree text number
-    print("  PASS: trafficking response includes hotline")
 
 
 # -----------------------------------------------------------------------
@@ -203,21 +188,18 @@ def test_medical_emergency():
         assert result is not None, f"Missed crisis: '{phrase}'"
         assert result[0] == "medical_emergency", \
             f"Wrong category for '{phrase}': {result[0]}"
-    print("  PASS: medical emergency detection")
 
 
 def test_medical_response_has_911():
     """Medical emergency response must include 911."""
     result = detect_crisis("I can't breathe")
     assert "911" in result[1]
-    print("  PASS: medical response includes 911")
 
 
 def test_medical_response_has_poison_control():
     """Medical emergency response should include Poison Control."""
     result = detect_crisis("someone is overdosing")
     assert "1-800-222-1222" in result[1]
-    print("  PASS: medical response includes Poison Control")
 
 
 # -----------------------------------------------------------------------
@@ -241,7 +223,6 @@ def test_no_false_positives_service_requests():
         result = detect_crisis(msg)
         assert result is None, \
             f"False positive on: '{msg}' → {result[0] if result else None}"
-    print("  PASS: no false positives on service requests")
 
 
 def test_no_false_positives_conversational():
@@ -260,7 +241,6 @@ def test_no_false_positives_conversational():
         result = detect_crisis(msg)
         assert result is None, \
             f"False positive on: '{msg}' → {result[0] if result else None}"
-    print("  PASS: no false positives on conversational messages")
 
 
 def test_no_false_positive_on_hurt_in_context():
@@ -275,7 +255,6 @@ def test_no_false_positive_on_hurt_in_context():
         result = detect_crisis(msg)
         assert result is None, \
             f"False positive on: '{msg}' → {result[0] if result else None}"
-    print("  PASS: 'hurt' in non-crisis context doesn't trigger")
 
 
 # -----------------------------------------------------------------------
@@ -306,7 +285,6 @@ def test_passive_suicidal_ideation():
             f"Missed passive suicidal ideation: '{phrase}'"
         assert result[0] == "suicide_self_harm", \
             f"Wrong category for '{phrase}': {result[0]} (expected suicide_self_harm)"
-    print("  PASS: passive suicidal ideation detected")
 
 
 def test_passive_ideation_response_has_988():
@@ -316,7 +294,6 @@ def test_passive_ideation_response_has_988():
     assert result[0] == "suicide_self_harm"
     assert "988" in result[1], "Suicide response must include 988"
     assert "741741" in result[1], "Suicide response must include Crisis Text Line"
-    print("  PASS: passive ideation response includes 988 and Crisis Text Line")
 
 
 def test_passive_ideation_in_longer_message():
@@ -328,7 +305,6 @@ def test_passive_ideation_in_longer_message():
     result = detect_crisis(msg)
     assert result is not None, "Passive ideation missed in longer message"
     assert result[0] == "suicide_self_harm"
-    print("  PASS: passive ideation detected in longer service-seeking message")
 
 
 def test_no_false_positive_on_giving_up_task():
@@ -344,7 +320,6 @@ def test_no_false_positive_on_giving_up_task():
     result = detect_crisis("I give up")
     assert result is not None and result[0] == "suicide_self_harm", \
         "'I give up' should fire — intentionally broad for crisis-vulnerable population"
-    print("  PASS: 'I give up' fires intentionally (broad by design for safety)")
 
 
 # -----------------------------------------------------------------------
@@ -390,7 +365,6 @@ def test_youth_runaway_detection():
         assert result[0] in ("safety_concern", "domestic_violence"), \
             f"Wrong category for '{phrase}': {result[0]} (expected safety_concern or domestic_violence)"
 
-    print("  PASS: youth runaway and unsafe home phrases detected")
 
 
 def test_runaway_response_has_resources():
@@ -402,7 +376,6 @@ def test_runaway_response_has_resources():
         "Safety concern response must include DV hotline for runaway situations"
     assert "988" in result[1], \
         "Safety concern response must include 988"
-    print("  PASS: runaway response includes safety resources")
 
 
 def test_runaway_minor_with_shelter_need():
@@ -413,7 +386,6 @@ def test_runaway_minor_with_shelter_need():
         "Runaway minor with shelter request must trigger crisis detection"
     assert result[0] in ("safety_concern", "domestic_violence"), \
         f"Expected safety_concern or domestic_violence, got {result[0] if result else None}"
-    print("  PASS: runaway minor triggers crisis even with shelter request")
 
 
 def test_kicked_out_adult():
@@ -432,7 +404,6 @@ def test_kicked_out_adult():
         assert result is not None, f"Missed kicked-out scenario: '{phrase}'"
         assert result[0] in ("safety_concern", "domestic_violence"), \
             f"Wrong category for '{phrase}': {result[0]}"
-    print("  PASS: kicked-out scenarios trigger crisis (DV or safety concern)")
 
 
 def test_no_false_positive_on_shelter_search():
@@ -448,13 +419,11 @@ def test_no_false_positive_on_shelter_search():
         result = detect_crisis(msg)
         assert result is None, \
             f"False positive on shelter search: '{msg}' → {result[0] if result else None}"
-    print("  PASS: normal shelter searches don't trigger runaway detection")
 
 def test_is_crisis_helper():
     """is_crisis() should return True/False correctly."""
     assert is_crisis("I want to kill myself") is True
     assert is_crisis("I need food in Brooklyn") is False
-    print("  PASS: is_crisis helper")
 
 
 def test_crisis_in_longer_message():
@@ -463,7 +432,6 @@ def test_crisis_in_longer_message():
     result = detect_crisis(msg)
     assert result is not None
     assert result[0] == "suicide_self_harm"
-    print("  PASS: crisis detected in longer message")
 
 
 def test_crisis_with_service_request():
@@ -472,7 +440,6 @@ def test_crisis_with_service_request():
     result = detect_crisis(msg)
     assert result is not None
     assert result[0] == "domestic_violence"
-    print("  PASS: crisis detected alongside service request")
 
 
 # -----------------------------------------------------------------------
@@ -497,7 +464,6 @@ def test_llm_not_called_when_regex_fires():
     assert result is not None
     assert result[0] == "suicide_self_harm"
     mock_llm.assert_not_called()
-    print("  PASS: LLM not called when regex fires")
 
 
 def test_llm_called_when_regex_misses():
@@ -512,7 +478,6 @@ def test_llm_called_when_regex_misses():
 
     mock_llm.assert_called_once()
     assert result == mock_result
-    print("  PASS: LLM called when regex misses")
 
 
 def test_llm_detects_indirect_suicidal_ideation():
@@ -525,14 +490,13 @@ def test_llm_detects_indirect_suicidal_ideation():
     mock_message.content = [MagicMock(text='{"crisis": true, "category": "suicide_self_harm"}')]
 
     with patch.object(cd, '_USE_LLM_DETECTION', True), \
-         patch.object(cd, '_get_client') as mock_client:
+         patch.object(cd, 'get_client') as mock_client:
         mock_client.return_value.messages.create.return_value = mock_message
         result = cd._detect_crisis_llm("I just feel like no one would even notice if I disappeared")
 
     assert result is not None
     assert result[0] == "suicide_self_harm"
     assert "988" in result[1]
-    print("  PASS: LLM detects indirect suicidal ideation")
 
 
 def test_llm_returns_none_for_non_crisis():
@@ -544,12 +508,11 @@ def test_llm_returns_none_for_non_crisis():
     mock_message.content = [MagicMock(text='{"crisis": false}')]
 
     with patch.object(cd, '_USE_LLM_DETECTION', True), \
-         patch.object(cd, '_get_client') as mock_client:
+         patch.object(cd, 'get_client') as mock_client:
         mock_client.return_value.messages.create.return_value = mock_message
         result = cd._detect_crisis_llm("I need food in Brooklyn")
 
     assert result is None
-    print("  PASS: LLM returns None for non-crisis service request")
 
 
 def test_llm_failopen_on_api_error():
@@ -558,14 +521,13 @@ def test_llm_failopen_on_api_error():
     import app.services.crisis_detector as cd
 
     with patch.object(cd, '_USE_LLM_DETECTION', True), \
-         patch.object(cd, '_get_client', side_effect=RuntimeError("API unavailable")):
+         patch.object(cd, 'get_client', side_effect=RuntimeError("API unavailable")):
         result = cd._detect_crisis_llm("I don't know what to do anymore, no one cares")
 
     # Must not return None — fail open
     assert result is not None, "LLM error must fail open, not return None"
     assert result[0] == "safety_concern"
     assert "988" in result[1] or "1-800" in result[1]
-    print("  PASS: LLM fails open on API error (returns safety_concern)")
 
 
 def test_llm_failopen_on_malformed_json():
@@ -577,94 +539,30 @@ def test_llm_failopen_on_malformed_json():
     mock_message.content = [MagicMock(text="I cannot determine...")]  # non-JSON
 
     with patch.object(cd, '_USE_LLM_DETECTION', True), \
-         patch.object(cd, '_get_client') as mock_client:
+         patch.object(cd, 'get_client') as mock_client:
         mock_client.return_value.messages.create.return_value = mock_message
         result = cd._detect_crisis_llm("something ambiguous")
 
     assert result is not None, "Malformed JSON must fail open"
     assert result[0] == "safety_concern"
-    print("  PASS: LLM fails open on malformed JSON output")
 
 
-def test_llm_uses_haiku_not_sonnet():
-    """LLM crisis detection must use Haiku (fastest) not Sonnet."""
+def test_llm_uses_sonnet_for_crisis():
+    """LLM crisis detection must use Sonnet (nuance on indirect language)."""
     from unittest.mock import patch, MagicMock, call
     import app.services.crisis_detector as cd
 
     mock_message = MagicMock()
     mock_message.content = [MagicMock(text='{"crisis": false}')]
 
-    with patch.object(cd, '_get_client') as mock_client:
+    with patch.object(cd, 'get_client') as mock_client:
         mock_create = mock_client.return_value.messages.create
         mock_create.return_value = mock_message
         cd._detect_crisis_llm("test message")
 
     call_kwargs = mock_create.call_args.kwargs
-    assert "haiku" in call_kwargs.get("model", "").lower(), \
-        f"Must use Haiku model for crisis detection latency, got: {call_kwargs.get('model')}"
+    assert "sonnet" in call_kwargs.get("model", "").lower(), \
+        f"Must use Sonnet model for crisis detection nuance, got: {call_kwargs.get('model')}"
     assert call_kwargs.get("max_tokens", 999) <= 60, \
-        "Max tokens should be small (60) for latency — crisis response is ~15 tokens"
-    print("  PASS: LLM crisis detection uses Haiku with low token budget")
+        "Max tokens should be small (60) — crisis response is ~15 tokens"
 
-if __name__ == "__main__":
-    print("\nCrisis Detector Tests\n" + "=" * 50)
-
-    print("\n--- Suicide / Self-Harm ---")
-    test_suicide_direct_statements()
-    test_self_harm()
-    test_suicide_response_has_988()
-    test_suicide_response_has_trevor()
-
-    print("\n--- Passive Suicidal Ideation (P8) ---")
-    test_passive_suicidal_ideation()
-    test_passive_ideation_response_has_988()
-    test_passive_ideation_in_longer_message()
-    test_no_false_positive_on_giving_up_task()
-
-    print("\n--- Violence ---")
-    test_violence_threats()
-    test_violence_response_has_911()
-
-    print("\n--- Domestic Violence ---")
-    test_domestic_violence()
-    test_dv_threat_language()
-    test_dv_response_has_hotline()
-    test_dv_response_has_nyc_hotline()
-
-    print("\n--- Trafficking ---")
-    test_trafficking()
-    test_trafficking_response_has_hotline()
-
-    print("\n--- Medical Emergency ---")
-    test_medical_emergency()
-    test_medical_response_has_911()
-    test_medical_response_has_poison_control()
-
-    print("\n--- Youth Runaway / Unsafe Home (P9) ---")
-    test_youth_runaway_detection()
-    test_runaway_response_has_resources()
-    test_runaway_minor_with_shelter_need()
-    test_kicked_out_adult()
-    test_no_false_positive_on_shelter_search()
-
-    print("\n--- No False Positives ---")
-    test_no_false_positives_service_requests()
-    test_no_false_positives_conversational()
-    test_no_false_positive_on_hurt_in_context()
-
-    print("\n--- Priority / Integration ---")
-    test_is_crisis_helper()
-    test_crisis_in_longer_message()
-    test_crisis_with_service_request()
-
-    print("\n--- LLM Crisis Detection (Stage 2) ---")
-    test_llm_not_called_when_regex_fires()
-    test_llm_called_when_regex_misses()
-    test_llm_detects_indirect_suicidal_ideation()
-    test_llm_returns_none_for_non_crisis()
-    test_llm_failopen_on_api_error()
-    test_llm_failopen_on_malformed_json()
-    test_llm_uses_haiku_not_sonnet()
-
-    print("\n" + "=" * 50)
-    print("ALL TESTS PASSED")

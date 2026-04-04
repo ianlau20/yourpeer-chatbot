@@ -5,11 +5,8 @@ Run with: python -m pytest tests/test_pii_redactor.py -v
 Or just:  python tests/test_pii_redactor.py
 """
 
-import sys
-import os
 
 # Add backend to path so imports work when running directly
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.privacy.pii_redactor import redact_pii, detect_pii, has_pii
 
@@ -27,7 +24,6 @@ def test_phone_numbers():
         redacted, dets = redact_pii(original)
         assert "[PHONE]" in redacted, f"Failed to redact phone in: {original}"
         assert any(d.pii_type == "PHONE" for d in dets), f"No PHONE detection in: {original}"
-    print("  PASS: phone numbers")
 
 
 def test_ssn():
@@ -40,7 +36,6 @@ def test_ssn():
         redacted, dets = redact_pii(original)
         assert expected_placeholder in redacted, f"Failed to redact SSN in: {original}"
         assert any(d.pii_type == "SSN" for d in dets), f"No SSN detection in: {original}"
-    print("  PASS: SSN")
 
 
 def test_email():
@@ -49,7 +44,6 @@ def test_email():
     assert "[EMAIL]" in redacted
     assert "john.doe@gmail.com" not in redacted
     assert any(d.pii_type == "EMAIL" for d in dets)
-    print("  PASS: email")
 
 
 def test_dob():
@@ -63,7 +57,6 @@ def test_dob():
     for original in cases:
         redacted, dets = redact_pii(original)
         assert "[DOB]" in redacted, f"Failed to redact DOB in: {original}"
-    print("  PASS: dates of birth")
 
 
 def test_street_address():
@@ -76,7 +69,6 @@ def test_street_address():
     for original in cases:
         redacted, dets = redact_pii(original)
         assert "[ADDRESS]" in redacted, f"Failed to redact address in: {original}"
-    print("  PASS: street addresses")
 
 
 def test_names():
@@ -89,7 +81,6 @@ def test_names():
     for original, expected in cases:
         redacted, dets = redact_pii(original)
         assert expected in redacted, f"Failed to redact name in: {original}"
-    print("  PASS: names")
 
 
 def test_no_false_positives_locations():
@@ -105,7 +96,6 @@ def test_no_false_positives_locations():
         redacted, dets = redact_pii(msg)
         name_dets = [d for d in dets if d.pii_type == "NAME"]
         assert len(name_dets) == 0, f"False positive NAME in: {msg} → detected: {[d.original for d in name_dets]}"
-    print("  PASS: no false positives on locations")
 
 
 def test_no_false_positives_service_keywords():
@@ -120,7 +110,6 @@ def test_no_false_positives_service_keywords():
         redacted, dets = redact_pii(msg)
         name_dets = [d for d in dets if d.pii_type == "NAME"]
         assert len(name_dets) == 0, f"False positive NAME in: {msg}"
-    print("  PASS: no false positives on service keywords")
 
 
 def test_multiple_pii():
@@ -134,7 +123,6 @@ def test_multiple_pii():
     assert "212-555-9876" not in redacted
     assert "sarah@test.com" not in redacted
     assert len(dets) == 3
-    print("  PASS: multiple PII types")
 
 
 def test_no_pii():
@@ -150,14 +138,12 @@ def test_no_pii():
         redacted, dets = redact_pii(msg)
         assert redacted == msg, f"Unexpected redaction in: {msg} → {redacted}"
         assert len(dets) == 0, f"Unexpected PII in clean message: {msg}"
-    print("  PASS: clean messages unchanged")
 
 
 def test_has_pii():
     """Quick check function should work."""
     assert has_pii("Call me at 212-555-1234") is True
     assert has_pii("I need food in Brooklyn") is False
-    print("  PASS: has_pii check")
 
 
 def test_numbered_street_addresses():
@@ -194,22 +180,5 @@ def test_numbered_street_addresses():
         redacted, dets = redact_pii(original)
         assert "[ADDRESS]" not in redacted, \
             f"False positive: '{original}' should NOT be redacted as address"
-    print("  PASS: numbered street addresses")
 
 
-if __name__ == "__main__":
-    print("\nPII Redactor Tests\n" + "=" * 40)
-    test_phone_numbers()
-    test_ssn()
-    test_email()
-    test_dob()
-    test_street_address()
-    test_names()
-    test_no_false_positives_locations()
-    test_no_false_positives_service_keywords()
-    test_multiple_pii()
-    test_no_pii()
-    test_has_pii()
-    test_numbered_street_addresses()
-    print("\n" + "=" * 40)
-    print("ALL TESTS PASSED")
