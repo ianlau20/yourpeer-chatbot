@@ -37,8 +37,4 @@ services:
       # Points at the backend's Render URL.
       # After first deploy, verify this matches the actual .onrender.com URL.
       - key: CHAT_BACKEND_URL
-<<<<<<< HEAD
         value: https://yourpeer-chatbot-api.onrender.com
-=======
-        value: https://yourpeer-chatbot-api.onrender.com
->>>>>>> 822e5c5 (Force free tier)
