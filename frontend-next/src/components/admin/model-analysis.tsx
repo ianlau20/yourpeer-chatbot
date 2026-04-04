@@ -15,6 +15,7 @@ import {
   Languages,
   Scale,
   ExternalLink,
+  Route,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -102,7 +103,7 @@ const TASKS: TaskDef[] = [
     id: "conversational",
     name: "Conversational fallback",
     icon: Zap,
-    desc: "General chat when the user\u2019s message doesn\u2019t match service keywords. Currently handled by Gemini.",
+    desc: "General chat when the user\u2019s message doesn\u2019t match service keywords. Uses Claude Haiku for speed.",
     inputTokens: 200,
     outputTokens: 80,
     requirements: [
@@ -132,6 +133,24 @@ const TASKS: TaskDef[] = [
     recommendation: "haiku",
     rationale:
       "Simple schema (5 optional fields), codebase routes only complex messages to LLM (regex handles simple cases), and Haiku\u2019s tool-calling is reliable for bounded schemas. Monitor accuracy \u2014 first task to upgrade to Sonnet if edge cases increase.",
+  },
+  {
+    id: "classification",
+    name: "Message classification",
+    icon: Route,
+    desc: "Route ambiguous messages to the correct handler when regex keyword matching falls through. Only invoked on messages longer than 3 words that regex classified as \u201Cgeneral.\u201D",
+    inputTokens: 300,
+    outputTokens: 10,
+    requirements: [
+      "Classify into one of 14 routing categories (service, greeting, help, frustration, etc.)",
+      "Distinguish \u2018I need help with housing\u2019 (service) from \u2018how does this work\u2019 (help)",
+      "Distinguish \u2018I don\u2019t know what to do\u2019 (confused) from mental health service request",
+      "Handle indirect service needs (\u2018I was just released\u2019 \u2192 service)",
+      "Return single category name, validated against known set",
+    ],
+    recommendation: "haiku",
+    rationale:
+      "This is a simple classification task (pick 1 of 14 labels) with a short output (single word). Regex handles the clear cases; the LLM only sees messages where regex already failed, so the bar is \u2018better than general\u2019 not \u2018perfect.\u2019 Haiku\u2019s speed keeps the latency impact minimal for real-time chat. If the LLM fails, the system falls back to the regex result (general) \u2014 no safety risk.",
   },
   {
     id: "crisisDetection",
@@ -331,7 +350,7 @@ function ModelBadge({ model }: { model: "haiku" | "sonnet" }) {
 function ModelCard({ modelKey }: { modelKey: "haiku" | "sonnet" }) {
   const m = MODELS[modelKey];
   const isHaiku = modelKey === "haiku";
-  const accent = isHaiku ? "border-green-400" : "border-violet-400";
+  const accent = isHaiku ? "border-t-green-400" : "border-t-violet-400";
 
   return (
     <div className={`border border-neutral-200 rounded-lg p-4 border-t-[3px] ${accent}`}>

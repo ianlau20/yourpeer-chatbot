@@ -274,6 +274,118 @@ def test_claude_reply_init_failure():
 
 
 # -----------------------------------------------------------------------
+# CLASSIFY_MESSAGE_LLM — SUCCESS
+# -----------------------------------------------------------------------
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
+@patch("app.llm.claude_client.anthropic")
+def test_classify_returns_valid_category(mock_anthropic):
+    """LLM classifier should return a valid category string."""
+    _reset_globals()
+    mock_client = MagicMock()
+    mock_anthropic.Anthropic.return_value = mock_client
+
+    mock_text_block = MagicMock()
+    mock_text_block.text = "service"
+    mock_response = MagicMock()
+    mock_response.content = [mock_text_block]
+    mock_client.messages.create.return_value = mock_response
+
+    result = cc.classify_message_llm("I just got released and have nowhere to go")
+    assert result == "service"
+    print("  PASS: classify returns valid category")
+
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
+@patch("app.llm.claude_client.anthropic")
+def test_classify_uses_classification_model(mock_anthropic):
+    """classify_message_llm should use CLASSIFICATION_MODEL (Haiku)."""
+    _reset_globals()
+    mock_client = MagicMock()
+    mock_anthropic.Anthropic.return_value = mock_client
+
+    mock_text_block = MagicMock()
+    mock_text_block.text = "general"
+    mock_response = MagicMock()
+    mock_response.content = [mock_text_block]
+    mock_client.messages.create.return_value = mock_response
+
+    cc.classify_message_llm("test message")
+
+    call_kwargs = mock_client.messages.create.call_args
+    model_used = call_kwargs[1]["model"]
+    assert model_used == cc.CLASSIFICATION_MODEL
+    assert "haiku" in model_used.lower(), \
+        f"Classifier should use Haiku, got {model_used}"
+    print("  PASS: classify uses Haiku model")
+
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
+@patch("app.llm.claude_client.anthropic")
+def test_classify_rejects_invalid_category(mock_anthropic):
+    """LLM returning an unexpected category should return None (fallback)."""
+    _reset_globals()
+    mock_client = MagicMock()
+    mock_anthropic.Anthropic.return_value = mock_client
+
+    mock_text_block = MagicMock()
+    mock_text_block.text = "definitely_not_a_category"
+    mock_response = MagicMock()
+    mock_response.content = [mock_text_block]
+    mock_client.messages.create.return_value = mock_response
+
+    result = cc.classify_message_llm("test")
+    assert result is None
+    print("  PASS: classify rejects invalid category")
+
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
+@patch("app.llm.claude_client.anthropic")
+def test_classify_handles_whitespace(mock_anthropic):
+    """LLM response with extra whitespace/newlines should still match."""
+    _reset_globals()
+    mock_client = MagicMock()
+    mock_anthropic.Anthropic.return_value = mock_client
+
+    mock_text_block = MagicMock()
+    mock_text_block.text = "  frustration\n"
+    mock_response = MagicMock()
+    mock_response.content = [mock_text_block]
+    mock_client.messages.create.return_value = mock_response
+
+    result = cc.classify_message_llm("this is useless")
+    assert result == "frustration"
+    print("  PASS: classify handles whitespace in response")
+
+
+# -----------------------------------------------------------------------
+# CLASSIFY_MESSAGE_LLM — FAILURE
+# -----------------------------------------------------------------------
+
+@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})
+@patch("app.llm.claude_client.anthropic")
+def test_classify_api_failure_returns_none(mock_anthropic):
+    """API failure should return None, not raise."""
+    _reset_globals()
+    mock_client = MagicMock()
+    mock_anthropic.Anthropic.return_value = mock_client
+    mock_client.messages.create.side_effect = Exception("API timeout")
+
+    result = cc.classify_message_llm("test")
+    assert result is None
+    print("  PASS: classify API failure returns None")
+
+
+def test_classify_init_failure_returns_none():
+    """If client init fails, classify should return None, not raise."""
+    _reset_globals()
+    with patch.dict(os.environ, {}, clear=True):
+        result = cc.classify_message_llm("test")
+        assert result is None
+    print("  PASS: classify init failure returns None")
+
+
+# -----------------------------------------------------------------------
 # RUNNER
 # -----------------------------------------------------------------------
 
@@ -305,5 +417,15 @@ if __name__ == "__main__":
     test_claude_reply_api_failure()
     test_claude_reply_init_failure()
 
+    print("\n--- Classifier Success ---")
+    test_classify_returns_valid_category()
+    test_classify_uses_classification_model()
+    test_classify_rejects_invalid_category()
+    test_classify_handles_whitespace()
+
+    print("\n--- Classifier Failure ---")
+    test_classify_api_failure_returns_none()
+    test_classify_init_failure_returns_none()
+
     print("\n" + "=" * 50)
-    print("ALL 12 TESTS PASSED")
+    print("ALL 18 TESTS PASSED")
