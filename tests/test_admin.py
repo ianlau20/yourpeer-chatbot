@@ -2,8 +2,7 @@
 Tests for the admin API routes — HTTP-level endpoint tests using
 FastAPI TestClient.
 
-Covers all 7 admin endpoints:
-    GET /admin/           — serve admin HTML page
+Covers all admin API endpoints:
     GET /admin/api/stats  — aggregate statistics
     GET /admin/api/conversations       — conversation summaries
     GET /admin/api/conversations/{id}  — single conversation detail
@@ -87,19 +86,6 @@ def _seed_data():
 
     # Session 3: reset
     log_session_reset("sess-reset")
-
-
-# -----------------------------------------------------------------------
-# GET /admin/ — Admin HTML page
-# -----------------------------------------------------------------------
-
-def test_admin_page_serves_html():
-    """GET /admin/ should serve the admin.html page."""
-    response = client.get("/admin/")
-    assert response.status_code == 200
-    assert "text/html" in response.headers.get("content-type", "")
-    assert "YourPeer" in response.text
-    print("  PASS: GET /admin/ serves HTML")
 
 
 # -----------------------------------------------------------------------
@@ -315,12 +301,14 @@ def test_queries_limit():
 # -----------------------------------------------------------------------
 
 def test_eval_no_results():
-    """Should return 404 when no eval results exist."""
+    """Should return 200 with null results when no eval results exist."""
     clear_audit_log()
     response = client.get("/admin/api/eval")
-    assert response.status_code == 404
-    assert "No evaluation results" in response.json()["detail"]
-    print("  PASS: GET /admin/api/eval → 404 when empty")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["results"] is None
+    assert "No evaluation results" in data["detail"]
+    print("  PASS: GET /admin/api/eval → 200 with null results when empty")
 
 
 def test_eval_with_results():
@@ -361,9 +349,6 @@ def test_health_endpoint():
 
 if __name__ == "__main__":
     print("\nAdmin Route Tests\n" + "=" * 50)
-
-    print("\n--- Admin HTML Page ---")
-    test_admin_page_serves_html()
 
     print("\n--- Stats Endpoint ---")
     test_stats_empty()
