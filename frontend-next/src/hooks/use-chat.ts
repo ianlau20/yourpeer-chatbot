@@ -49,11 +49,12 @@ export function useChat() {
           showFeedback: (data.services?.length ?? 0) > 0,
         });
       } catch (err: any) {
-        setError(`Error: ${err.message}`);
+        const msg = err.message || "Something went wrong";
+        setError(`Error: ${msg}`);
         addMessage({
           id: nextMsgId(),
           role: "bot",
-          text: "Sorry, something went wrong. Please try again.",
+          text: msg.includes("wait") ? msg : "Sorry, something went wrong. Please try again.",
         });
       } finally {
         setLoading(false);

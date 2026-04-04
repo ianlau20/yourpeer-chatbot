@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.chat import router as chat_router
 from app.routes.admin import router as admin_router
+from app.dependencies import RateLimitMiddleware
 
 app = FastAPI(
     title="YourPeer Chatbot API",
@@ -18,6 +19,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Rate limiting ---
+# Protects /chat/ and /chat/feedback. Admin and health routes are exempt.
+app.add_middleware(RateLimitMiddleware)
 
 # --- API routes ---
 app.include_router(chat_router)
