@@ -1,6 +1,9 @@
 services:
+  # -----------------------------------------------------------------------
+  # Backend — FastAPI (headless API only, no static file serving)
+  # -----------------------------------------------------------------------
   - type: web
-    name: yourpeer-chatbot
+    name: yourpeer-chatbot-api
     runtime: python
     python: "3.12"
     rootDir: backend
@@ -15,3 +18,21 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+
+  # -----------------------------------------------------------------------
+  # Frontend — Next.js
+  # -----------------------------------------------------------------------
+  - type: web
+    name: yourpeer-chatbot
+    runtime: node
+    nodeVersion: "24"
+    rootDir: frontend-next
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      # Points at the internal Render service URL for the backend above.
+      # After first deploy, replace with the actual .onrender.com URL.
+      - key: CHAT_BACKEND_URL
+        value: https://yourpeer-chatbot-api.onrender.com
+      - key: PORT
+        value: "3000"

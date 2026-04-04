@@ -1,0 +1,69 @@
+// Copyright (c) 2024 Streetlives, Inc.
+//
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file or at
+// https://opensource.org/licenses/MIT.
+
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { VoiceInputButton } from "./voice-input-button";
+import { Send } from "lucide-react";
+
+interface ChatInputProps {
+  onSend: (text: string) => void;
+  disabled: boolean;
+}
+
+export function ChatInput({ onSend, disabled }: ChatInputProps) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const text = value.trim();
+    if (!text) return;
+    setValue("");
+    onSend(text);
+  }
+
+  // Refocus input after send completes
+  useEffect(() => {
+    if (!disabled) inputRef.current?.focus();
+  }, [disabled]);
+
+  function handleTranscript(transcript: string) {
+    setValue((prev) => {
+      const sep = prev.length > 0 ? " " : "";
+      return prev + sep + transcript;
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex gap-2">
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="What do you need help with?"
+        autoComplete="off"
+        disabled={disabled}
+        className="flex-1 px-4 py-3 border border-neutral-200 rounded-xl bg-white text-neutral-900 text-[0.94rem] outline-none transition-all focus:border-neutral-300 focus:ring-2 focus:ring-amber-300/30 placeholder:text-neutral-400 disabled:opacity-50"
+      />
+
+      <VoiceInputButton
+        onTranscript={handleTranscript}
+        disabled={disabled}
+      />
+
+      <button
+        type="submit"
+        disabled={disabled || !value.trim()}
+        className="w-12 h-12 border-none rounded-xl bg-neutral-900 text-white flex items-center justify-center transition-transform hover:scale-[1.04] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
+      >
+        <Send size={18} strokeWidth={2.5} />
+      </button>
+    </form>
+  );
+}
