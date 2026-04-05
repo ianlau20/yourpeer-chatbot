@@ -1,6 +1,6 @@
 # Features
 
-Full feature reference for the YourPeer chatbot. For setup and architecture see [README.md](README.md).
+Full feature reference for the YourPeer chatbot. For setup and architecture see [README.md](../README.md).
 
 ---
 
@@ -90,7 +90,7 @@ The frontend is designed for the population served — people who may be using s
 
 ## Known Limitations
 
-These are tracked issues identified during DB audits and pilot testing, deferred for post-pilot resolution. See [README.md — Known Limitations](README.md#known-limitations--future-work) for detail.
+These are tracked issues identified during DB audits and pilot testing, deferred for post-pilot resolution. See [README.md — Known Limitations](../README.md#known-limitations--future-work) for detail.
 
 - Result ordering uses open-now / recently-verified / name; proximity-first when geolocation available
 - `additional_info` field is effectively empty (99.7% null)

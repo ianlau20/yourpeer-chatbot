@@ -21,8 +21,14 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+DOCS_DIR = ROOT / "docs"
 TESTS_DIR = ROOT / "tests"
 BACKEND_DIR = ROOT / "backend"
+
+
+def all_md_files():
+    """Return all markdown files from root and docs/."""
+    return list(all_md_files()) + list(DOCS_DIR.glob("*.md"))
 
 # Track all issues found
 issues = []
@@ -52,7 +58,7 @@ def check_test_counts():
     """Compare per-file test counts in TESTING.md against actual."""
     print("\n--- Test counts ---")
 
-    testing_md = (ROOT / "TESTING.md").read_text()
+    testing_md = (ROOT / "docs" / "TESTING.md").read_text()
 
     # Count actual tests per file
     actual_counts = {}
@@ -67,18 +73,18 @@ def check_test_counts():
     if total_match:
         doc_total = int(total_match.group(1))
         if doc_total != total_actual:
-            warn("TESTING.md", f"says {doc_total} total tests, actual {total_actual}")
+            warn("docs/TESTING.md", f"says {doc_total} total tests, actual {total_actual}")
             if auto_fix:
-                fix("TESTING.md", f"{doc_total} tests across", f"{total_actual} tests across",
+                fix("docs/TESTING.md", f"{doc_total} tests across", f"{total_actual} tests across",
                     f"total count {doc_total} → {total_actual}")
 
     # Check per-file counts (lines like "### `test_chatbot.py` — 47 tests")
     for match in re.finditer(r"### `(test_\w+\.py)` — (\d+) tests", testing_md):
         name, doc_count = match.group(1), int(match.group(2))
         if name in actual_counts and actual_counts[name] != doc_count:
-            warn("TESTING.md", f"{name}: says {doc_count}, actual {actual_counts[name]}")
+            warn("docs/TESTING.md", f"{name}: says {doc_count}, actual {actual_counts[name]}")
             if auto_fix:
-                fix("TESTING.md",
+                fix("docs/TESTING.md",
                     f"### `{name}` — {doc_count} tests",
                     f"### `{name}` — {actual_counts[name]} tests",
                     f"{name} count {doc_count} → {actual_counts[name]}")
@@ -120,7 +126,7 @@ def check_model_ids():
         return
 
     # Check each doc file for model ID references
-    for md_file in ["README.md", "DEPLOY.md", "CRISIS_DETECTION.md"]:
+    for md_file in ["README.md", "docs/DEPLOY.md", "docs/CRISIS_DETECTION.md"]:
         path = ROOT / md_file
         if not path.exists():
             continue
@@ -154,7 +160,7 @@ def check_env_vars():
     render_vars = set(re.findall(r"key:\s+(\w+)", render_src))
 
     # Check DEPLOY.md env vars table
-    deploy_path = ROOT / "DEPLOY.md"
+    deploy_path = ROOT / "docs" / "DEPLOY.md"
     if deploy_path.exists():
         deploy_src = deploy_path.read_text()
         # Look for env vars in the table
@@ -164,10 +170,10 @@ def check_env_vars():
             if var not in render_vars and var not in {"CHAT_BACKEND_URL"}:
                 # CHAT_BACKEND_URL is on the frontend service, not backend
                 if "frontend" not in deploy_src[deploy_src.index(var)-200:deploy_src.index(var)].lower():
-                    warn("DEPLOY.md", f"documents `{var}` but it's not in render.yaml")
+                    warn("docs/DEPLOY.md", f"documents `{var}` but it's not in render.yaml")
 
     # Check for removed env vars still referenced in docs
-    for md_file in ["SETUP.md", "DEPLOY.md", "README.md"]:
+    for md_file in ["docs/SETUP.md", "docs/DEPLOY.md", "README.md"]:
         path = ROOT / md_file
         if not path.exists():
             continue
@@ -184,7 +190,7 @@ def check_file_references():
     """Check that files mentioned in docs actually exist."""
     print("\n--- File references ---")
 
-    for md_file in ROOT.glob("*.md"):
+    for md_file in all_md_files():
         content = md_file.read_text()
 
         # Find references to Python files
@@ -205,7 +211,7 @@ def check_internal_links():
     """Check that markdown links to local files resolve."""
     print("\n--- Internal links ---")
 
-    for md_file in ROOT.glob("*.md"):
+    for md_file in all_md_files():
         content = md_file.read_text()
 
         # Match [text](relative/path) but not [text](http...)
@@ -230,7 +236,7 @@ def check_line_number_refs():
     """Flag links with #L<number> anchors — these break on any code change."""
     print("\n--- Line number references ---")
 
-    for md_file in ROOT.glob("*.md"):
+    for md_file in all_md_files():
         content = md_file.read_text()
         refs = re.findall(r'\[([^\]]*)\]\(([^)]*#L\d+[^)]*)\)', content)
         if refs:
@@ -248,7 +254,7 @@ def check_code_block_commands():
     """Check that commands in code blocks reference files that exist."""
     print("\n--- Code block commands ---")
 
-    for md_file in ROOT.glob("*.md"):
+    for md_file in all_md_files():
         content = md_file.read_text()
 
         # Find shell code blocks
@@ -290,7 +296,7 @@ def check_api_routes():
         return  # Can't validate without route definitions
 
     # Check documented routes
-    for md_file in ROOT.glob("*.md"):
+    for md_file in all_md_files():
         content = md_file.read_text()
         for match in re.finditer(r'`(/(?:api|chat|admin)/[\w/{}*]+)`', content):
             doc_route = match.group(1)
@@ -326,7 +332,7 @@ def check_dependency_refs():
         versions[match.group(1)] = match.group(2).strip()
 
     # Check if docs mention different versions
-    for md_file in ["SETUP.md", "DEPLOY.md"]:
+    for md_file in ["docs/SETUP.md", "docs/DEPLOY.md"]:
         path = ROOT / md_file
         if not path.exists():
             continue

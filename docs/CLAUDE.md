@@ -159,7 +159,7 @@ ANTHROPIC_API_KEY=... pytest tests/test_llm_slot_extractor.py -k live
 
 ## Running Locally
 
-See `SETUP.md` for full instructions.
+See `docs/SETUP.md` for full instructions.
 
 ## Environment Variables
 
