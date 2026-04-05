@@ -253,12 +253,17 @@ def test_taxonomy_aliases_match_taxonomy_names():
 def test_base_query_joins():
     """Base query must include all required table joins."""
     sql_lower = _BASE_QUERY.lower()
-    assert "join service_taxonomy" in sql_lower
-    assert "join taxonomies" in sql_lower
+    # Core joins
     assert "join service_at_locations" in sql_lower
     assert "join locations" in sql_lower
     assert "left join organizations" in sql_lower
     assert "left join physical_addresses" in sql_lower
+    # Taxonomy is now an EXISTS subquery in filters, not a base JOIN
+    assert "join service_taxonomy" not in sql_lower, \
+        "Taxonomy should use EXISTS filter, not base JOIN (avoids row duplication)"
+    # Schedule and membership use regular LEFT JOINs (not LATERAL)
+    assert "left join regular_schedules" in sql_lower
+    assert "left join eligibility" in sql_lower
 
 
 def test_base_query_phone_is_lateral():
@@ -278,11 +283,11 @@ def test_base_query_phone_priority_order():
     assert "when ph.organization_id" in sql_lower
 
 
-def test_base_query_schedule_lateral():
-    """Schedule should use LATERAL join for today's hours."""
+def test_base_query_schedule_join():
+    """Schedule should use a regular LEFT JOIN for today's hours."""
     sql_lower = _BASE_QUERY.lower()
     assert "today_sched" in sql_lower
-    assert "regular_schedules" in sql_lower
+    assert "left join regular_schedules" in sql_lower
     assert "isodow" in sql_lower
 
 
@@ -812,11 +817,11 @@ def test_requires_membership_always_present_in_card():
 
 
 def test_base_query_selects_requires_membership():
-    """Base query must select requires_membership from the membership LATERAL join."""
+    """Base query must select requires_membership from the membership LEFT JOIN."""
     assert "requires_membership" in _BASE_QUERY.lower(), \
-        "Base query missing requires_membership field — membership LATERAL join not added"
+        "Base query missing requires_membership field"
     assert "membership_elig" in _BASE_QUERY.lower(), \
-        "Base query missing membership_elig LATERAL join alias"
+        "Base query missing membership_elig join alias"
     assert "eligibility_parameters" in _BASE_QUERY.lower(), \
         "Base query missing eligibility_parameters join in membership LATERAL"
 
