@@ -13,26 +13,27 @@ These metrics assess how well the chatbot collects the structured fields it need
 ### 1.1 Task Completion Rate
 **Definition:** % of sessions that reach a confirmed database query (i.e. user taps "Yes, search" or equivalent) out of all sessions that express a service need.  
 **Target:** ≥ 70% at pilot launch → ≥ 80% at end of pilot.  
-**Measurement:** Audit log — count sessions with a `query_execution` event divided by sessions with a detected service intent.  
+**Measurement:** Audit log — count sessions with a `query_execution` event divided by service-intent sessions (sessions with at least one turn categorized as `service`, `confirmation`, or any `confirm_*` action). Greeting-only, help, and crisis-only sessions are excluded from the denominator. ✅ Tracked in admin dashboard.  
 **Phase:** Pilot.
 
 ### 1.2 Slot Confirmation Rate
-**Definition:** % of required slots (service type, location) that are confirmed by the user rather than assumed or skipped.  
+**Definition:** % of queries that went through the explicit confirmation step (user tapped "Yes, search") before executing.  
+**Why it matters:** Should be ~100% by design — any gap means the confirmation flow was bypassed and a query ran without user approval.  
 **Target:** ≥ 90%.  
-**Measurement:** Audit log — compare `slots_filled` vs. `slots_confirmed` fields in conversation turn events.  
+**Measurement:** Audit log — count sessions with both a `confirm_yes` category turn and a `query_execution` event, divided by sessions with a `query_execution` event. ✅ Tracked in admin dashboard.  
 **Phase:** Pilot.
 
 ### 1.3 Slot Correction Rate
 **Definition:** % of sessions where the user corrects a slot after the confirmation step (e.g. taps "Change location" or "Change service").  
 **Why it matters:** High correction rates signal misextraction or confirmation UX problems.  
 **Target:** ≤ 15%.  
-**Measurement:** Audit log — count sessions with a slot-change event after the first confirmation message.  
+**Measurement:** Audit log — count sessions with a `confirm_change_service` or `confirm_change_location` category turn, divided by sessions that reached the confirmation stage. ✅ Tracked in admin dashboard.  
 **Phase:** Pilot.
 
 ### 1.4 Confirmation Action Breakdown
-**Definition:** Distribution of user actions at the confirmation step: confirm / change location / change service / start over / abandon.  
+**Definition:** Distribution of user actions at the confirmation step: confirm (`confirm_yes`) / change service (`confirm_change_service`) / change location (`confirm_change_location`) / deny (`confirm_deny`). Also tracks the confirmation abandon rate — sessions that reach confirmation but never confirm.  
 **Target:** ≥ 65% confirm on first presentation; abandon ≤ 10%.  
-**Measurement:** Audit log — tag each confirmation response with one of the five action types.  
+**Measurement:** Audit log — count each confirmation action category across all turns, compute confirm rate (`confirm_yes / total_actions`) and abandon rate (sessions at confirmation without `confirm_yes` / sessions at confirmation). ✅ Tracked in admin dashboard.  
 **Phase:** Pilot.
 
 ### 1.5 Turns to Confirmation
@@ -67,25 +68,25 @@ These metrics assess the quality and usefulness of search results returned to th
 **Phase:** Pilot.
 
 ### 2.3 Data Freshness Rate
-**Definition:** % of returned service cards where the `last_verified` date is within the past 90 days.  
+**Definition:** % of returned service cards where the `last_validated_at` date is within the past 90 days.  
 **Target:** ≥ 80% of cards served are verified within 90 days.  
-**Measurement:** Query result metadata — check `last_verified` field on each returned service record.  
+**Measurement:** Freshness stats are computed from raw query result rows (before `format_service_card` drops the `last_validated_at` field) and stored per query in the audit log. `get_stats()` aggregates `fresh / total` across all queries. ✅ Tracked in admin dashboard.  
 **Phase:** Pilot.
 
 ### 2.4 Schedule Coverage Note
 From a DB audit (April 2026), schedule data (`regular_schedules` rows) is only populated for services with walk-in hours. Most service categories have 0% schedule coverage — including Mental Health, Employment, Shelter, Benefits, and Clothing. The categories with meaningful coverage are: Soup Kitchen (81%), Shower (55%), Clothing Pantry (64%), Food Pantry (40%). As a result, the majority of service cards show "Call for hours" rather than open/closed status, and the `FILTER_BY_OPEN_NOW` and `FILTER_BY_WEEKDAY` query filters are not currently passed from the chatbot — they would silently exclude services with no schedule data. These filters should only be enabled if/when schedule data coverage improves significantly.
 
-### 2.4 Eligibility Fit Rate
+### 2.5 Eligibility Fit Rate
 **Definition:** % of returned services that match all stated user criteria (service type, age restrictions, gender restrictions, location).  
 **Target:** ≥ 95% — the template query design should make mismatches rare; any miss is a template bug.  
 **Measurement:** Canary tests (scripted dialogs with known-correct results) run before each deploy. Spot-check by data stewards during pilot.  
 **Phase:** Pilot.
 
-### 2.5 User Feedback Score
-**Definition:** % of post-result feedback that is positive (thumbs up or equivalent), when feedback is collected.  
+### 2.6 User Feedback Score
+**Definition:** % of post-result feedback that is positive (thumbs up or equivalent).  
 **Target:** ≥ 70% positive at pilot launch.  
-**Measurement:** In-chat feedback prompt after results are shown (to be implemented post-MVP).  
-**Phase:** Post-pilot MVP.
+**Measurement:** In-chat thumbs up/down prompt shown after service results are delivered. Feedback events are stored in the audit log and aggregated as `feedback_up / (feedback_up + feedback_down)`. ✅ Tracked in admin dashboard.  
+**Phase:** Pilot.
 
 ---
 
@@ -110,7 +111,7 @@ These metrics assess how the system handles crisis situations and sensitive cont
 **Definition:** % of sessions where the user requests a human peer navigator.  
 **Why it matters:** A very high escalation rate may indicate the bot isn't resolving common needs; very low may mean users don't know the option exists.  
 **Target:** Track as a baseline in pilot; no hard target until patterns emerge.  
-**Measurement:** Audit log — sessions with an `escalation_requested` event.  
+**Measurement:** Audit log — count unique sessions with at least one conversation turn categorized as `escalation`, divided by total sessions. ✅ Tracked in admin dashboard.  
 **Phase:** Pilot.
 
 ### 3.4 PII Leakage Rate
@@ -190,7 +191,7 @@ These metrics answer the ultimate question: did the referral work? They require 
 | LLM-as-judge eval | 8-dimension automated quality scoring | ✅ Yes (admin console or CLI) |
 | PII scanner | Automated redaction verification | ⚠️ Partial (regex-based; NER not yet integrated) |
 | SMS follow-up | Referral success, post-visit accuracy | ❌ Not implemented |
-| In-chat feedback | User satisfaction after results | ❌ Not implemented |
+| In-chat feedback | User satisfaction after results | ✅ Yes (thumbs up/down after service results) |
 
 ---
 

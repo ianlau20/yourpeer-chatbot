@@ -140,7 +140,7 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 
 **Schedule data is sparse for most categories.** Only walk-in service types (Soup Kitchen 81%, Shower 55%, Clothing Pantry 64%, Food Pantry 40%) have meaningful schedule coverage. All other categories show 0% coverage. The `FILTER_BY_OPEN_NOW` and `FILTER_BY_WEEKDAY` query filters exist but are intentionally not passed from the chatbot — enabling them would silently exclude the majority of services. See `METRICS.md` section 2.4 for detail.
 
-**Eval background task runs in the web server process.** The "Run Evals" button in the admin console triggers the LLM-as-judge suite as a FastAPI background task in the same process. Acceptable for the pilot; for production, isolate into a separate worker or task queue (Celery + Redis, or a Render background worker service) to avoid impacting request latency during long runs.
+**Eval runs share the web server host.** The "Run Evals" button runs the LLM-as-judge suite in a subprocess (isolated from request handling via `asyncio.create_subprocess_exec`), but it still runs on the same machine as the web server. Acceptable for the pilot; for production, isolate into a separate worker or task queue to avoid resource contention during long runs.
 
 **`natural_new_to_nyc` slot extraction failure.** A user arriving at Port Authority saying "Where can I sleep tonight?" is not recognized as a shelter request. "Port Authority" is not a known location, and the long message bypasses regex. P7 fix (Port Authority as a landmark location + stricter thanks classifier) is implemented but the scenario still fails intermittently. Tracked in EVAL_RESULTS.md.
 

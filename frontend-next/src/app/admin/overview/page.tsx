@@ -6,27 +6,20 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchAdminStats, fetchEvents } from "@/lib/chat/api";
-import type { AdminStats, AuditEvent } from "@/lib/chat/types";
+import { useEffect } from "react";
+import { useAdminStore } from "@/lib/admin/store";
 import { StatCard } from "@/components/admin/stat-card";
 import { EventFeed } from "@/components/admin/event-feed";
 
 export default function OverviewPage() {
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [error, setError] = useState(false);
+  const { stats, events, fetchStats, fetchEvents } = useAdminStore();
 
   useEffect(() => {
-    Promise.all([fetchAdminStats(), fetchEvents(20)])
-      .then(([s, e]) => {
-        setStats(s);
-        setEvents(e);
-      })
-      .catch(() => setError(true));
-  }, []);
+    fetchStats();
+    fetchEvents();
+  }, [fetchStats, fetchEvents]);
 
-  if (error) {
+  if (stats.error || events.error) {
     return (
       <div className="text-center py-16 text-neutral-400">
         <div className="text-3xl mb-3">📊</div>
@@ -35,36 +28,37 @@ export default function OverviewPage() {
     );
   }
 
-  if (!stats) {
+  if (!stats.data) {
     return <p className="text-neutral-400 text-sm">Loading…</p>;
   }
 
-  const relaxedRate = stats.relaxed_query_rate || 0;
+  const s = stats.data;
+  const relaxedRate = s.relaxed_query_rate || 0;
   const relaxedCls =
     relaxedRate > 0.35 ? "text-red-600" : relaxedRate > 0.25 ? "text-amber-500" : "text-green-600";
 
-  const totalFeedback = (stats.feedback_up || 0) + (stats.feedback_down || 0);
+  const totalFeedback = (s.feedback_up || 0) + (s.feedback_down || 0);
   const feedbackDisplay =
-    totalFeedback > 0 ? `${Math.round((stats.feedback_score ?? 0) * 100)}% 👍` : "—";
+    totalFeedback > 0 ? `${Math.round((s.feedback_score ?? 0) * 100)}% 👍` : "—";
   const feedbackCls =
-    stats.feedback_score === null
+    s.feedback_score === null
       ? ""
-      : stats.feedback_score >= 0.7
+      : s.feedback_score >= 0.7
         ? "text-green-600"
-        : stats.feedback_score >= 0.5
+        : s.feedback_score >= 0.5
           ? "text-amber-500"
           : "text-red-600";
 
   return (
     <>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 mb-6">
-        <StatCard label="Sessions" value={stats.unique_sessions} colorClass="text-amber-500" />
-        <StatCard label="Turns" value={stats.total_turns} />
-        <StatCard label="Queries Executed" value={stats.total_queries} />
+        <StatCard label="Sessions" value={s.unique_sessions} colorClass="text-amber-500" />
+        <StatCard label="Turns" value={s.total_turns} />
+        <StatCard label="Queries Executed" value={s.total_queries} />
         <StatCard
           label="Crises Detected"
-          value={stats.total_crises}
-          colorClass={stats.total_crises > 0 ? "text-red-600" : "text-green-600"}
+          value={s.total_crises}
+          colorClass={s.total_crises > 0 ? "text-red-600" : "text-green-600"}
         />
         <StatCard
           label="User Feedback"
@@ -82,7 +76,7 @@ export default function OverviewPage() {
 
       <div className="mb-7">
         <h2 className="text-base font-semibold mb-4">Recent Activity</h2>
-        <EventFeed events={events} />
+        <EventFeed events={events.data.slice(0, 20)} />
       </div>
     </>
   );

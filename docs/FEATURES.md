@@ -63,6 +63,38 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 
 ---
 
+## Security
+
+- **CORS allowlist** — only configured origins can make cross-origin requests; controlled via `CORS_ALLOWED_ORIGINS` env var
+- **CSRF middleware** — validates `Origin` and `Referer` headers on state-changing requests from browsers
+- **HMAC-signed session tokens** — session IDs are signed with `SESSION_SECRET` so clients cannot forge or tamper with them
+- **Admin API key auth** — all `/admin/api/*` endpoints require `Authorization: Bearer <ADMIN_API_KEY>` when the key is configured; open in dev mode when unset
+- **CSP headers** — Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, and Permissions-Policy headers set via Next.js config
+- **Eval subprocess isolation** — eval runs execute in a separate subprocess to prevent blocking the web server
+
+---
+
+## Stability & Rate Limiting
+
+- **Message length limit** — chat messages are capped at 10,000 characters via Pydantic validation; oversized messages get a 422 response before any processing
+- **LLM timeout** — all Anthropic API calls time out after 10 seconds
+- **DB statement timeout** — PostgreSQL queries are capped at 5 seconds via `statement_timeout`
+- **Frontend fetch timeout** — all `fetch()` calls use `AbortSignal.timeout()` — 30 seconds for chat, 15 seconds for admin/feedback
+- **Chat rate limits** — per-session (12/min, 60/hr, 200/day) and per-IP (60/min, 300/hr) sliding-window limits; configurable via env vars
+- **Admin rate limits** — per-IP (120/min, 600/hr) for all admin endpoints; stricter limit (5/hr) for eval runs which consume LLM API credits
+- **Feedback rate limit** — 10 requests per session per minute
+- **Rate limiter memory management** — 10-minute entry TTL, 1-minute eviction sweep, hard cap of 5,000 tracked keys with forced eviction above the cap
+- **Session eviction** — in-memory session store uses LRU eviction at 500-session cap; 30-minute TTL per session
+
+---
+
+## Frontend State Management
+
+- **Chat history persistence** — conversation state (messages, session ID) is synced to `localStorage` via Zustand `persist` middleware. Users keep their conversation across page refreshes and tab close/reopen. Auto-resets after 30 minutes of inactivity to match the backend session TTL
+- **Admin data caching** — all admin pages share a centralized Zustand store with staleness-based caching (30-second threshold). Navigating between admin tabs reuses cached data instead of re-fetching from the API on every navigation
+
+---
+
 ## Accessibility
 
 The frontend is designed for the population served — people who may be using screen readers, keyboard-only navigation, or voice input on shared or low-end devices.
@@ -81,10 +113,11 @@ The frontend is designed for the population served — people who may be using s
 ## Staff Tools
 
 - **Staff review console** — data stewards can view anonymized conversation transcripts, query execution logs, crisis events, and aggregate stats at `/admin`. Includes a full transcript viewer with slot metadata and crisis flags
-- **Metrics tab** — 18 live metrics across 5 layers (intake quality, answer quality, safety, system quality/eval, closed-loop) with targets and status indicators
+- **Metrics tab** — 20 live metrics across 5 layers (intake quality, answer quality, safety, system quality/eval, closed-loop) with targets and status indicators. Includes task completion rate, slot confirmation/correction rates, confirmation breakdown, data freshness rate, escalation rate, no-result rate, relaxed query rate, and more
 - **User feedback** — thumbs up/down on every bot response; feedback scores are surfaced in the admin Overview and Metrics tabs
 - **In-browser eval runner** — the Eval tab in the staff console includes a "Run Evals" button that triggers the LLM-as-judge suite as a FastAPI background task, with live progress polling and a scenario count selector (5 / 10 / 20 / all)
 - **LLM-as-judge evaluation** — 85-scenario automated evaluation framework across 17 categories, simulating conversations and scoring across 8 quality dimensions: slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, and error recovery. Outputs a structured report with per-scenario scores, critical failure tracking, and category averages. See [EVAL_RESULTS.md](EVAL_RESULTS.md) for full run history
+- **Centralized data store** — admin pages share a Zustand store with 30-second staleness caching, eliminating redundant API calls when navigating between tabs
 
 ---
 
@@ -95,7 +128,7 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 - Result ordering uses open-now / recently-verified / name; proximity-first when geolocation available
 - `additional_info` field is effectively empty (99.7% null)
 - Schedule data is sparse for most categories — open/closed filtering intentionally disabled
-- Eval background task runs in the web server process
 - `natural_new_to_nyc` slot extraction failure (P7 pending)
 - `adversarial_fake_service` graceful handling (P6 pending)
-- Phone number redaction in confirmation echo (P5 pending)
+- `phone_number_redaction_in_confirmation` echo (P5 pending)
+- In-memory audit log and session store reset on server restart — persistent storage deferred to post-pilot

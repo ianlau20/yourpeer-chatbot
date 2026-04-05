@@ -6,33 +6,33 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { fetchEvalResults } from "@/lib/chat/api";
-import type { EvalReport } from "@/lib/chat/types";
+import { useEffect, useCallback } from "react";
+import { useAdminStore } from "@/lib/admin/store";
 import { EvalRunner, EvalResults } from "@/components/admin/eval-results";
 
 export default function EvalsPage() {
-  const [report, setReport] = useState<EvalReport | null | undefined>(undefined);
-
-  const loadResults = useCallback(() => {
-    fetchEvalResults()
-      .then(setReport)
-      .catch(() => setReport(null));
-  }, []);
+  const { evalResults, fetchEvalResults, invalidate } = useAdminStore();
 
   useEffect(() => {
-    loadResults();
-  }, [loadResults]);
+    fetchEvalResults();
+  }, [fetchEvalResults]);
+
+  const onEvalComplete = useCallback(() => {
+    invalidate("evalResults");
+    fetchEvalResults();
+  }, [invalidate, fetchEvalResults]);
+
+  const report = evalResults.data;
 
   return (
     <>
-      <EvalRunner onComplete={loadResults} />
+      <EvalRunner onComplete={onEvalComplete} />
 
-      {report === undefined && (
+      {evalResults.loading && report === undefined && (
         <p className="text-neutral-400 text-sm">Loading…</p>
       )}
 
-      {report === null && (
+      {!evalResults.loading && (report === null || report === undefined) && (
         <div className="text-center py-16 text-neutral-400">
           <div className="text-3xl mb-3">🧪</div>
           <p>No evaluation results yet.</p>

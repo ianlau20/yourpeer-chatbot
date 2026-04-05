@@ -9,9 +9,9 @@ unhoused New Yorkers find services (shelter, food, clothing, showers, benefits).
 
 | Layer | Tech |
 |-------|------|
-| LLM | Claude Sonnet |
+| LLM | Claude Haiku + Sonnet |
 | Backend | FastAPI (Python) |
-| Frontend | React chat component |
+| Frontend | Next.js 15 / React 19 / Zustand |
 | Database | Streetlives PostgreSQL (read-only) |
 
 **Architecture:** `User → Chat UI → Backend → LLM + Query Templates → Streetlives API`
@@ -73,8 +73,10 @@ information, preventing hallucination.
 | `backend/app/privacy/pii_redactor.py` | PII detection and redaction (phone, SSN, email, DOB, address, names) |
 | `backend/app/models/chat_models.py` | Pydantic models: ChatRequest, ChatResponse, ServiceCard, QuickReply |
 | `frontend-next/src/components/chat/` | Chat UI components (ChatContainer, ServiceCard, QuickReplies) |
-| `frontend-next/src/app/admin/` | Staff console pages (overview, conversations, evals) |
-| `frontend-next/next.config.js` | API rewrites (`/api/chat` → backend `:8000`) |
+| `frontend-next/src/lib/chat/store.ts` | Zustand chat store with `localStorage` persistence |
+| `frontend-next/src/lib/admin/store.ts` | Zustand admin store with staleness-based caching |
+| `frontend-next/src/app/admin/` | Staff console pages (overview, conversations, metrics, queries, evals, models) |
+| `frontend-next/next.config.js` | API rewrites (`/api/chat` → backend `:8000`), CSP headers |
 | `tests/conftest.py` | Pytest fixtures, mock data, test helpers |
 | `tests/eval_llm_judge.py` | LLM-as-judge evaluation (85 scenarios, 8 dimensions) |
 
@@ -99,22 +101,23 @@ information, preventing hallucination.
 - **Accessibility**: screen reader support, keyboard navigation, voice input (Web Speech API)
 - **Anonymized audit logging**: conversation turns, query executions, crisis events
 - **In-memory sessions**: no persistent conversation storage, 30-min TTL, LRU eviction at 500-session cap
+- **Chat history persistence**: conversation survives page refresh via Zustand `localStorage` sync; auto-resets after 30-min inactivity to match backend TTL
 - **Result sorting**: open-now first, then recently verified, then name; proximity-first when geolocation available
 - **Error boundaries**: route-level (chat, admin, global) + component-level (ServiceCarousel) + custom 404
 - **Security**: CORS allowlist, CSRF middleware, HMAC-signed session tokens, admin API key auth, CSP/X-Frame-Options/Permissions-Policy headers, eval subprocess isolation
-- **Stability**: 10,000-char message length limit, 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (30/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
+- **Stability**: 10,000-char message length limit, 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
+- **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
 - **Test suite**: 19 pytest files (607 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, and DB schema/query integration
 
 ## Known Gaps / In Progress
 
 - **Multi-intent requests** — cannot handle "food AND shelter" in a single message
 - **Real-time location** — browser geolocation supported (opt-in); falls back to text-based location when denied
-- **Caching** — DB queries are not cached
 - **Multilingual support** — English only
 - **Adversarial service handling** — requests for impossible services proceed to search
-- **Result ordering** — sorted by open now, then recently verified, then name; proximity-first when geolocation is available
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage
 - **`additional_info` field** — 99.7% null in DB, always empty in results
+- **Persistent storage** — in-memory audit log and session store reset on server restart; DB queries are not cached
 
 ## Running Tests
 
@@ -175,3 +178,6 @@ See `docs/SETUP.md` for full instructions.
 | `RATE_LIMIT_IP_PER_MIN` | No | Per-IP messages/minute (default: 60) |
 | `RATE_LIMIT_IP_PER_HOUR` | No | Per-IP messages/hour (default: 300) |
 | `RATE_LIMIT_FEEDBACK_PER_MIN` | No | Feedback requests per session/minute (default: 10) |
+| `SESSION_SECRET` | Yes (prod) | HMAC key for signing session tokens. If unset, tokens are unsigned (dev mode) |
+| `ADMIN_API_KEY` | Yes (prod) | Bearer token required for all `/admin/api/*` endpoints. If unset, admin is open (dev mode) |
+| `CORS_ALLOWED_ORIGINS` | Yes (prod) | Comma-separated list of allowed origins for CORS. If unset, allows all origins (dev mode) |

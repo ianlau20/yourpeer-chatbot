@@ -5,13 +5,21 @@
 // https://opensource.org/licenses/MIT.
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { ChatMessage, QuickReply } from "./types";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface ChatStore {
   sessionId: string | null;
   messages: ChatMessage[];
+  lastActiveAt: number;
   isLoading: boolean;
   error: string | null;
+  /** True once the store has rehydrated from localStorage. */
+  _hasHydrated: boolean;
 
   setSessionId: (id: string) => void;
   addMessage: (msg: ChatMessage) => void;
@@ -21,10 +29,12 @@ interface ChatStore {
   resetChat: () => void;
 }
 
-let msgCounter = 0;
-export function nextMsgId(): string {
-  return `msg-${++msgCounter}-${Date.now()}`;
-}
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Backend session TTL is 30 minutes — expire localStorage to match. */
+const SESSION_TTL_MS = 30 * 60 * 1000;
 
 const WELCOME_MESSAGE =
   "Hi, welcome to YourPeer. I can help you find services like food, shelter, showers, and more in your area. Your conversation is private — I don't save your name or personal details. You can stop or start over anytime.\n\nWhat are you looking for today?";
@@ -41,6 +51,34 @@ const INITIAL_QUICK_REPLIES: QuickReply[] = [
   { label: "📋 Other", value: "I need other services" },
 ];
 
+// ---------------------------------------------------------------------------
+// Message IDs — monotonic counter that survives rehydration
+// ---------------------------------------------------------------------------
+
+let msgCounter = 0;
+
+export function nextMsgId(): string {
+  return `msg-${++msgCounter}-${Date.now()}`;
+}
+
+/**
+ * After rehydrating from localStorage, bump the counter past any existing
+ * message IDs so new messages don't collide.
+ */
+function syncMsgCounter(messages: ChatMessage[]): void {
+  for (const m of messages) {
+    const match = m.id.match(/^msg-(\d+)-/);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > msgCounter) msgCounter = n;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function makeWelcomeMessage(): ChatMessage {
   return {
     id: nextMsgId(),
@@ -50,33 +88,74 @@ function makeWelcomeMessage(): ChatMessage {
   };
 }
 
-export const useChatStore = create<ChatStore>((set) => ({
-  sessionId: null,
-  messages: [makeWelcomeMessage()],
-  isLoading: false,
-  error: null,
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 
-  setSessionId: (id) => set({ sessionId: id }),
-
-  addMessage: (msg) =>
-    set((state) => ({ messages: [...state.messages, msg] })),
-
-  setLoading: (v) => set({ isLoading: v, error: v ? null : undefined }),
-
-  setError: (msg) => set({ error: msg }),
-
-  markQuickRepliesUsed: () =>
-    set((state) => ({
-      messages: state.messages.map((m) =>
-        m.quick_replies ? { ...m, quick_replies: undefined } : m,
-      ),
-    })),
-
-  resetChat: () =>
-    set({
+export const useChatStore = create<ChatStore>()(
+  persist(
+    (set) => ({
       sessionId: null,
       messages: [makeWelcomeMessage()],
+      lastActiveAt: Date.now(),
       isLoading: false,
       error: null,
+      _hasHydrated: false,
+
+      setSessionId: (id) => set({ sessionId: id }),
+
+      addMessage: (msg) =>
+        set((state) => ({
+          messages: [...state.messages, msg],
+          lastActiveAt: Date.now(),
+        })),
+
+      setLoading: (v) => set({ isLoading: v, error: v ? null : undefined }),
+
+      setError: (msg) => set({ error: msg }),
+
+      markQuickRepliesUsed: () =>
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.quick_replies ? { ...m, quick_replies: undefined } : m,
+          ),
+        })),
+
+      resetChat: () =>
+        set({
+          sessionId: null,
+          messages: [makeWelcomeMessage()],
+          lastActiveAt: Date.now(),
+          isLoading: false,
+          error: null,
+        }),
     }),
-}));
+    {
+      name: "yourpeer-chat",
+
+      // Only persist conversation state — not transient UI flags.
+      partialize: (state) => ({
+        sessionId: state.sessionId,
+        messages: state.messages,
+        lastActiveAt: state.lastActiveAt,
+      }),
+
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          // If the session has expired, reset to the welcome screen.
+          const elapsed = Date.now() - (state.lastActiveAt || 0);
+          if (elapsed > SESSION_TTL_MS) {
+            // Defer the reset so it doesn't interfere with rehydration.
+            setTimeout(() => useChatStore.getState().resetChat(), 0);
+          } else {
+            // Sync the message counter so new IDs don't collide.
+            syncMsgCounter(state.messages);
+          }
+        }
+
+        // Mark hydration complete — the chat UI waits for this.
+        useChatStore.setState({ _hasHydrated: true });
+      },
+    },
+  ),
+);
