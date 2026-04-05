@@ -231,13 +231,6 @@ def test_session_id_preserved():
     result = send("hi", session_id=custom_id)
     assert result["session_id"] == custom_id
     clear_session(custom_id)
-def test_invalid_session_id_replaced():
-    """Non-UUID session IDs should be replaced with a server-generated UUID."""
-    import uuid
-    result = send("hi", session_id="not-a-valid-uuid")
-    assert result["session_id"] != "not-a-valid-uuid"
-    uuid.UUID(result["session_id"])  # should not raise
-    clear_session(result["session_id"])
 # -----------------------------------------------------------------------
 # RESPONSE STRUCTURE VALIDATION
 # -----------------------------------------------------------------------

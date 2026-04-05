@@ -61,7 +61,7 @@ def test_lazy_init_creates_client(mock_anthropic):
 
     client = cc.get_client()
     assert client is not None
-    mock_anthropic.Anthropic.assert_called_once_with(api_key="fake-key")
+    mock_anthropic.Anthropic.assert_called_once_with(api_key="fake-key", timeout=10.0)
 
 
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake-key"})

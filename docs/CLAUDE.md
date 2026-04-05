@@ -98,10 +98,12 @@ information, preventing hallucination.
 - **LLM-as-judge eval**: 85 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
 - **Accessibility**: screen reader support, keyboard navigation, voice input (Web Speech API)
 - **Anonymized audit logging**: conversation turns, query executions, crisis events
-- **In-memory sessions**: no persistent conversation storage, 30-min TTL
+- **In-memory sessions**: no persistent conversation storage, 30-min TTL, LRU eviction at 500-session cap
 - **Result sorting**: open-now first, then recently verified, then name; proximity-first when geolocation available
 - **Error boundaries**: route-level (chat, admin, global) + component-level (ServiceCarousel) + custom 404
-- **Test suite**: 18 pytest files (559 tests) covering all services, routes, edge cases, geolocation, rate limiting, and DB schema/query integration
+- **Security**: CORS allowlist, CSRF middleware, HMAC-signed session tokens, admin API key auth, CSP/X-Frame-Options/Permissions-Policy headers, eval subprocess isolation
+- **Stability**: 10,000-char message length limit, 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (30/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
+- **Test suite**: 19 pytest files (597 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, and DB schema/query integration
 
 ## Known Gaps / In Progress
 
@@ -113,7 +115,6 @@ information, preventing hallucination.
 - **Result ordering** — sorted by open now, then recently verified, then name; proximity-first when geolocation is available
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage
 - **`additional_info` field** — 99.7% null in DB, always empty in results
-- **Eval runs in web server process** — background task can block request handling during long runs
 
 ## Running Tests
 

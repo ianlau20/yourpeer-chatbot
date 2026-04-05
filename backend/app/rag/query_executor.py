@@ -64,6 +64,10 @@ def _get_engine():
             max_overflow=10,
             pool_pre_ping=True,   # verify connections before use
             echo=False,
+            # D3: prevent runaway queries from blocking indefinitely.
+            # All queries in this app are parameterized lookups against
+            # indexed tables — 5 seconds is generous.
+            connect_args={"options": "-c statement_timeout=5000"},
         )
     return _engine
 

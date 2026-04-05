@@ -33,10 +33,17 @@ IP_PER_HOUR = int(os.getenv("RATE_LIMIT_IP_PER_HOUR", "300"))
 FEEDBACK_PER_MINUTE = int(os.getenv("RATE_LIMIT_FEEDBACK_PER_MIN", "10"))
 
 # How long to keep entries with no new requests before evicting (seconds).
-_EVICTION_TTL = 3600  # 1 hour
+# D7: reduced from 3600s to 600s so burst-traffic entries are cleaned up
+# faster when normal traffic resumes.
+_EVICTION_TTL = 600  # 10 minutes
 
 # Minimum interval between eviction sweeps (seconds).
-_EVICTION_INTERVAL = 300  # 5 minutes
+_EVICTION_INTERVAL = 60  # 1 minute
+
+# D7: hard cap on total tracked keys.  If exceeded, force an eviction
+# sweep immediately rather than waiting for the interval.  Prevents
+# unbounded memory growth from high-cardinality IP bursts.
+_MAX_BUCKETS = 5000
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +63,15 @@ CHAT_IP_LIMITS: List[Tuple[int, int]] = [
 
 FEEDBACK_SESSION_LIMITS: List[Tuple[int, int]] = [
     (60, FEEDBACK_PER_MINUTE),
+]
+
+ADMIN_IP_LIMITS: List[Tuple[int, int]] = [
+    (60, 30),     # 30 requests/minute per IP
+    (3600, 200),  # 200 requests/hour per IP
+]
+
+ADMIN_EVAL_LIMITS: List[Tuple[int, int]] = [
+    (3600, 5),    # 5 eval runs/hour (expensive — triggers LLM calls)
 ]
 
 
@@ -177,7 +193,10 @@ def _retry_after(bucket: deque, window_seconds: int, now: float) -> int:
 def _maybe_evict(now: float) -> None:
     """Remove buckets with no recent activity.  MUST hold _lock."""
     global _last_eviction
-    if now - _last_eviction < _EVICTION_INTERVAL:
+    # D7: force a sweep if we've exceeded the bucket cap, even if the
+    # interval hasn't elapsed — prevents unbounded memory growth.
+    if (now - _last_eviction < _EVICTION_INTERVAL
+            and len(_buckets) <= _MAX_BUCKETS):
         return
     _last_eviction = now
     cutoff = now - _EVICTION_TTL
