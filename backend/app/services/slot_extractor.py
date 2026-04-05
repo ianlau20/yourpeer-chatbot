@@ -15,7 +15,7 @@ SERVICE_KEYWORDS = {
         "pantry", "hungry", "soup kitchen", "soup", "lunch", "dinner",
         "breakfast", "snack", "free food", "hot meal", "brown bag",
         "farmers market", "mobile pantry",
-        # "eat" removed — collides with words like "beat", "seat", "theater"
+        "something to eat", "grab a bite", "canned food",
     ],
 
     # --- Shelter & Housing (taxonomy: Shelter) ---
@@ -25,7 +25,8 @@ SERVICE_KEYWORDS = {
         "drop-in center", "drop in center", "warming center",
         "overnight", "transitional housing", "safe haven", "room",
         "place to live", "somewhere to live", "intake",
-        # "bed" removed — collides with "bed-stuy", "bedford-stuyvesant"
+        "evicted", "kicked out", "kicked me out", "on the street",
+        "sleeping outside", "somewhere safe", "safe place",
     ],
 
     # --- Clothing (taxonomy: Clothing) ---
@@ -33,6 +34,8 @@ SERVICE_KEYWORDS = {
         "clothing", "clothes", "jacket", "coat", "shoes", "boots",
         "socks", "underwear", "warm clothes", "winter clothes",
         "free clothes", "outfit", "pants", "shirt",
+        "sweater", "sweatshirt", "hoodie", "gloves",
+        "winter gear", "sneakers",
     ],
 
     # --- Personal Care (taxonomy: Personal Care → Shower, Laundry, etc.) ---
@@ -41,7 +44,8 @@ SERVICE_KEYWORDS = {
         "toiletries", "restroom", "bathroom", "haircut", "barber",
         "toothbrush", "toothpaste", "soap", "shampoo", "deodorant",
         "personal care", "grooming",
-        # "wash" removed — collides with "washington heights"
+        "hygiene kit", "feminine products", "pads", "tampons",
+        "menstrual", "razors", "freshen up", "get clean",
     ],
 
     # --- Health Care (taxonomy: Health) ---
@@ -50,7 +54,8 @@ SERVICE_KEYWORDS = {
         "health care", "healthcare", "prescription", "dental", "dentist",
         "eye doctor", "vision", "glasses", "urgent care", "checkup",
         "physical", "vaccination", "vaccine", "std testing", "hiv testing",
-        # "std" and "hiv" shortened removed — expanded to "std testing"/"hiv testing"
+        "sick", "nurse", "wound", "injury", "infection",
+        "medication", "blood pressure", "sti testing",
     ],
 
     # --- Mental Health (taxonomy: Mental Health) ---
@@ -61,6 +66,8 @@ SERVICE_KEYWORDS = {
         "aa meeting", "na meeting", "narcotics anonymous", "alcoholics anonymous",
         "support group", "emotional support", "psychiatric",
         "psychiatrist", "crisis counseling",
+        "struggling", "having a hard time", "grief", "grieving",
+        "someone to talk to", "peer support",
     ],
 
     # --- Legal Services (taxonomy: Legal Services, Advocates / Legal Aid) ---
@@ -69,6 +76,8 @@ SERVICE_KEYWORDS = {
         "legal aid", "legal help", "legal services", "tenant rights",
         "asylum", "deportation", "green card", "visa", "work permit",
         "public defender", "advocate", "rights",
+        "landlord", "tenant", "custody", "bail",
+        "housing court", "discrimination",
     ],
 
     # --- Employment (taxonomy: Employment) ---
@@ -78,7 +87,7 @@ SERVICE_KEYWORDS = {
         "workforce", "job placement", "temp work", "day labor",
         "job search", "job help", "find work", "need work",
         "looking for work",
-        # "work" removed — collides with "how does this work", "outreach worker", etc.
+        "apprenticeship", "part-time", "gig work",
     ],
 
     # --- Other Services (taxonomy: Other service) ---
@@ -88,9 +97,30 @@ SERVICE_KEYWORDS = {
         "identification", "birth certificate", "need an id",
         "free phone", "wifi", "internet", "charging", "mail",
         "mailing address", "storage", "locker",
-        # "id" removed — collides with "side", "ridge", "midtown", etc.
-        # "phone" removed — collides with PII phone numbers in messages
+        "welfare", "cash assistance", "state id", "nyc id",
+        "metro card", "transit", "charger", "charging station",
     ],
+}
+
+# Keywords that were previously removed due to substring collisions with
+# location names or common phrases. These are matched using \b word
+# boundaries instead of plain `in` to prevent false positives.
+# Format: { keyword: service_type }
+_WORD_BOUNDARY_KEYWORDS = {
+    "bed": "shelter",          # was colliding with "bed-stuy", "bedford"
+    "wash": "personal_care",   # was colliding with "washington heights"
+    # NOTE: "work" not included here — "\bwork\b" still matches "how does
+    # this work". Use the phrase-based keywords ("need work", "find work",
+    # "looking for work") in SERVICE_KEYWORDS instead.
+    "id": "other",             # was colliding with "side", "ridge", "midtown"
+    "eat": "food",             # was colliding with "beat", "seat", "theater"
+    "hat": "clothing",         # was colliding with "what", "that", "chat"
+}
+
+# Pre-compile word-boundary patterns for collision-prone keywords
+_WORD_BOUNDARY_PATTERNS = {
+    kw: (re.compile(r"\b" + re.escape(kw) + r"\b", re.IGNORECASE), svc)
+    for kw, svc in _WORD_BOUNDARY_KEYWORDS.items()
 }
 
 # Phrases that mean "where I am" but don't contain an actual location.
@@ -130,6 +160,15 @@ def _extract_service_type(text: str) -> Optional[str]:
     for keyword, service in all_keywords:
         if keyword in lower:
             return service
+
+    # Fallback: check collision-prone keywords using word boundaries.
+    # These were previously removed because substring matching caused
+    # false positives (e.g. "bed" in "bed-stuy", "wash" in "washington").
+    # Word-boundary regex prevents those collisions.
+    for pattern, service in _WORD_BOUNDARY_PATTERNS.values():
+        if pattern.search(text):
+            return service
+
     return None
 
 
@@ -218,7 +257,10 @@ _KNOWN_LOCATIONS = [
 
 def _extract_urgency(text: str) -> Optional[str]:
     lower = text.lower()
-    if any(x in lower for x in ["tonight", "urgent", "asap", "right now", "immediately"]):
+    if any(x in lower for x in [
+        "tonight", "urgent", "asap", "right now", "immediately",
+        "emergency", "today", "before dark", "freezing",
+    ]):
         return "high"
     if any(x in lower for x in ["soon", "this week"]):
         return "medium"

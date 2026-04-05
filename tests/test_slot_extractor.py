@@ -477,3 +477,240 @@ def test_followup_asks_age_for_shelter():
 
 
 # -----------------------------------------------------------------------
+# WORD-BOUNDARY KEYWORDS (restored collision-prone keywords)
+# -----------------------------------------------------------------------
+
+def test_word_boundary_bed_matches_shelter():
+    """'bed' with word boundaries should match shelter."""
+    phrases = [
+        "I need a bed",
+        "Is there a bed available?",
+        "Where can I get a bed tonight?",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "shelter", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_word_boundary_bed_no_collision_with_locations():
+    """'bed' must NOT trigger shelter when part of a location name."""
+    phrases = [
+        ("food in bed-stuy", "food"),
+        ("shelter near bedford-stuyvesant", "shelter"),
+        ("food in bedford", "food"),
+    ]
+    for phrase, expected in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == expected, \
+            f"Collision: '{phrase}' → {slots['service_type']} (expected {expected})"
+
+
+def test_word_boundary_wash_matches_personal_care():
+    """'wash' with word boundaries should match personal_care."""
+    phrases = [
+        "I need to wash up",
+        "Where can I wash my face?",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "personal_care", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_word_boundary_wash_no_collision_with_washington():
+    """'wash' must NOT trigger personal_care in 'washington heights'."""
+    slots = extract_slots("food near washington heights")
+    assert slots["service_type"] == "food", \
+        f"Collision: 'washington heights' triggered {slots['service_type']}"
+
+
+def test_word_boundary_id_matches_other():
+    """'id' with word boundaries should match other."""
+    phrases = [
+        "I need an id",
+        "How do I get an ID?",
+        "I lost my ID",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "other", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_word_boundary_id_no_collision_with_locations():
+    """'id' must NOT trigger other when part of 'side', 'midtown', etc."""
+    phrases = [
+        ("shelter in midtown", "shelter"),
+        ("food on the east side", "food"),
+        ("food near bay ridge", "food"),
+    ]
+    for phrase, expected in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == expected, \
+            f"Collision: '{phrase}' → {slots['service_type']} (expected {expected})"
+
+
+def test_word_boundary_eat_matches_food():
+    """'eat' with word boundaries should match food."""
+    phrases = [
+        "I need to eat",
+        "Where can I eat?",
+        "I just want to eat something",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "food", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_word_boundary_eat_no_collision():
+    """'eat' must NOT trigger food in 'beat', 'seat', 'theater'."""
+    phrases = [
+        "I beat the odds",
+        "I had a good seat",
+        "I went to the theater",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] is None, \
+            f"Collision: '{phrase}' → {slots['service_type']}"
+
+
+def test_word_boundary_hat_matches_clothing():
+    """'hat' with word boundaries should match clothing."""
+    slots = extract_slots("I need a hat")
+    assert slots["service_type"] == "clothing"
+
+
+def test_word_boundary_hat_no_collision():
+    """'hat' must NOT trigger clothing in 'what', 'that', 'chat'."""
+    phrases = [
+        "What time is it?",
+        "That is a good idea",
+        "Let's chat about it",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] is None, \
+            f"Collision: '{phrase}' → {slots['service_type']}"
+
+
+# -----------------------------------------------------------------------
+# NEW KEYWORDS (expanded coverage for target population)
+# -----------------------------------------------------------------------
+
+def test_new_food_keywords():
+    """Newly added food keywords should match."""
+    phrases = [
+        "I need something to eat",
+        "Can I grab a bite somewhere?",
+        "Any canned food available?",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "food", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_shelter_keywords():
+    """Newly added shelter keywords should match."""
+    phrases = [
+        "I got evicted yesterday",
+        "My parents kicked me out",
+        "I've been sleeping outside",
+        "I'm on the street and need help",
+        "I need somewhere safe",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "shelter", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_clothing_keywords():
+    """Newly added clothing keywords should match."""
+    phrases = [
+        "I need a sweater",
+        "Do you have any hoodies?",
+        "I need gloves for the winter",
+        "Where can I get sneakers?",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "clothing", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_personal_care_keywords():
+    """Newly added personal care keywords should match."""
+    phrases = [
+        "I need feminine products",
+        "Where can I get pads?",
+        "I need a hygiene kit",
+        "I just want to freshen up",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "personal_care", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_medical_keywords():
+    """Newly added medical keywords should match."""
+    phrases = [
+        "I'm sick and need help",
+        "I have a wound that won't heal",
+        "Can I see a nurse?",
+        "I need medication",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "medical", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_mental_health_keywords():
+    """Newly added mental health keywords should match."""
+    phrases = [
+        "I've been struggling lately",
+        "I'm having a hard time",
+        "I'm dealing with grief",
+        "I just need someone to talk to",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "mental_health", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_legal_keywords():
+    """Newly added legal keywords should match."""
+    phrases = [
+        "My landlord is threatening me",
+        "I need help with custody",
+        "I need bail money",
+        "I'm facing discrimination",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "legal", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_other_keywords():
+    """Newly added other-services keywords should match."""
+    phrases = [
+        "How do I get welfare?",
+        "I need cash assistance",
+        "Where do I get a state ID?",
+        "I need a metro card",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == "other", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_new_urgency_keywords():
+    """Newly added urgency terms should extract high urgency."""
+    phrases = [
+        "I need shelter today",
+        "This is an emergency",
+        "I'm freezing out here",
+        "I need help before dark",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["urgency"] == "high", f"Failed on: {phrase} → urgency={slots['urgency']}"
+
+
+# -----------------------------------------------------------------------
