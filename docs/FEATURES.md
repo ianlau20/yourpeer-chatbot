@@ -21,7 +21,7 @@ Full feature reference for the YourPeer chatbot. For setup and architecture see 
 
 ## Crisis Detection
 
-- **Two-stage crisis detection** — regex pre-check (<1ms) followed by Claude Haiku LLM classification (1–3s, only when regex misses). Catches direct and indirect crisis language that can't be fully enumerated in a keyword list
+- **Two-stage crisis detection** — regex pre-check (<1ms) followed by Claude Sonnet LLM classification (1–3s, only when regex misses). Catches direct and indirect crisis language that can't be fully enumerated in a keyword list
 - **Six crisis categories** — suicide/self-harm (including passive ideation like "what's the point anymore"), domestic violence, safety concerns (runaway, unsafe home, being kicked out), trafficking, medical emergencies, and threats of violence
 - **Category-specific resources** — each category surfaces its own set of hotlines: 988 Lifeline, Crisis Text Line, Trevor Project, National DV Hotline, NYC DV Hotline, Safe Horizon, National Trafficking Hotline, Poison Control, 911
 - **Passive ideation detection** — indirect hopelessness phrases ("nothing helps anymore", "better off without me", "can't keep going") are included in the suicide/self-harm category

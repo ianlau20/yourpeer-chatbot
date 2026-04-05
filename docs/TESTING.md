@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 482 tests across 15 unit/integration test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, and session management. All tests run without external services — the Streetlives database, Claude API is mocked where needed.
+The test suite covers 559 tests across 18 test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -86,7 +86,7 @@ Validates the main chatbot module — message classification, slot extraction ro
 | Confirmation & quick replies | 10 | Confirmation triggered, change location/service, greeting/reset/follow-up quick replies, new input re-extracts, results show post-search buttons |
 | Bug fix regressions | 7 | "No" breaks confirmation loop, deny phrases classified correctly, cancel variants trigger reset, expanded frustration phrases, thanks-with-continuation falls through, empty/whitespace message guard |
 
-### `test_slot_extractor.py` — 37 tests
+### `test_slot_extractor.py` — 56 tests
 
 Validates the regex-based slot extraction pipeline.
 
@@ -99,8 +99,10 @@ Validates the regex-based slot extraction pipeline.
 | Multi-slot | 2 | Single message filling multiple slots |
 | Merge logic | 5 | New over empty, preserving existing, near-me sentinel behavior |
 | Flow control | 5 | `is_enough_to_answer`, follow-up question routing |
+| Word-boundary keywords | 12 | Restored collision-prone keywords (bed, wash, id, eat, hat) match correctly and don't false-positive on location names |
+| New keywords | 10 | Expanded coverage across all 9 categories + urgency terms for target population |
 
-### `test_edge_cases.py` — 28 tests
+### `test_edge_cases.py` — 29 tests
 
 Cross-cutting tests from the architecture spec and user testing plans.
 
@@ -161,7 +163,7 @@ Validates crisis detection across five categories with correct hotline resources
 | False positive prevention | 3 | Service requests, conversational messages, "hurt" in non-crisis context |
 | Priority / integration | 3 | `is_crisis()` helper, crisis in longer messages, crisis alongside service requests |
 
-### `test_llm_slot_extractor.py` — 14 unit + 5 live tests
+### `test_llm_slot_extractor.py` — 19 unit + 5 live tests
 
 Validates the LLM-based slot extractor. Live tests require `ANTHROPIC_API_KEY` and are automatically skipped without it.
 
@@ -221,7 +223,7 @@ HTTP-level tests for the chat endpoint and Pydantic model validation.
 | HTTP crisis | 1 | Returns 988 resources, no service cards, query_services not called |
 | HTTP method | 1 | GET /chat/ returns non-200 |
 
-### `test_pii_redactor.py` — 12 tests
+### `test_pii_redactor.py` — 15 tests
 
 Validates PII detection and redaction across six PII types.
 
@@ -271,6 +273,38 @@ Validates browser geolocation support: coordinate acceptance, session storage, "
 | Full flow | 1 | food near me → confirmation → confirm → results with coords passed to query_services |
 | RAG integration | 2 | Direct coords build proximity params, coords override location name |
 | Cross-turn persistence | 1 | Coords persist in session across messages |
+
+### `test_rate_limiter.py` — 12 tests
+
+Validates the sliding-window rate limiter logic.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Per-session limits | 4 | Messages per minute/hour/day, retry_after calculation |
+| Per-IP limits | 3 | IP-level rate limiting, separate from session limits |
+| Feedback limits | 2 | Feedback endpoint rate limiting |
+| Bucket management | 3 | Sliding window cleanup, thread safety, clear() |
+
+### `test_rate_limit_integration.py` — 10 tests
+
+HTTP-level tests for rate limiting middleware via FastAPI TestClient.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| 429 responses | 4 | Rate limit exceeded returns 429, crisis resources included |
+| Session tracking | 3 | Session-based vs IP-based limiting |
+| Middleware integration | 3 | Middleware attached to routes, header extraction |
+
+### `test_db_integration.py` — 53 tests
+
+Database integration tests that run against the real Streetlives PostgreSQL database. Automatically skipped when DATABASE_URL is not set.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Schema validation | 18 | All 11 tables exist, required columns present, PostGIS geometry type, JSONB eligibility, timestamp freshness column, taxonomy names match templates, eligibility parameters exist |
+| Query execution | 21 | All 9 templates strict/relaxed, proximity search, distance ordering, age/gender eligibility, open-now sort, freshness sort, city list ANY(), weekday/open-now filters, all filters combined |
+| Result formatting | 2 | Real rows format to valid service cards, proximity returns multiple results |
+| End-to-end | 5 | Full query_services() pipeline: borough, neighborhood, coords, relaxed fallback, card field completeness |
 
 ### `test_main.py` — 7 tests
 

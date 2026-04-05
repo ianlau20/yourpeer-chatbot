@@ -101,7 +101,7 @@ information, preventing hallucination.
 - **In-memory sessions**: no persistent conversation storage, 30-min TTL
 - **Result sorting**: open-now first, then recently verified, then name; proximity-first when geolocation available
 - **Error boundaries**: route-level (chat, admin, global) + component-level (ServiceCarousel) + custom 404
-- **Test suite**: 15 pytest files covering all services, routes, and edge cases (no live API/DB needed)
+- **Test suite**: 18 pytest files (559 tests) covering all services, routes, edge cases, geolocation, rate limiting, and DB schema/query integration
 
 ## Known Gaps / In Progress
 
