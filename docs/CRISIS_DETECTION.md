@@ -10,7 +10,7 @@ The system uses two sequential stages:
 
 **Stage 1 — Regex pre-check** (<1ms, deterministic): A curated list of phrases covers the most common explicit crisis expressions. If any phrase matches, the response is returned immediately and the LLM is never called.
 
-**Stage 2 — LLM classification** (1–3s, only when regex misses): Claude Haiku classifies the message against all six crisis categories. This catches indirect, paraphrased, and culturally specific language that cannot be enumerated in a keyword list — "I've been on the streets for months and nothing helps anymore", "no one would even notice if I disappeared", "he said he'd come back tonight".
+**Stage 2 — LLM classification** (1–3s, only when regex misses): Claude Sonnet classifies the message against all six crisis categories. This catches indirect, paraphrased, and culturally specific language that cannot be enumerated in a keyword list — "I've been on the streets for months and nothing helps anymore", "no one would even notice if I disappeared", "he said he'd come back tonight".
 
 This two-stage approach mirrors the slot extraction architecture: regex handles the common case cheaply and deterministically; the LLM handles the ambiguous case accurately.
 
@@ -72,7 +72,7 @@ Each response is a static string constant — never LLM-generated. To update the
 | Constant | Line | Purpose |
 |---|---|---|
 | `_LLM_CATEGORY_RESPONSES` | [L309](../backend/app/services/crisis_detector.py#L309) | Maps LLM-returned category names to response strings |
-| `_LLM_SYSTEM_PROMPT` | [L322](../backend/app/services/crisis_detector.py#L322) | Prompt sent to Claude Haiku for classification |
+| `_LLM_SYSTEM_PROMPT` | [L322](../backend/app/services/crisis_detector.py#L322) | Prompt sent to Claude Sonnet for classification |
 | `_CRISIS_CATEGORIES` | [L299](../backend/app/services/crisis_detector.py#L299) | Ordered list of `(category, phrases, response)` tuples used by the regex loop |
 
 The LLM stage uses a lazy-initialized Anthropic client, consistent with `llm_slot_extractor.py`. It activates automatically when `ANTHROPIC_API_KEY` is present in the environment.
@@ -94,7 +94,7 @@ Stage 1: Regex pre-check
             └── ANTHROPIC_API_KEY set
                       │
                       ▼
-               Stage 2: LLM classification (Claude Haiku)
+               Stage 2: LLM classification (Claude Sonnet)
                       │
                       ├── Crisis detected → return (category, response)
                       │

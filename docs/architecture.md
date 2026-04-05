@@ -1,6 +1,6 @@
 User
   ↓
-React Chat UI
+Next.js Chat UI
   ↓
 FastAPI Backend
   ↓
@@ -8,4 +8,4 @@ LLM (Claude)
   ↓
 Query Template Executor
   ↓
-Streetlives API / PostgreSQL
+Streetlives PostgreSQL
