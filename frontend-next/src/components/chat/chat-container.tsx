@@ -8,12 +8,14 @@
 
 import { useEffect, useRef } from "react";
 import { useChat } from "@/hooks/use-chat";
+import { useChatStore } from "@/lib/chat/store";
 import { ChatMessage } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ChatStatus } from "./chat-status";
 
 export function ChatContainer() {
   const { messages, isLoading, error, send, submitFeedback } = useChat();
+  const hasHydrated = useChatStore((s) => s._hasHydrated);
   const chatRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll on new messages
@@ -45,14 +47,18 @@ export function ChatContainer() {
         tabIndex={0}
         className="flex-1 bg-white border border-neutral-200 rounded-2xl min-h-[400px] max-h-[75vh] overflow-y-auto p-5 flex flex-col gap-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-300/30"
       >
-        {messages.map((msg) => (
-          <ChatMessage
-            key={msg.id}
-            message={msg}
-            onQuickReply={send}
-            onFeedback={submitFeedback}
-          />
-        ))}
+        {!hasHydrated ? (
+          <p className="text-neutral-400 text-sm">Loading…</p>
+        ) : (
+          messages.map((msg) => (
+            <ChatMessage
+              key={msg.id}
+              message={msg}
+              onQuickReply={send}
+              onFeedback={submitFeedback}
+            />
+          ))
+        )}
       </div>
 
       <ChatStatus isLoading={isLoading} error={error} />

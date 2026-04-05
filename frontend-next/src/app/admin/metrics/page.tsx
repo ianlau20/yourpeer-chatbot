@@ -6,36 +6,38 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchAdminStats, fetchConversations, fetchQueries } from "@/lib/chat/api";
-import type { AdminStats, ConversationSummary, QueryLogEntry } from "@/lib/chat/types";
+import { useEffect } from "react";
+import { useAdminStore } from "@/lib/admin/store";
 import { MetricsSection } from "@/components/admin/metrics-section";
 import { MetricRow, statusClass, fmtMetric } from "@/components/admin/metric-row";
 
 export default function MetricsPage() {
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [convos, setConvos] = useState<ConversationSummary[]>([]);
-  const [queries, setQueries] = useState<QueryLogEntry[]>([]);
+  const {
+    stats: statsSlice,
+    conversations: convosSlice,
+    queries: queriesSlice,
+    fetchStats,
+    fetchConversations,
+    fetchQueries,
+  } = useAdminStore();
 
   useEffect(() => {
-    Promise.all([
-      fetchAdminStats(),
-      fetchConversations(200),
-      fetchQueries(500),
-    ])
-      .then(([s, c, q]) => {
-        setStats(s);
-        setConvos(c);
-        setQueries(q);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    fetchStats();
+    fetchConversations();
+    fetchQueries();
+  }, [fetchStats, fetchConversations, fetchQueries]);
 
-  if (loading || !stats) {
+  const loading = (!statsSlice.data && statsSlice.loading)
+    || (convosSlice.data.length === 0 && convosSlice.loading)
+    || (queriesSlice.data.length === 0 && queriesSlice.loading);
+
+  if (loading || !statsSlice.data) {
     return <p className="text-neutral-400 text-sm">Loading metrics…</p>;
   }
+
+  const stats = statsSlice.data;
+  const convos = convosSlice.data;
+  const queries = queriesSlice.data;
 
   // Derived metrics
   const totalSessions = stats.unique_sessions || 0;

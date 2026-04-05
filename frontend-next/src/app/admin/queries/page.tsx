@@ -6,23 +6,20 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchQueries } from "@/lib/chat/api";
-import type { QueryLogEntry } from "@/lib/chat/types";
+import { useEffect } from "react";
+import { useAdminStore } from "@/lib/admin/store";
 import { QueryLogTable } from "@/components/admin/query-log-table";
 
 export default function QueriesPage() {
-  const [queries, setQueries] = useState<QueryLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { queries, fetchQueries } = useAdminStore();
 
   useEffect(() => {
-    fetchQueries(200)
-      .then(setQueries)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    fetchQueries();
+  }, [fetchQueries]);
 
-  if (loading) return <p className="text-neutral-400 text-sm">Loading…</p>;
+  if (queries.loading && queries.data.length === 0) {
+    return <p className="text-neutral-400 text-sm">Loading…</p>;
+  }
 
-  return <QueryLogTable queries={queries} />;
+  return <QueryLogTable queries={queries.data} />;
 }

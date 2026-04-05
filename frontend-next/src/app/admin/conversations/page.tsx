@@ -6,23 +6,20 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchConversations } from "@/lib/chat/api";
-import type { ConversationSummary } from "@/lib/chat/types";
+import { useEffect } from "react";
+import { useAdminStore } from "@/lib/admin/store";
 import { ConversationTable } from "@/components/admin/conversation-table";
 
 export default function ConversationsPage() {
-  const [convos, setConvos] = useState<ConversationSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { conversations, fetchConversations } = useAdminStore();
 
   useEffect(() => {
-    fetchConversations(100)
-      .then(setConvos)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    fetchConversations();
+  }, [fetchConversations]);
 
-  if (loading) return <p className="text-neutral-400 text-sm">Loading…</p>;
+  if (conversations.loading && conversations.data.length === 0) {
+    return <p className="text-neutral-400 text-sm">Loading…</p>;
+  }
 
-  return <ConversationTable conversations={convos} />;
+  return <ConversationTable conversations={conversations.data} />;
 }
