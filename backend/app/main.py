@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.chat import router as chat_router
 from app.routes.admin import router as admin_router
-from app.dependencies import RateLimitMiddleware
+from app.dependencies import RateLimitMiddleware, CSRFMiddleware, get_allowed_origins
 
 app = FastAPI(
     title="YourPeer Chatbot API",
@@ -10,15 +10,19 @@ app = FastAPI(
 )
 
 # --- CORS ---
-# Next.js on :3000 calls FastAPI on :8000 during local dev.
-# In production, tighten to the actual domain.
+# Allowed origins are read from the CORS_ALLOWED_ORIGINS env var
+# (comma-separated). Defaults to localhost for local dev.
+# In production, set to the actual frontend domain(s).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=get_allowed_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- CSRF protection ---
+# Validates Origin header on POST/PUT/DELETE to prevent cross-site forgery.
+app.add_middleware(CSRFMiddleware)
 
 # --- Rate limiting ---
 # Protects /chat/ and /chat/feedback. Admin and health routes are exempt.

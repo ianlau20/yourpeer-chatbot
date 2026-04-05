@@ -4,6 +4,7 @@ Tests for the chat route and Pydantic models.
 Run: pytest tests/test_chat_route.py
 """
 
+import uuid
 from unittest.mock import patch
 
 from pydantic import ValidationError
@@ -245,12 +246,14 @@ def test_chat_route_generates_session_id(mock_claude, mock_query):
 @patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
 @patch("app.services.chatbot.claude_reply", return_value="test")
 def test_chat_route_preserves_session_id(mock_claude, mock_query):
-    """POST /chat/ with session_id should preserve it."""
+    """POST /chat/ with a valid session_id should preserve it."""
+    sid = str(uuid.uuid4())
     response = client.post("/chat/", json={
         "message": "hi",
-        "session_id": "my-session-123",
+        "session_id": sid,
     })
-    assert response.json()["session_id"] == "my-session-123"
+    assert response.json()["session_id"] == sid
+    clear_session(sid)
 
 
 def test_chat_route_missing_message():
@@ -430,6 +433,75 @@ def test_chat_route_get_not_allowed():
     """
     response = client.get("/chat/")
     assert response.status_code in (404, 405)
+
+
+# -----------------------------------------------------------------------
+# SESSION TOKEN VALIDATION (S4) — forged / invalid tokens at HTTP level
+# -----------------------------------------------------------------------
+
+_TEST_SECRET = b"test-secret-for-route-tests"
+
+
+@patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
+@patch("app.services.chatbot.claude_reply", return_value="test")
+@patch("app.services.session_token._SECRET", _TEST_SECRET)
+def test_chat_rejects_forged_session_id(mock_claude, mock_query):
+    """POST /chat/ with a forged session_id should return 403."""
+    response = client.post("/chat/", json={
+        "message": "hello",
+        "session_id": "forged-session-id",
+    })
+    assert response.status_code == 403
+    assert "Invalid session token" in response.json()["detail"]
+
+
+@patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
+@patch("app.services.chatbot.claude_reply", return_value="test")
+@patch("app.services.session_token._SECRET", _TEST_SECRET)
+def test_chat_rejects_tampered_session_id(mock_claude, mock_query):
+    """POST /chat/ with a tampered signature should return 403."""
+    response = client.post("/chat/", json={
+        "message": "hello",
+        "session_id": "some-raw-value.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    })
+    assert response.status_code == 403
+
+
+@patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
+@patch("app.services.chatbot.claude_reply", return_value="test")
+@patch("app.services.session_token._SECRET", _TEST_SECRET)
+def test_chat_accepts_valid_signed_session(mock_claude, mock_query):
+    """POST /chat/ with a properly signed session_id should succeed."""
+    from app.services.session_token import generate_session_id
+    token = generate_session_id()
+    response = client.post("/chat/", json={
+        "message": "hello",
+        "session_id": token,
+    })
+    assert response.status_code == 200
+    assert response.json()["session_id"] == token
+
+
+@patch("app.services.chatbot.query_services", return_value=_MOCK_EMPTY_RESULTS)
+@patch("app.services.chatbot.claude_reply", return_value="test")
+@patch("app.services.session_token._SECRET", _TEST_SECRET)
+def test_chat_mints_signed_token_on_first_message(mock_claude, mock_query):
+    """POST /chat/ without session_id should mint a signed token."""
+    response = client.post("/chat/", json={"message": "hello"})
+    assert response.status_code == 200
+    token = response.json()["session_id"]
+    assert "." in token  # signed tokens have a dot separator
+
+
+@patch("app.services.session_token._SECRET", _TEST_SECRET)
+def test_feedback_rejects_forged_session_id():
+    """POST /chat/feedback with a forged session_id should return 403."""
+    response = client.post("/chat/feedback", json={
+        "session_id": "forged-session-id",
+        "rating": "up",
+    })
+    assert response.status_code == 403
+    assert "Invalid session token" in response.json()["detail"]
 
 
 # -----------------------------------------------------------------------

@@ -64,6 +64,13 @@ def _evict_expired() -> None:
         del _SESSION_STATE[sid]
 
 
+def session_exists(session_id: str) -> bool:
+    """Check whether a session exists and is not expired."""
+    with _lock:
+        _evict_expired()
+        return session_id in _SESSION_STATE
+
+
 def clear_session(session_id: str) -> None:
     """Remove all slot data for a session (used for 'start over')."""
     with _lock:

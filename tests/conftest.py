@@ -138,7 +138,7 @@ def fresh_session():
     import uuid
     from app.services.session_store import clear_session
 
-    sid = f"test-{uuid.uuid4().hex[:8]}"
+    sid = str(uuid.uuid4())
     clear_session(sid)
     yield sid
     clear_session(sid)

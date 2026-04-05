@@ -37,17 +37,22 @@ These files must be in your repo before deploying:
 5. On the **backend service** (`yourpeer-chatbot-api`), set the secret environment variables:
    - `ANTHROPIC_API_KEY` = your Anthropic API key
    - `DATABASE_URL` = your full PostgreSQL connection string
-6. On the **frontend service** (`yourpeer-chatbot`), verify that `CHAT_BACKEND_URL` is set to the backend's Render URL (e.g. `https://yourpeer-chatbot-api.onrender.com`). Update it if the auto-generated name differs.
+   - `SESSION_SECRET` = a random string for signing session tokens (generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`)
+   - `ADMIN_API_KEY` = a random string to protect the admin API (generate the same way)
+   - `CORS_ALLOWED_ORIGINS` = your frontend URL (e.g. `https://yourpeer-chatbot-gjn7.onrender.com`)
+6. On the **frontend service** (`yourpeer-chatbot`), set:
+   - `CHAT_BACKEND_URL` = the backend's Render URL (e.g. `https://yourpeer-chatbot-api-gjn7.onrender.com`)
+   - `ADMIN_API_KEY` = same value as the backend's `ADMIN_API_KEY` (the Next.js proxy forwards this to the backend)
 7. Deploy both services
 
 The backend build takes 2–3 minutes. The frontend build takes 1–2 minutes. When both finish, your app will be live.
 
 ### After deploy
 
-- The chat interface is at `https://yourpeer-chatbot.onrender.com/chat`
-- The staff review console is at `https://yourpeer-chatbot.onrender.com/admin`
-- The API health check is at `https://yourpeer-chatbot-api.onrender.com/api/health`
-- FastAPI docs are at `https://yourpeer-chatbot-api.onrender.com/docs`
+- The chat interface is at `https://yourpeer-chatbot-gjn7.onrender.com/chat`
+- The staff review console is at `https://yourpeer-chatbot-gjn7.onrender.com/admin`
+- The API health check is at `https://yourpeer-chatbot-api-gjn7.onrender.com/api/health`
+- FastAPI docs are at `https://yourpeer-chatbot-api-gjn7.onrender.com/docs`
 
 ### Auto-deploy
 
@@ -69,13 +74,17 @@ Render automatically redeploys both services when you push to the branch configu
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Yes | Anthropic API key — powers all LLM features (conversational responses via Haiku, slot extraction via Haiku, crisis detection via Sonnet). Without this, the system falls back to regex-only slot extraction, regex-only crisis detection, and static fallback responses |
 | `DATABASE_URL` | Yes | PostgreSQL connection string for Streetlives DB |
+| `SESSION_SECRET` | Production | Random string for HMAC-signing session tokens. Without this, session tokens are unsigned (fine for local dev, required for production) |
+| `ADMIN_API_KEY` | Production | Random string for admin API authentication. Without this, admin endpoints are open (fine for local dev, required for production) |
+| `CORS_ALLOWED_ORIGINS` | Production | Comma-separated list of allowed origins (e.g. `https://yourpeer-chatbot-gjn7.onrender.com`). Defaults to `http://localhost:3000,http://127.0.0.1:3000` for local dev |
 | `PYTHON_VERSION` | No | Python version (e.g. `3.12.0`) — set automatically by `render.yaml`. Render uses its default if not set |
 
 #### Frontend service (`yourpeer-chatbot`)
 
 | Variable | Required | Description |
 |---|---|---|
-| `CHAT_BACKEND_URL` | Yes | Full URL of the backend service (e.g. `https://yourpeer-chatbot-api.onrender.com`) — set automatically by `render.yaml` |
+| `CHAT_BACKEND_URL` | Yes | Full URL of the backend service (e.g. `https://yourpeer-chatbot-api-gjn7.onrender.com`) — set automatically by `render.yaml` |
+| `ADMIN_API_KEY` | Production | Must match the backend's `ADMIN_API_KEY`. The Next.js admin proxy forwards this as a Bearer token to the backend |
 | `NODE_VERSION` | No | Node.js version (e.g. `24.0.0`) — set automatically by `render.yaml`. Render uses its default if not set |
 
 ### Outbound IPs

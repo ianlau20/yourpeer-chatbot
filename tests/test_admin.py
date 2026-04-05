@@ -17,6 +17,7 @@ Or just:  python tests/test_admin.py
 import os
 import json
 import tempfile
+from unittest.mock import patch
 
 
 from fastapi.testclient import TestClient
@@ -84,6 +85,55 @@ def _seed_data():
 
     # Session 3: reset
     log_session_reset("sess-reset")
+
+
+# -----------------------------------------------------------------------
+# ADMIN API KEY AUTHENTICATION
+# -----------------------------------------------------------------------
+
+def test_admin_auth_open_when_no_key_configured():
+    """When ADMIN_API_KEY is not set, admin endpoints are open."""
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("ADMIN_API_KEY", None)
+        clear_audit_log()
+        response = client.get("/admin/api/stats")
+        assert response.status_code == 200
+
+
+def test_admin_auth_rejects_missing_header():
+    """When ADMIN_API_KEY is set, requests without auth header get 401."""
+    with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
+        response = client.get("/admin/api/stats")
+        assert response.status_code == 401
+        assert "Missing or invalid" in response.json()["detail"]
+
+
+def test_admin_auth_rejects_wrong_key():
+    """When ADMIN_API_KEY is set, requests with wrong key get 401."""
+    with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
+        response = client.get(
+            "/admin/api/stats",
+            headers={"Authorization": "Bearer wrong-key"},
+        )
+        assert response.status_code == 401
+
+
+def test_admin_auth_accepts_correct_key():
+    """When ADMIN_API_KEY is set, requests with correct key succeed."""
+    with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
+        clear_audit_log()
+        response = client.get(
+            "/admin/api/stats",
+            headers={"Authorization": "Bearer test-secret-key"},
+        )
+        assert response.status_code == 200
+
+
+def test_admin_auth_protects_eval_run():
+    """POST /admin/api/eval/run should also be protected by the API key."""
+    with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
+        response = client.post("/admin/api/eval/run")
+        assert response.status_code == 401
 
 
 # -----------------------------------------------------------------------
@@ -314,6 +364,34 @@ def test_eval_with_results():
     data = response.json()
     assert data["scenarios_run"] == 10
     assert data["average_score"] == 4.2
+
+
+# -----------------------------------------------------------------------
+# POST /admin/api/eval/run — guard clauses
+# -----------------------------------------------------------------------
+
+def test_eval_run_rejects_when_no_api_key():
+    """Eval run should return 500 when ANTHROPIC_API_KEY is not set."""
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        response = client.post("/admin/api/eval/run")
+        assert response.status_code == 500
+        assert "ANTHROPIC_API_KEY" in response.json()["detail"]
+
+
+def test_eval_run_rejects_when_already_running():
+    """Eval run should return 409 when an eval is already in progress."""
+    import app.routes.admin as admin_mod
+    with admin_mod._eval_lock:
+        admin_mod._eval_running = True
+    try:
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+            response = client.post("/admin/api/eval/run")
+            assert response.status_code == 409
+            assert "already in progress" in response.json()["detail"]
+    finally:
+        with admin_mod._eval_lock:
+            admin_mod._eval_running = False
 
 
 # -----------------------------------------------------------------------

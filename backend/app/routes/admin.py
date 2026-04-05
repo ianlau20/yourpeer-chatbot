@@ -5,8 +5,8 @@ All endpoints are prefixed with /admin/api/.
 The admin UI is served by Next.js at /admin/.
 """
 
+import asyncio
 import os
-import sys
 import json
 import logging
 import threading
@@ -14,9 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
+from app.dependencies import require_admin_key
 from app.services.audit_log import (
     get_recent_events,
     get_conversation,
@@ -35,7 +36,16 @@ _eval_running = False
 _eval_status: dict = {}
 _eval_lock = threading.Lock()
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+# Strong references to background tasks — prevents the GC from collecting
+# a running task before it completes.  See:
+# https://docs.python.org/3/library/asyncio-task.html#creating-tasks
+_background_tasks: set = set()
+
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_admin_key)],  # S1: all admin routes require auth
+)
 
 # Path to the eval runner (relative to project root)
 TESTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tests"
@@ -110,7 +120,6 @@ def admin_eval():
             results = get_eval_results()
 
     if results is None:
-        # Return 200 with empty sentinel — 404 causes noisy server logs during polling
         return JSONResponse(
             status_code=200,
             content={"results": None, "detail": "No evaluation results yet. Use the Run Evals button to generate them."},
@@ -127,94 +136,105 @@ def admin_eval_status():
 
 @router.post("/api/eval/run")
 async def admin_eval_run(
-    background_tasks: BackgroundTasks,
     scenarios: int = Query(None, ge=1, le=30, description="Max scenarios to run (default: all)"),
     category: str = Query(None, description="Only run scenarios in this category"),
 ):
     """Trigger an LLM-as-judge eval run in the background."""
     global _eval_running, _eval_status
 
-    if _eval_running:
-        return JSONResponse(
-            status_code=409,
-            content={"detail": "An eval run is already in progress."},
-        )
+    with _eval_lock:
+        if _eval_running:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "An eval run is already in progress."},
+            )
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "ANTHROPIC_API_KEY is not set on the server."},
-        )
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "ANTHROPIC_API_KEY is not set on the server."},
+            )
 
-    _eval_running = True
-    _eval_status = {"started_at": datetime.now(timezone.utc).isoformat(), "message": "Starting…"}
+        _eval_running = True
+        _eval_status = {
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "message": "Starting…",
+        }
 
-    background_tasks.add_task(_run_eval_background, api_key, scenarios, category)
+    # S3: run the eval script in a subprocess, not importlib in-process.
+    # This isolates the eval from the web server — a compromised eval file
+    # cannot affect server memory or state.
+    task = asyncio.create_task(
+        _run_eval_background(api_key, scenarios, category)
+    )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return {"detail": "Eval started. Poll /admin/api/eval/status for progress."}
 
 
-def _run_eval_background(api_key: str, max_scenarios: Optional[int], category: Optional[str]):
-    """Run the eval suite in a background thread and store results."""
+async def _run_eval_background(
+    api_key: str,
+    max_scenarios: Optional[int],
+    category: Optional[str],
+) -> None:
+    """Run the eval script in a subprocess and store results when done."""
     global _eval_running, _eval_status
 
+    cmd = [
+        "python", "tests/eval_llm_judge.py",
+        "--output", str(TESTS_DIR / "eval_report.json"),
+    ]
+    if max_scenarios:
+        cmd += ["--scenarios", str(max_scenarios)]
+    if category:
+        cmd += ["--category", category]
+
+    env = {**os.environ, "ANTHROPIC_API_KEY": api_key}
+
     try:
-        # Ensure the backend package is importable from within the eval module
-        backend_dir = str(TESTS_DIR.parent / "backend")
-        if backend_dir not in sys.path:
-            sys.path.insert(0, backend_dir)
-
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("eval_llm_judge", str(TESTS_DIR / "eval_llm_judge.py"))
-        eval_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(eval_module)
-
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-
-        # Select scenarios
-        scenarios = eval_module.SCENARIOS
-        if category:
-            scenarios = [s for s in scenarios if s["category"] == category]
-        if max_scenarios:
-            scenarios = scenarios[:max_scenarios]
-
-        total = len(scenarios)
         with _eval_lock:
-            _eval_status["message"] = f"Running {total} scenario(s)…"
-            _eval_status["total"] = total
-            _eval_status["completed"] = 0
+            _eval_status["message"] = "Subprocess started…"
 
-        results = []
-        for i, scenario in enumerate(scenarios):
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0:
+            # Load the report the script wrote to disk
+            out_path = TESTS_DIR / "eval_report.json"
+            if out_path.exists():
+                with open(out_path) as f:
+                    report = json.load(f)
+                set_eval_results(report)
+                total = report.get("summary", {}).get("scenarios_evaluated", "?")
+                message = f"Done — {total} scenario(s) evaluated."
+            else:
+                message = "Subprocess exited cleanly but no report file was written."
+
+            logger.info("Eval completed.\n%s", stdout.decode())
+
             with _eval_lock:
-                _eval_status["message"] = f"[{i+1}/{total}] {scenario['name']}"
-                _eval_status["completed"] = i
-
-            conversation = eval_module.simulate_conversation(scenario, client)
-            judgment = eval_module.judge_conversation(client, conversation)
-            results.append({"conversation": conversation, "judgment": judgment})
-
-        report = eval_module.generate_report(results)
-
-        # Persist to file and memory
-        out_path = TESTS_DIR / "eval_report.json"
-        with open(out_path, "w") as f:
-            json.dump(report, f, indent=2)
-
-        set_eval_results(report)
-
-        with _eval_lock:
-            _eval_status = {
-                "message": f"Done — {total} scenario(s) evaluated.",
-                "completed": total,
-                "total": total,
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-            }
+                _eval_status = {
+                    "message": message,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                }
+        else:
+            err = stderr.decode()
+            logger.error("Eval subprocess failed (exit %s):\n%s", proc.returncode, err)
+            with _eval_lock:
+                _eval_status = {
+                    "message": f"Eval failed (exit {proc.returncode}). Check server logs.",
+                }
 
     except Exception as e:
-        logger.exception("Eval run failed")
+        logger.exception("Eval subprocess could not be started")
         with _eval_lock:
             _eval_status = {"message": f"Error: {e}"}
     finally:

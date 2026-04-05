@@ -23,9 +23,19 @@ async function proxyToBackend(req: NextRequest, slug: string[]) {
   });
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    // Forward admin API key — prefer server-side env var (not exposed to browser)
+    const adminKey = process.env.ADMIN_API_KEY;
+    if (adminKey) {
+      headers["Authorization"] = `Bearer ${adminKey}`;
+    }
+
     const fetchOpts: RequestInit = {
       method: req.method,
-      headers: { "Content-Type": "application/json" },
+      headers,
     };
 
     if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {

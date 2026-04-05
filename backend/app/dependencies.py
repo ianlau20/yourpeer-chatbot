@@ -1,11 +1,14 @@
 """
-FastAPI dependencies for request-level concerns (rate limiting, etc.).
+FastAPI dependencies for request-level concerns (rate limiting, auth, etc.).
 """
 
+import hmac
 import json
 import logging
+import os
+from urllib.parse import urlparse
 
-from fastapi import Request
+from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
@@ -18,6 +21,30 @@ from app.services.rate_limiter import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Admin API key authentication
+# ---------------------------------------------------------------------------
+
+def require_admin_key(request: Request) -> None:
+    """Dependency that enforces admin API key authentication.
+
+    When ADMIN_API_KEY is set, requests must include a matching
+    ``Authorization: Bearer <key>`` header.  When the env var is
+    unset, all requests are allowed (local-dev convenience).
+    """
+    expected = os.environ.get("ADMIN_API_KEY")
+    if not expected:
+        return  # No key configured — open access (dev mode)
+    auth = request.headers.get("authorization", "")
+    if hmac.compare_digest(auth, f"Bearer {expected}"):
+        return
+    raise HTTPException(
+        status_code=401,
+        detail="Missing or invalid admin API key",
+    )
+
 
 # ---------------------------------------------------------------------------
 # 429 response body — compassionate, with crisis resources
@@ -151,3 +178,75 @@ def _build_429(retry_after: int) -> JSONResponse:
         },
         headers={"Retry-After": str(retry_after)},
     )
+
+
+# ---------------------------------------------------------------------------
+# CORS / CSRF — shared origin list
+# ---------------------------------------------------------------------------
+
+_DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+
+def get_allowed_origins() -> list[str]:
+    """Return the list of allowed CORS origins.
+
+    Used by both CORSMiddleware (in main.py) and CSRFMiddleware (below).
+    Single source of truth — avoids the two lists drifting apart.
+    """
+    return [
+        o.strip()
+        for o in os.getenv("CORS_ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
+        if o.strip()
+    ]
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Reject cross-origin state-changing requests from browsers.
+
+    Checks the ``Origin`` header (or ``Referer``) on POST/PUT/DELETE
+    requests against the allowed CORS origins.  Non-browser clients
+    (curl, Postman) that send no ``Origin``/``Referer``/``Sec-Fetch-Site``
+    headers are allowed through.
+    """
+
+    _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
+        if request.method in self._SAFE_METHODS:
+            return await call_next(request)
+
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        sec_fetch = request.headers.get("sec-fetch-site")
+
+        # Non-browser clients (no Origin, no Referer, no Sec-Fetch-Site) → allow
+        if not origin and not referer and not sec_fetch:
+            return await call_next(request)
+
+        allowed = get_allowed_origins()
+
+        # Check Origin header
+        if origin:
+            if origin in allowed:
+                return await call_next(request)
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Cross-origin request rejected"},
+            )
+
+        # Fallback: check Referer (extract origin portion)
+        if referer:
+            parsed = urlparse(referer)
+            ref_origin = f"{parsed.scheme}://{parsed.netloc}"
+            if ref_origin in allowed:
+                return await call_next(request)
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Cross-origin request rejected"},
+            )
+
+        # Browser sent Sec-Fetch-Site but no Origin/Referer — reject
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Cross-origin request rejected"},
+        )

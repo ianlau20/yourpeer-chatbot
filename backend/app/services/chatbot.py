@@ -703,6 +703,9 @@ def generate_reply(
     latitude: float | None = None,
     longitude: float | None = None,
 ) -> dict:
+    # Session ID is validated upstream by the chat route (signed token
+    # check).  If somehow called without a session_id, generate a plain
+    # UUID as a fallback — but the route should always provide one.
     if not session_id:
         session_id = str(uuid.uuid4())
 

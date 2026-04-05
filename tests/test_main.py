@@ -7,17 +7,19 @@ Covers:
     health     — GET /api/health
     root       — GET / → JSON message
     CORS       — headers present on responses + preflight
+    CSRF       — Origin validation on state-changing requests
 
 Run with: python -m pytest tests/test_main.py -v
 Or just:  python tests/test_main.py
 """
 
-
-
 from fastapi.testclient import TestClient
 from app.main import app
 
 client = TestClient(app)
+
+# Default allowed origin for CORS (matches _DEFAULT_ORIGINS in dependencies.py)
+_ALLOWED_ORIGIN = "http://localhost:3000"
 
 
 # -----------------------------------------------------------------------
@@ -69,31 +71,94 @@ def test_admin_api_stats_routed():
 
 
 # -----------------------------------------------------------------------
+# CSRF PROTECTION
+# -----------------------------------------------------------------------
+
+def test_csrf_allows_post_with_valid_origin():
+    """POST with a valid Origin header should be allowed through CSRF check."""
+    r = client.post(
+        "/chat/", json={"message": "hi"},
+        headers={"Origin": _ALLOWED_ORIGIN},
+    )
+    # Should not be 403 (CSRF). May be 422 or 200 depending on validation.
+    assert r.status_code != 403
+
+
+def test_csrf_rejects_post_with_evil_origin():
+    """POST with a disallowed Origin header should be rejected."""
+    r = client.post(
+        "/chat/", json={"message": "hi"},
+        headers={"Origin": "https://evil.com"},
+    )
+    assert r.status_code == 403
+    assert "Cross-origin" in r.json()["detail"]
+
+
+def test_csrf_allows_post_without_browser_headers():
+    """POST without Origin/Referer/Sec-Fetch-Site (non-browser) should be allowed."""
+    r = client.post("/chat/", json={"message": "hi"})
+    assert r.status_code != 403
+
+
+def test_csrf_rejects_post_with_sec_fetch_but_no_origin():
+    """POST with Sec-Fetch-Site but no Origin should be rejected (browser without origin)."""
+    r = client.post(
+        "/chat/", json={"message": "hi"},
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+    assert r.status_code == 403
+
+
+def test_csrf_allows_post_with_valid_referer():
+    """POST with a valid Referer (no Origin) should be allowed via fallback."""
+    r = client.post(
+        "/chat/", json={"message": "hi"},
+        headers={"Referer": f"{_ALLOWED_ORIGIN}/chat"},
+    )
+    assert r.status_code != 403
+
+
+def test_csrf_rejects_post_with_evil_referer():
+    """POST with a disallowed Referer (no Origin) should be rejected."""
+    r = client.post(
+        "/chat/", json={"message": "hi"},
+        headers={"Referer": "https://evil.com/steal-data"},
+    )
+    assert r.status_code == 403
+    assert "Cross-origin" in r.json()["detail"]
+
+
+# -----------------------------------------------------------------------
 # CORS HEADERS
 # -----------------------------------------------------------------------
 
 def test_cors_headers_present():
-    """Responses should include CORS allow-origin header."""
-    r = client.get("/api/health", headers={"Origin": "https://example.com"})
+    """Responses should include CORS allow-origin header for allowed origins."""
+    r = client.get("/api/health", headers={"Origin": _ALLOWED_ORIGIN})
     assert r.status_code == 200
     origin = r.headers.get("access-control-allow-origin")
-    assert origin in ("*", "https://example.com"), f"Expected CORS origin, got: {origin}"
+    assert origin == _ALLOWED_ORIGIN, f"Expected {_ALLOWED_ORIGIN}, got: {origin}"
+
+
+def test_cors_rejects_unknown_origin():
+    """Responses should NOT include CORS allow-origin for disallowed origins."""
+    r = client.get("/api/health", headers={"Origin": "https://evil.com"})
+    assert r.status_code == 200
+    origin = r.headers.get("access-control-allow-origin")
+    assert origin is None, f"Expected no CORS header for evil origin, got: {origin}"
 
 
 def test_cors_preflight():
-    """OPTIONS preflight should return CORS headers."""
+    """OPTIONS preflight should return CORS headers for allowed origins."""
     r = client.options(
         "/chat/",
         headers={
-            "Origin": "https://example.com",
+            "Origin": _ALLOWED_ORIGIN,
             "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "content-type",
         },
     )
     assert r.status_code == 200
     origin = r.headers.get("access-control-allow-origin")
-    assert origin in ("*", "https://example.com"), f"Expected CORS origin, got: {origin}"
+    assert origin == _ALLOWED_ORIGIN, f"Expected {_ALLOWED_ORIGIN}, got: {origin}"
     assert "POST" in r.headers.get("access-control-allow-methods", "")
-
-
-# -----------------------------------------------------------------------
