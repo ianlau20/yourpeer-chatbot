@@ -2,6 +2,7 @@
 FastAPI dependencies for request-level concerns (rate limiting, auth, etc.).
 """
 
+import hmac
 import json
 import logging
 import os
@@ -37,7 +38,7 @@ def require_admin_key(request: Request) -> None:
     if not expected:
         return  # No key configured — open access (dev mode)
     auth = request.headers.get("authorization", "")
-    if auth == f"Bearer {expected}":
+    if hmac.compare_digest(auth, f"Bearer {expected}"):
         return
     raise HTTPException(
         status_code=401,

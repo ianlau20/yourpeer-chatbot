@@ -36,6 +36,11 @@ _eval_running = False
 _eval_status: dict = {}
 _eval_lock = threading.Lock()
 
+# Strong references to background tasks — prevents the GC from collecting
+# a running task before it completes.  See:
+# https://docs.python.org/3/library/asyncio-task.html#creating-tasks
+_background_tasks: set = set()
+
 router = APIRouter(
     prefix="/admin",
     tags=["admin"],
@@ -160,9 +165,11 @@ async def admin_eval_run(
     # S3: run the eval script in a subprocess, not importlib in-process.
     # This isolates the eval from the web server — a compromised eval file
     # cannot affect server memory or state.
-    asyncio.create_task(
+    task = asyncio.create_task(
         _run_eval_background(api_key, scenarios, category)
     )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return {"detail": "Eval started. Poll /admin/api/eval/status for progress."}
 

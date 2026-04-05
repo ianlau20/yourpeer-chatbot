@@ -184,8 +184,8 @@ The `render.yaml` deploys two services from this single repo:
 
 | Service | Name | Root dir | URL |
 |---------|------|----------|-----|
-| FastAPI backend | `yourpeer-chatbot-api` | `backend/` | `yourpeer-chatbot-api.onrender.com` |
-| Next.js frontend | `yourpeer-chatbot` | `frontend-next/` | `yourpeer-chatbot.onrender.com` |
+| FastAPI backend | `yourpeer-chatbot-api` | `backend/` | `yourpeer-chatbot-api-gjn7.onrender.com` |
+| Next.js frontend | `yourpeer-chatbot` | `frontend-next/` | `yourpeer-chatbot-gjn7.onrender.com` |
 
 The frontend's `CHAT_BACKEND_URL` env var points at the backend's Render URL. Next.js `rewrites` in `next.config.js` proxy `/api/chat/*` and `/api/admin/*` to the backend at that URL.
 
@@ -197,7 +197,7 @@ The frontend's `CHAT_BACKEND_URL` env var points at the backend's Render URL. Ne
 4. Set the secret env vars (database URL, API keys) on the backend service
 5. After the backend deploys, copy its `.onrender.com` URL and update `CHAT_BACKEND_URL` on the frontend service if the default name doesn't match
 
-**After deploy:** The chat is at `https://yourpeer-chatbot.onrender.com/chat` and the admin console is at `https://yourpeer-chatbot.onrender.com/admin`.
+**After deploy:** The chat is at `https://yourpeer-chatbot-gjn7.onrender.com/chat` and the admin console is at `https://yourpeer-chatbot-gjn7.onrender.com/admin`.
 
 ## Repo Structure
 

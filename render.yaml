@@ -39,7 +39,7 @@ services:
       # Points at the backend's Render URL.
       # After first deploy, verify this matches the actual .onrender.com URL.
       - key: CHAT_BACKEND_URL
-        value: https://yourpeer-chatbot-api.onrender.com
+        value: https://yourpeer-chatbot-api-gjn7.onrender.com
       # Must match the backend's ADMIN_API_KEY — the Next.js proxy
       # forwards this to the backend on all /api/admin/* requests.
       - key: ADMIN_API_KEY
