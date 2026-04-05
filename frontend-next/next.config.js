@@ -19,8 +19,10 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "font-src 'self'",
-              // Covers both the Render backend and local dev
-              `connect-src 'self' https://*.onrender.com ${
+              // All API calls go through Next.js rewrites (relative paths),
+              // so 'self' is sufficient in production. Local dev needs the
+              // backend directly for hot-reload proxying.
+              `connect-src 'self' ${
                 process.env.NODE_ENV === "development"
                   ? "http://localhost:8000 http://127.0.0.1:8000"
                   : ""
@@ -61,4 +63,5 @@ const nextConfig = {
     };
   },
 };
+
 module.exports = nextConfig;

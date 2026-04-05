@@ -1,6 +1,7 @@
 """
 Tests for the admin API routes — HTTP-level endpoint tests using
 FastAPI TestClient.
+
 Covers all admin API endpoints:
     GET /admin/api/stats  — aggregate statistics
     GET /admin/api/conversations       — conversation summaries
@@ -8,13 +9,17 @@ Covers all admin API endpoints:
     GET /admin/api/events              — recent events (filterable)
     GET /admin/api/queries             — query execution log
     GET /admin/api/eval                — LLM evaluation results
+
 Run with: python -m pytest tests/test_admin.py -v
 Or just:  python tests/test_admin.py
 """
+
 import os
 import json
 import tempfile
 from unittest.mock import patch
+
+
 from fastapi.testclient import TestClient
 from app.main import app
 from app.services.audit_log import (
@@ -25,13 +30,18 @@ from app.services.audit_log import (
     set_eval_results,
     clear_audit_log,
 )
+
 client = TestClient(app)
+
+
 # -----------------------------------------------------------------------
 # HELPERS
 # -----------------------------------------------------------------------
+
 def _seed_data():
     """Populate the audit log with realistic test data."""
     clear_audit_log()
+
     # Session 1: full service flow
     log_conversation_turn(
         session_id="sess-abc",
@@ -58,6 +68,7 @@ def _seed_data():
         relaxed=False,
         execution_ms=42,
     )
+
     # Session 2: crisis
     log_conversation_turn(
         session_id="sess-xyz",
@@ -71,11 +82,15 @@ def _seed_data():
         crisis_category="suicide_self_harm",
         user_message_redacted="I want to [REDACTED]",
     )
+
     # Session 3: reset
     log_session_reset("sess-reset")
+
+
 # -----------------------------------------------------------------------
 # ADMIN API KEY AUTHENTICATION
 # -----------------------------------------------------------------------
+
 def test_admin_auth_open_when_no_key_configured():
     """When ADMIN_API_KEY is not set, admin endpoints are open."""
     with patch.dict(os.environ, {}, clear=False):
@@ -83,12 +98,16 @@ def test_admin_auth_open_when_no_key_configured():
         clear_audit_log()
         response = client.get("/admin/api/stats")
         assert response.status_code == 200
+
+
 def test_admin_auth_rejects_missing_header():
     """When ADMIN_API_KEY is set, requests without auth header get 401."""
     with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
         response = client.get("/admin/api/stats")
         assert response.status_code == 401
         assert "Missing or invalid" in response.json()["detail"]
+
+
 def test_admin_auth_rejects_wrong_key():
     """When ADMIN_API_KEY is set, requests with wrong key get 401."""
     with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
@@ -97,6 +116,8 @@ def test_admin_auth_rejects_wrong_key():
             headers={"Authorization": "Bearer wrong-key"},
         )
         assert response.status_code == 401
+
+
 def test_admin_auth_accepts_correct_key():
     """When ADMIN_API_KEY is set, requests with correct key succeed."""
     with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
@@ -106,19 +127,25 @@ def test_admin_auth_accepts_correct_key():
             headers={"Authorization": "Bearer test-secret-key"},
         )
         assert response.status_code == 200
+
+
 def test_admin_auth_protects_eval_run():
     """POST /admin/api/eval/run should also be protected by the API key."""
     with patch.dict(os.environ, {"ADMIN_API_KEY": "test-secret-key"}):
         response = client.post("/admin/api/eval/run")
         assert response.status_code == 401
+
+
 # -----------------------------------------------------------------------
 # GET /admin/api/stats
 # -----------------------------------------------------------------------
+
 def test_stats_empty():
     """Stats on empty log should return zeros."""
     clear_audit_log()
     response = client.get("/admin/api/stats")
     assert response.status_code == 200
+
     data = response.json()
     assert data["total_events"] == 0
     assert data["total_turns"] == 0
@@ -127,11 +154,14 @@ def test_stats_empty():
     assert data["total_resets"] == 0
     assert data["unique_sessions"] == 0
     assert data["relaxed_query_rate"] == 0
+
+
 def test_stats_with_data():
     """Stats should reflect seeded data correctly."""
     _seed_data()
     response = client.get("/admin/api/stats")
     assert response.status_code == 200
+
     data = response.json()
     assert data["total_turns"] == 3
     assert data["total_queries"] == 1
@@ -140,125 +170,169 @@ def test_stats_with_data():
     assert data["unique_sessions"] == 3
     assert "service" in data["category_distribution"]
     assert "food" in data["service_type_distribution"]
+
+
 # -----------------------------------------------------------------------
 # GET /admin/api/conversations
 # -----------------------------------------------------------------------
+
 def test_conversations_list():
     """Should return conversation summaries."""
     _seed_data()
     response = client.get("/admin/api/conversations")
     assert response.status_code == 200
+
     data = response.json()
     assert isinstance(data, list)
     assert len(data) == 3  # sess-abc, sess-xyz, sess-reset
+
     # Find sess-abc
     abc = next((c for c in data if c["session_id"] == "sess-abc"), None)
     assert abc is not None
     assert abc["turn_count"] == 2
     assert abc["services_delivered"] >= 3
+
+
 def test_conversations_limit():
     """Limit parameter should cap results."""
     _seed_data()
     response = client.get("/admin/api/conversations?limit=1")
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
 def test_conversations_limit_validation():
     """Limit below 1 or above 200 should be rejected."""
     response = client.get("/admin/api/conversations?limit=0")
     assert response.status_code == 422  # validation error
+
     response = client.get("/admin/api/conversations?limit=999")
     assert response.status_code == 422
+
+
 # -----------------------------------------------------------------------
 # GET /admin/api/conversations/{session_id}
 # -----------------------------------------------------------------------
+
 def test_conversation_detail():
     """Should return all events for a specific session."""
     _seed_data()
     response = client.get("/admin/api/conversations/sess-abc")
     assert response.status_code == 200
+
     data = response.json()
     assert isinstance(data, list)
     assert len(data) == 3  # 2 turns + 1 query
     assert all(e["session_id"] == "sess-abc" for e in data)
+
+
 def test_conversation_detail_not_found():
     """Should return 404 for unknown session ID."""
     _seed_data()
     response = client.get("/admin/api/conversations/nonexistent-session")
     assert response.status_code == 404
     assert "No conversation found" in response.json()["detail"]
+
+
 def test_conversation_detail_crisis_session():
     """Crisis session should include both turn and crisis events."""
     _seed_data()
     response = client.get("/admin/api/conversations/sess-xyz")
     assert response.status_code == 200
+
     data = response.json()
     types = [e["type"] for e in data]
     assert "conversation_turn" in types
     assert "crisis_detected" in types
+
+
 # -----------------------------------------------------------------------
 # GET /admin/api/events
 # -----------------------------------------------------------------------
+
 def test_events_all():
     """Should return all events with default parameters."""
     _seed_data()
     response = client.get("/admin/api/events")
     assert response.status_code == 200
+
     data = response.json()
     assert isinstance(data, list)
     assert len(data) == 6  # 3 turns + 1 query + 1 crisis + 1 reset
+
+
 def test_events_filter_by_type():
     """Should filter events by type."""
     _seed_data()
+
     response = client.get("/admin/api/events?event_type=crisis_detected")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 1
     assert data[0]["type"] == "crisis_detected"
+
     response = client.get("/admin/api/events?event_type=session_reset")
     data = response.json()
     assert len(data) == 1
     assert data[0]["type"] == "session_reset"
+
+
 def test_events_invalid_type_rejected():
     """Invalid event_type should be rejected by the regex validator."""
     response = client.get("/admin/api/events?event_type=invalid_type")
     assert response.status_code == 422
+
+
 def test_events_limit():
     """Limit parameter should cap results."""
     _seed_data()
     response = client.get("/admin/api/events?limit=2")
     assert response.status_code == 200
     assert len(response.json()) == 2
+
+
 def test_events_limit_validation():
     """Limit below 1 or above 500 should be rejected."""
     response = client.get("/admin/api/events?limit=0")
     assert response.status_code == 422
+
     response = client.get("/admin/api/events?limit=999")
     assert response.status_code == 422
+
+
 # -----------------------------------------------------------------------
 # GET /admin/api/queries
 # -----------------------------------------------------------------------
+
 def test_queries_list():
     """Should return query execution log."""
     _seed_data()
     response = client.get("/admin/api/queries")
     assert response.status_code == 200
+
     data = response.json()
     assert isinstance(data, list)
     assert len(data) == 1
     assert data[0]["template_name"] == "FoodQuery"
     assert data[0]["result_count"] == 3
     assert "max_results" not in data[0]["params"]
+
+
 def test_queries_limit():
     """Limit parameter should cap results."""
     clear_audit_log()
     for i in range(10):
         log_query_execution("s1", f"Q{i}", {}, i, False, 10)
+
     response = client.get("/admin/api/queries?limit=3")
     assert response.status_code == 200
     assert len(response.json()) == 3
+
+
 # -----------------------------------------------------------------------
 # GET /admin/api/eval
 # -----------------------------------------------------------------------
+
 def test_eval_no_results():
     """Should return 200 with null results when no eval results exist."""
     from unittest.mock import patch
@@ -271,6 +345,8 @@ def test_eval_no_results():
     data = response.json()
     assert data["results"] is None
     assert "No evaluation results" in data["detail"]
+
+
 def test_eval_with_results():
     """Should return eval results when set."""
     clear_audit_log()
@@ -281,16 +357,52 @@ def test_eval_with_results():
         "results": [{"scenario": "basic_food", "score": 5}],
     }
     set_eval_results(eval_data)
+
     response = client.get("/admin/api/eval")
     assert response.status_code == 200
+
     data = response.json()
     assert data["scenarios_run"] == 10
     assert data["average_score"] == 4.2
+
+
+# -----------------------------------------------------------------------
+# POST /admin/api/eval/run — guard clauses
+# -----------------------------------------------------------------------
+
+def test_eval_run_rejects_when_no_api_key():
+    """Eval run should return 500 when ANTHROPIC_API_KEY is not set."""
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        response = client.post("/admin/api/eval/run")
+        assert response.status_code == 500
+        assert "ANTHROPIC_API_KEY" in response.json()["detail"]
+
+
+def test_eval_run_rejects_when_already_running():
+    """Eval run should return 409 when an eval is already in progress."""
+    import app.routes.admin as admin_mod
+    with admin_mod._eval_lock:
+        admin_mod._eval_running = True
+    try:
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+            response = client.post("/admin/api/eval/run")
+            assert response.status_code == 409
+            assert "already in progress" in response.json()["detail"]
+    finally:
+        with admin_mod._eval_lock:
+            admin_mod._eval_running = False
+
+
 # -----------------------------------------------------------------------
 # HEALTH CHECK (sanity — not admin but confirms app is wired)
 # -----------------------------------------------------------------------
+
 def test_health_endpoint():
     """GET /api/health should return ok."""
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+# -----------------------------------------------------------------------
