@@ -55,10 +55,9 @@ const nextConfig = {
           source: "/api/chat/feedback",
           destination: `${backendUrl}/chat/feedback`,
         },
-        {
-          source: "/api/admin/:path*",
-          destination: `${backendUrl}/admin/api/:path*`,
-        },
+        // Admin routes are NOT rewritten here — they're handled by the
+        // route handler at app/api/admin/[...slug]/route.ts, which adds
+        // the Authorization header before proxying to the backend.
       ],
     };
   },

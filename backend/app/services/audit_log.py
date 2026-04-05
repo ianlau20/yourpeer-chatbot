@@ -103,6 +103,7 @@ def log_query_execution(
     result_count: int,
     relaxed: bool,
     execution_ms: int,
+    freshness: Optional[dict] = None,
 ):
     """Record a database query execution."""
     event = {
@@ -114,6 +115,7 @@ def log_query_execution(
         "result_count": result_count,
         "relaxed": relaxed,
         "execution_ms": execution_ms,
+        "freshness": freshness,
     }
 
     with _lock:
@@ -295,13 +297,105 @@ def get_stats() -> dict:
         if e["type"] == "query_execution" and e.get("relaxed")
     )
 
+    # --- Per-session category sets (used for several metrics below) ---
+    # Maps session_id → set of categories seen in that session's turns.
+    session_categories: dict[str, set] = {}
+    for e in events:
+        if e["type"] == "conversation_turn" and e.get("session_id"):
+            sid = e["session_id"]
+            cat = e.get("category")
+            if cat:
+                session_categories.setdefault(sid, set()).add(cat)
+
+    # Fix #1: Escalation count — sessions where user asked for a person.
+    total_escalations = sum(
+        1 for cats in session_categories.values()
+        if "escalation" in cats
+    )
+
+    # Fix #2: Service-intent sessions — denominator for task completion.
+    # A session has "service intent" if any turn was categorized as a
+    # service request or reached the confirmation stage.
+    _SERVICE_INTENT_CATEGORIES = {
+        "service", "confirmation", "confirmation_nudge",
+        "confirm_yes", "confirm_change_service",
+        "confirm_change_location", "confirm_deny",
+    }
+    service_intent_sessions = sum(
+        1 for cats in session_categories.values()
+        if cats & _SERVICE_INTENT_CATEGORIES
+    )
+
+    # Fix #3: Confirmation-stage sessions and breakdown.
+    # A session "reached confirmation" if any turn has a confirmation-
+    # stage category.
+    _CONFIRMATION_CATEGORIES = {
+        "confirmation", "confirmation_nudge",
+        "confirm_yes", "confirm_change_service",
+        "confirm_change_location", "confirm_deny",
+    }
+    sessions_at_confirmation = sum(
+        1 for cats in session_categories.values()
+        if cats & _CONFIRMATION_CATEGORIES
+    )
+
+    # Confirmation action counts (across all turns, not per-session)
+    confirm_yes_count = categories.get("confirm_yes", 0)
+    confirm_change_service_count = categories.get("confirm_change_service", 0)
+    confirm_change_location_count = categories.get("confirm_change_location", 0)
+    confirm_deny_count = categories.get("confirm_deny", 0)
+    total_confirm_actions = (
+        confirm_yes_count + confirm_change_service_count
+        + confirm_change_location_count + confirm_deny_count
+    )
+
+    # Fix #4: Slot correction rate — sessions where user changed a slot
+    # after reaching confirmation, as a % of sessions that reached
+    # confirmation at all.
+    sessions_with_correction = sum(
+        1 for cats in session_categories.values()
+        if cats & {"confirm_change_service", "confirm_change_location"}
+    )
+
+    # Sessions that reached confirmation but never confirmed (abandoned)
+    sessions_abandoned_at_confirm = sum(
+        1 for cats in session_categories.values()
+        if cats & _CONFIRMATION_CATEGORIES and "confirm_yes" not in cats
+    )
+
+    # Slot confirmation rate: of sessions that executed a query, how many
+    # went through the explicit confirmation step first?  Should be ~100%
+    # by design — any gap means the confirmation flow was bypassed.
+    sessions_with_query = {
+        e["session_id"] for e in events
+        if e["type"] == "query_execution" and e.get("session_id")
+    }
+    sessions_with_confirmed_query = sum(
+        1 for sid in sessions_with_query
+        if sid in session_categories and "confirm_yes" in session_categories[sid]
+    )
+
+    # Data freshness: aggregate last_validated_at stats across all queries.
+    total_cards_served = 0
+    total_cards_with_date = 0
+    total_cards_fresh = 0
+    for e in events:
+        if e["type"] == "query_execution":
+            f = e.get("freshness")
+            if f:
+                total_cards_served += f.get("total", 0)
+                total_cards_with_date += f.get("total_with_date", 0)
+                total_cards_fresh += f.get("fresh", 0)
+
     return {
         "total_events": len(events),
         "total_turns": total_turns,
         "total_queries": total_queries,
         "total_crises": total_crises,
         "total_resets": total_resets,
+        "total_escalations": total_escalations,
         "unique_sessions": len(unique_sessions),
+        "service_intent_sessions": service_intent_sessions,
         "feedback_up": feedback_up,
         "feedback_down": feedback_down,
         "feedback_score": (
@@ -313,6 +407,40 @@ def get_stats() -> dict:
         "relaxed_query_rate": (
             round(relaxed_count / total_queries, 2) if total_queries else 0
         ),
+        "slot_confirmation_rate": (
+            round(sessions_with_confirmed_query / len(sessions_with_query), 2)
+            if sessions_with_query else None
+        ),
+        "slot_correction_rate": (
+            round(sessions_with_correction / sessions_at_confirmation, 2)
+            if sessions_at_confirmation > 0 else None
+        ),
+        "data_freshness_rate": (
+            round(total_cards_fresh / total_cards_served, 2)
+            if total_cards_served > 0 else None
+        ),
+        "data_freshness_detail": {
+            "cards_served": total_cards_served,
+            "cards_with_date": total_cards_with_date,
+            "cards_fresh": total_cards_fresh,
+        },
+        "confirmation_breakdown": {
+            "confirm": confirm_yes_count,
+            "change_service": confirm_change_service_count,
+            "change_location": confirm_change_location_count,
+            "deny": confirm_deny_count,
+            "total_actions": total_confirm_actions,
+            "confirm_rate": (
+                round(confirm_yes_count / total_confirm_actions, 2)
+                if total_confirm_actions > 0 else None
+            ),
+            "sessions_at_confirmation": sessions_at_confirmation,
+            "sessions_abandoned": sessions_abandoned_at_confirm,
+            "abandon_rate": (
+                round(sessions_abandoned_at_confirm / sessions_at_confirmation, 2)
+                if sessions_at_confirmation > 0 else None
+            ),
+        },
     }
 
 

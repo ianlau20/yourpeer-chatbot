@@ -169,10 +169,10 @@ def test_stale_entries_evicted():
         bucket.clear()
         bucket.append(time.monotonic() - _EVICTION_TTL - 100)
 
-        # Force eviction by setting last_eviction to 0
+        # Force eviction by backdating _last_eviction past the interval
         import app.services.rate_limiter as rl
         old_last = rl._last_eviction
-        rl._last_eviction = 0
+        rl._last_eviction = time.monotonic() - rl._EVICTION_INTERVAL - 1
         _maybe_evict(time.monotonic())
         rl._last_eviction = old_last
 

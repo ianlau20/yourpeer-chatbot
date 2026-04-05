@@ -23,6 +23,7 @@ Usage:
 import os
 import time
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
@@ -85,6 +86,43 @@ def test_connection() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# FRESHNESS STATS
+# ---------------------------------------------------------------------------
+
+_FRESHNESS_DAYS = 90
+
+
+def _compute_freshness(rows: list[dict]) -> dict:
+    """Count how many results were verified within the last 90 days.
+
+    Operates on raw query rows (before format_service_card drops
+    the last_validated_at field).
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=_FRESHNESS_DAYS)
+    total = len(rows)
+    total_with_date = 0
+    fresh = 0
+
+    for row in rows:
+        lva = row.get("last_validated_at")
+        if lva is None:
+            continue
+        total_with_date += 1
+        # Handle both timezone-aware and naive datetimes from the DB
+        if not hasattr(lva, "tzinfo") or lva.tzinfo is None:
+            lva = lva.replace(tzinfo=timezone.utc)
+        if lva >= cutoff:
+            fresh += 1
+
+    return {
+        "fresh": fresh,
+        "total": total,
+        "total_with_date": total_with_date,
+    }
+
+
+# ---------------------------------------------------------------------------
 # QUERY EXECUTION
 # ---------------------------------------------------------------------------
 
@@ -122,6 +160,7 @@ def execute_service_query(
             "params_applied": user_params,
             "relaxed": False,
             "execution_ms": 0,
+            "freshness": {"fresh": 0, "total": 0, "total_with_date": 0},
             "error": f"Unknown template: {template_key}",
         }
 
@@ -136,6 +175,7 @@ def execute_service_query(
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
     results = deduplicate_results(rows)
+    freshness = _compute_freshness(results)
     cards = [format_service_card(r) for r in results]
 
     if cards or not allow_relaxed:
@@ -146,6 +186,7 @@ def execute_service_query(
             "params_applied": bound_params,
             "relaxed": False,
             "execution_ms": elapsed_ms,
+            "freshness": freshness,
         }
 
     # --- Relaxed fallback ---
@@ -161,6 +202,7 @@ def execute_service_query(
     elapsed_ms += int((time.monotonic() - start) * 1000)
 
     results_relaxed = deduplicate_results(rows_relaxed)
+    freshness = _compute_freshness(results_relaxed)
     cards_relaxed = [format_service_card(r) for r in results_relaxed]
 
     return {
@@ -170,6 +212,7 @@ def execute_service_query(
         "params_applied": relaxed_params,
         "relaxed": True,
         "execution_ms": elapsed_ms,
+        "freshness": freshness,
     }
 
 

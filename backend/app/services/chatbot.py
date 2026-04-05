@@ -1100,6 +1100,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict) -> dict:
             result_count=results.get("result_count", 0),
             relaxed=results.get("relaxed", False),
             execution_ms=results.get("execution_ms", 0),
+            freshness=results.get("freshness"),
         )
 
         if results.get("error"):
