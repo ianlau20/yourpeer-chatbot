@@ -1,9 +1,9 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., max_length=10_000)
     session_id: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
