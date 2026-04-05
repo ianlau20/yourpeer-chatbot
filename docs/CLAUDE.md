@@ -103,7 +103,7 @@ information, preventing hallucination.
 - **Error boundaries**: route-level (chat, admin, global) + component-level (ServiceCarousel) + custom 404
 - **Security**: CORS allowlist, CSRF middleware, HMAC-signed session tokens, admin API key auth, CSP/X-Frame-Options/Permissions-Policy headers, eval subprocess isolation
 - **Stability**: 10,000-char message length limit, 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (30/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
-- **Test suite**: 19 pytest files (597 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, and DB schema/query integration
+- **Test suite**: 19 pytest files (607 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, and DB schema/query integration
 
 ## Known Gaps / In Progress
 

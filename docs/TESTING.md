@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 597 tests across 19 test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 607 tests across 19 test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -55,7 +55,7 @@ All 16 backend modules and all public functions are covered:
 | `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 101+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
-| `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 35+ | Full |
+| `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 45+ | Full |
 | `crisis_detector.py` | `test_crisis_detector.py` | 20 | Full |
 | `llm_slot_extractor.py` | `test_llm_slot_extractor.py` | 19 | Full |
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 12+ | Full |
@@ -176,7 +176,7 @@ Validates the LLM-based slot extractor. Live tests require `ANTHROPIC_API_KEY` a
 | Complexity routing | 3 | Short messages → simple, long messages → complex, unknown locations → complex |
 | Integration (live) | 5 | End-to-end extraction, skipped without API key |
 
-### `test_audit_log.py` — 35 tests
+### `test_audit_log.py` — 45 tests
 
 Validates all 13 public functions in the audit log module.
 
@@ -190,7 +190,8 @@ Validates all 13 public functions in the audit log module.
 | Get conversation | 2 | Multi-event-type sessions, empty for unknown IDs |
 | Get conversations summary | 5 | Turn count aggregation, crisis flag, limit, recency sort, categories as lists (JSON-serializable) |
 | Get query log | 2 | Only queries, limit |
-| Get stats | 5 | All counters, category/service distributions, relaxed query rate, empty state |
+| Get stats (basic) | 5 | All counters, category/service distributions, relaxed query rate, empty state |
+| Get stats (pilot metrics) | 10 | Escalation count, service intent sessions, slot correction rate, confirmation breakdown, confirmation abandon rate, slot confirmation rate (partial + full), data freshness rate, no-query edge case, legacy queries without freshness |
 | Eval results | 5 | Set/get round-trip, deep copy isolation, None when unset, file loading, missing file |
 | Clear | 1 | Wipes everything including eval results |
 | Ring buffer | 3 | Caps at MAX_EVENTS, evicts oldest, conversation index stays within MAX_CONVERSATIONS |
