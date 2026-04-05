@@ -76,6 +76,14 @@ ANTHROPIC_API_KEY="your-anthropic-api-key"
 
 **Anthropic API key:** Required for all LLM features (conversational responses, slot extraction, crisis detection). Get a key at [console.anthropic.com](https://console.anthropic.com/). Without this key, the chatbot falls back to regex-only slot extraction, regex-only crisis detection, and static fallback responses.
 
+**Optional (local dev):** The following security variables are required in production but default to open/disabled for local development:
+
+```
+# SESSION_SECRET — signs session tokens. Unset = unsigned tokens (dev only).
+# ADMIN_API_KEY — protects /admin/ endpoints. Unset = open access (dev only).
+# CORS_ALLOWED_ORIGINS — defaults to localhost:3000 for local dev.
+```
+
 ### Run the backend
 
 ```

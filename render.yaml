@@ -16,6 +16,12 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
 
   # -----------------------------------------------------------------------
   # Frontend — Next.js
@@ -34,3 +40,7 @@ services:
       # After first deploy, verify this matches the actual .onrender.com URL.
       - key: CHAT_BACKEND_URL
         value: https://yourpeer-chatbot-api.onrender.com
+      # Must match the backend's ADMIN_API_KEY — the Next.js proxy
+      # forwards this to the backend on all /api/admin/* requests.
+      - key: ADMIN_API_KEY
+        sync: false

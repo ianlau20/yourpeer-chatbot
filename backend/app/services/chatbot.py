@@ -606,16 +606,11 @@ def generate_reply(
     latitude: float | None = None,
     longitude: float | None = None,
 ) -> dict:
-    # Always generate a server-side UUID for new sessions.
-    # For returning sessions, validate the ID is a valid UUID to prevent
-    # session ID forgery (clients cannot guess other users' UUIDs).
+    # Session ID is validated upstream by the chat route (signed token
+    # check). If somehow called without a session_id, generate a plain
+    # UUID as a fallback — but the route should always provide one.
     if not session_id:
         session_id = str(uuid.uuid4())
-    else:
-        try:
-            uuid.UUID(session_id)
-        except ValueError:
-            session_id = str(uuid.uuid4())
     # --- Empty message guard ---
     if not message or not message.strip():
         return _empty_reply(

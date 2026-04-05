@@ -139,12 +139,23 @@ def _build_429(retry_after: int) -> JSONResponse:
         headers={"Retry-After": str(retry_after)},
     )
 # ---------------------------------------------------------------------------
-# CSRF protection middleware
+# CORS / CSRF — shared origin list
 # ---------------------------------------------------------------------------
-def _get_allowed_origins() -> list[str]:
-    """Return the list of allowed CORS origins (mirrors main.py config)."""
-    default = "http://localhost:3000,http://127.0.0.1:3000"
-    return [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", default).split(",") if o.strip()]
+
+_DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+
+def get_allowed_origins() -> list[str]:
+    """Return the list of allowed CORS origins.
+
+    Used by both CORSMiddleware (in main.py) and CSRFMiddleware (below).
+    Single source of truth — avoids the two lists drifting apart.
+    """
+    return [
+        o.strip()
+        for o in os.getenv("CORS_ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
+        if o.strip()
+    ]
 class CSRFMiddleware(BaseHTTPMiddleware):
     """Reject cross-origin state-changing requests from browsers.
     Checks the ``Origin`` header (or ``Referer``) on POST/PUT/DELETE
@@ -162,7 +173,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # Non-browser clients (no Origin, no Referer, no Sec-Fetch-Site) → allow
         if not origin and not referer and not sec_fetch:
             return await call_next(request)
-        allowed = _get_allowed_origins()
+        allowed = get_allowed_origins()
         # Check Origin header
         if origin:
             if origin in allowed:
