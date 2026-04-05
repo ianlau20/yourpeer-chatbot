@@ -528,11 +528,13 @@ def test_whitespace_message_guard(fresh_session):
 
 def test_confused_classification():
     """Confusion phrases should classify as 'confused', not 'general'."""
-    for phrase in ["I don't know what to do", "I dont know what to do",
-                   "idk what to do", "I don't know", "I'm confused",
-                   "I'm lost", "I'm overwhelmed", "I'm not sure what I need",
-                   "what should I do", "where do I start", "what are my options"]:
-        assert_classified(phrase, "confused")
+    # Mock detect_crisis so LLM fail-open doesn't misclassify as crisis
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        for phrase in ["I don't know what to do", "I dont know what to do",
+                       "idk what to do", "I don't know", "I'm confused",
+                       "I'm lost", "I'm overwhelmed", "I'm not sure what I need",
+                       "what should I do", "where do I start", "what are my options"]:
+            assert_classified(phrase, "confused")
 
     assert_classified("I need food", "service")
     assert_classified("hello", "greeting")
@@ -540,7 +542,8 @@ def test_confused_classification():
 
 def test_confused_does_not_trigger_llm(fresh_session):
     """'I don't know what to do' should NOT reach the LLM or extract slots."""
-    result = send("I don't know what to do", session_id=fresh_session)
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        result = send("I don't know what to do", session_id=fresh_session)
     assert "figure it out" in result["response"].lower() or "okay" in result["response"].lower()
     assert len(result["quick_replies"]) >= 9
     assert result["slots"].get("service_type") is None

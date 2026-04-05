@@ -8,6 +8,7 @@
 
 import type { ChatMessage as ChatMessageType, FeedbackRating } from "@/lib/chat/types";
 import { ServiceCarousel } from "./service-carousel";
+import { ServiceCarouselBoundary } from "./service-carousel-boundary";
 import { QuickReplies } from "./quick-replies";
 import { FeedbackRow } from "./feedback-row";
 
@@ -43,7 +44,9 @@ export function ChatMessage({ message, onQuickReply, onFeedback }: ChatMessagePr
       </div>
 
       {message.services && message.services.length > 0 && (
-        <ServiceCarousel services={message.services} />
+        <ServiceCarouselBoundary>
+          <ServiceCarousel services={message.services} />
+        </ServiceCarouselBoundary>
       )}
 
       {message.showFeedback && <FeedbackRow onFeedback={onFeedback} />}

@@ -63,11 +63,16 @@ SELECT
     today_sched.opens_at   AS today_opens,
     today_sched.closes_at  AS today_closes,
 
-    membership_elig.requires_membership AS requires_membership
+    -- Returns true only when ALL eligible_values are ["true"] (referral required).
+    -- Services with ["true","false"] or no membership rule return NULL (no badge shown).
+    (
+        membership_elig.eligible_values = '["true"]'::jsonb
+        OR membership_elig.eligible_values = '[true]'::jsonb
+    ) AS requires_membership,
+
+    l.last_validated_at AS last_validated_at
 
 FROM services s
-    JOIN service_taxonomy st       ON s.id = st.service_id
-    JOIN taxonomies t              ON st.taxonomy_id = t.id
     JOIN service_at_locations sal  ON s.id = sal.service_id
     JOIN locations l               ON sal.location_id = l.id
     LEFT JOIN organizations o      ON s.organization_id = o.id
@@ -86,26 +91,18 @@ FROM services s
             END
         LIMIT 1
     ) best_phone ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT rs.opens_at, rs.closes_at
-        FROM regular_schedules rs
-        WHERE rs.service_id = s.id
-          AND rs.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int - 1
-        LIMIT 1
-    ) today_sched ON TRUE
-    LEFT JOIN LATERAL (
-        -- Returns true only when ALL eligible_values are ["true"] (referral required).
-        -- Services with ["true","false"] or no membership rule return NULL (no badge shown).
-        SELECT (
-            e.eligible_values = '["true"]'::jsonb
-            OR e.eligible_values = '[true]'::jsonb
-        ) AS requires_membership
-        FROM eligibility e
-        JOIN eligibility_parameters ep ON ep.id = e.parameter_id
-        WHERE e.service_id = s.id
-          AND ep.name = 'membership'
-        LIMIT 1
-    ) membership_elig ON TRUE
+    -- Today's schedule: regular LEFT JOIN instead of LATERAL since the
+    -- weekday value is constant per query (no per-row dependency).
+    LEFT JOIN regular_schedules today_sched
+        ON today_sched.service_id = s.id
+        AND today_sched.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int - 1
+    -- Membership eligibility: regular LEFT JOIN instead of LATERAL.
+    -- Batches the lookup across all rows instead of per-row subquery.
+    LEFT JOIN eligibility membership_elig
+        ON membership_elig.service_id = s.id
+        AND membership_elig.parameter_id = (
+            SELECT ep.id FROM eligibility_parameters ep WHERE ep.name = 'membership' LIMIT 1
+        )
 """
 
 # ---------------------------------------------------------------------------
@@ -114,8 +111,15 @@ FROM services s
 # Each fragment is a tuple of (sql_clause, required_param_keys).
 # The query builder picks only the fragments whose params are present.
 
+# Taxonomy filters use EXISTS subqueries to avoid row multiplication.
+# A service tagged with both "Food Pantry" and "Food Benefits" will only
+# appear once, eliminating the need for Python-side deduplication.
 FILTER_BY_TAXONOMY_NAME = (
-    "LOWER(t.name) = LOWER(:taxonomy_name)",
+    """EXISTS (
+        SELECT 1 FROM service_taxonomy st
+        JOIN taxonomies t ON st.taxonomy_id = t.id
+        WHERE st.service_id = s.id AND LOWER(t.name) = LOWER(:taxonomy_name)
+    )""",
     ["taxonomy_name"],
 )
 
@@ -124,7 +128,11 @@ FILTER_BY_TAXONOMY_NAME = (
 # "Clothing", "Clothing Pantry", "Interview-Ready Clothing", etc.).
 # Passes a list of lowercase names; ANY() matches if t.name is in the list.
 FILTER_BY_TAXONOMY_NAME_IN = (
-    "LOWER(t.name) = ANY(:taxonomy_names)",
+    """EXISTS (
+        SELECT 1 FROM service_taxonomy st
+        JOIN taxonomies t ON st.taxonomy_id = t.id
+        WHERE st.service_id = s.id AND LOWER(t.name) = ANY(:taxonomy_names)
+    )""",
     ["taxonomy_names"],
 )
 
@@ -254,14 +262,38 @@ FILTER_NOT_HIDDEN = (
 # ---------------------------------------------------------------------------
 # ORDER + LIMIT
 # ---------------------------------------------------------------------------
-_ORDER_LIMIT = """
-ORDER BY o.name, s.name
+# Sorting priority:
+#   1. Open now — services open right now appear first (when schedule exists)
+#   2. Recently verified — freshest data first (NULLS LAST)
+#   3. Service name — stable tiebreaker
+#
+# When proximity (lat/lon) is available, distance is the primary sort and
+# open-now becomes secondary.
+
+# Open-now sort expression: returns 0 for currently open, 1 for closed/unknown.
+# Uses the today_opens/today_closes already selected by the lateral join.
+_OPEN_NOW_RANK = """CASE
+    WHEN today_sched.opens_at IS NOT NULL
+         AND today_sched.closes_at IS NOT NULL
+         AND today_sched.opens_at <= CURRENT_TIME
+         AND today_sched.closes_at >= CURRENT_TIME
+    THEN 0 ELSE 1
+END"""
+
+_ORDER_LIMIT = f"""
+ORDER BY {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
 LIMIT :max_results
 """
 
-# Distance-aware ORDER BY — used when proximity params are present
-_ORDER_BY_DISTANCE_LIMIT = """
-ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography), s.name
+# Distance-aware ORDER BY — used when proximity params are present.
+# Distance first, then open-now, then freshness.
+_ORDER_BY_DISTANCE_LIMIT = f"""
+ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
 LIMIT :max_results
 """
 

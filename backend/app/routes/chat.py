@@ -13,6 +13,8 @@ async def chat(request: ChatRequest):
     result = generate_reply(
         message=request.message,
         session_id=request.session_id,
+        latitude=request.latitude,
+        longitude=request.longitude,
     )
     return result
 

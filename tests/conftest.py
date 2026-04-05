@@ -99,6 +99,15 @@ MOCK_RELAXED_RESULTS = {
 # FIXTURES
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _clear_rate_limits():
+    """Reset rate limiter state before each test so tests are isolated."""
+    from app.services.rate_limiter import clear
+    clear()
+    yield
+    clear()
+
+
 @pytest.fixture
 def mock_service_card():
     """A single realistic service card dict."""
@@ -143,7 +152,7 @@ def fresh_session():
 #   from conftest import send, send_multi, assert_classified
 #
 
-def send(message, session_id=None, mock_query_return=None):
+def send(message, session_id=None, mock_query_return=None, latitude=None, longitude=None):
     """Send a single message through generate_reply with mocked externals.
 
     Patches claude_reply and query_services so tests don't need real
@@ -154,6 +163,8 @@ def send(message, session_id=None, mock_query_return=None):
         session_id: Session ID (auto-generated if None).
         mock_query_return: What query_services should return.
             Defaults to MOCK_QUERY_RESULTS.
+        latitude: Optional browser geolocation latitude.
+        longitude: Optional browser geolocation longitude.
 
     Usage:
         from conftest import send, MOCK_QUERY_RESULTS
@@ -173,19 +184,22 @@ def send(message, session_id=None, mock_query_return=None):
         clear_session(session_id)
 
     with patch("app.services.chatbot.claude_reply", return_value="How can I help?"), \
-         patch("app.services.chatbot.query_services", return_value=mock_query_return):
-        return generate_reply(message, session_id=session_id)
+         patch("app.services.chatbot.query_services", return_value=mock_query_return), \
+         patch("app.services.chatbot.detect_crisis", return_value=None):
+        return generate_reply(message, session_id=session_id, latitude=latitude, longitude=longitude)
 
 
-def send_multi(messages, session_id=None, mock_query_return=None):
+def send_multi(messages, session_id=None, mock_query_return=None, latitude=None, longitude=None):
     """Send multiple messages in sequence within the same session.
 
     Returns a list of response dicts, one per message.
 
     Args:
-        messages: List of user message strings.
+        messages: List of user message strings or tuples of (message, kwargs).
         session_id: Session ID (auto-generated if None).
         mock_query_return: What query_services should return.
+        latitude: Optional browser geolocation latitude (applied to all messages).
+        longitude: Optional browser geolocation longitude (applied to all messages).
 
     Usage:
         from conftest import send_multi
@@ -206,9 +220,10 @@ def send_multi(messages, session_id=None, mock_query_return=None):
 
     results = []
     with patch("app.services.chatbot.claude_reply", return_value="How can I help?"), \
-         patch("app.services.chatbot.query_services", return_value=mock_query_return):
+         patch("app.services.chatbot.query_services", return_value=mock_query_return), \
+         patch("app.services.chatbot.detect_crisis", return_value=None):
         for msg in messages:
-            results.append(generate_reply(msg, session_id=session_id))
+            results.append(generate_reply(msg, session_id=session_id, latitude=latitude, longitude=longitude))
     return results
 
 

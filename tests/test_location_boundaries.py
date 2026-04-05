@@ -73,7 +73,7 @@ def test_city_filter_with_normalized_borough():
     """Normalized borough name should be used in the query params."""
     city = normalize_location("manhattan")
     sql, params = build_query("food", {"city": city, "max_results": 5})
-    assert params["city"] == "New York"
+    assert params["city"] == "Manhattan"
 
 
 # -----------------------------------------------------------------------
@@ -132,9 +132,9 @@ def test_relaxed_drops_schedule_but_keeps_location():
 # -----------------------------------------------------------------------
 
 def test_all_five_boroughs_normalize():
-    """All 5 NYC boroughs should normalize to DB city values."""
+    """All 5 NYC boroughs should normalize to canonical borough names."""
     boroughs = {
-        "manhattan": "New York",
+        "manhattan": "Manhattan",
         "brooklyn": "Brooklyn",
         "queens": "Queens",
         "bronx": "Bronx",
@@ -147,11 +147,11 @@ def test_all_five_boroughs_normalize():
 
 
 def test_all_neighborhoods_in_map():
-    """Every neighborhood in the alias map should normalize to a valid borough city."""
-    valid_cities = {"New York", "Brooklyn", "Queens", "Bronx", "Staten Island"}
+    """Every entry in the alias map should normalize to a valid NYC value."""
+    valid_values = {"Manhattan", "New York", "Brooklyn", "Queens", "Bronx", "Staten Island"}
     for alias, city in NYC_LOCATION_ALIASES.items():
-        assert city in valid_cities, \
-            f"Alias '{alias}' maps to '{city}' which is not a valid NYC city"
+        assert city in valid_values, \
+            f"Alias '{alias}' maps to '{city}' which is not a valid NYC value"
 
 
 def test_case_insensitive_normalization():
@@ -161,7 +161,7 @@ def test_case_insensitive_normalization():
         ("Brooklyn", "Brooklyn"),
         ("bRoOkLyN", "Brooklyn"),
         ("QUEENS", "Queens"),
-        ("Manhattan", "New York"),
+        ("Manhattan", "Manhattan"),
         ("HARLEM", "New York"),
     ]
     for raw, expected in cases:
@@ -307,8 +307,8 @@ def test_taxonomy_filter_always_present():
         sql, params = build_query(key, {"max_results": 5})
         assert "t.name" in sql.lower(), \
             f"Template '{key}' missing taxonomy filter"
-        assert "taxonomy_name" in params, \
-            f"Template '{key}' missing taxonomy_name param"
+        assert "taxonomy_name" in params or "taxonomy_names" in params, \
+            f"Template '{key}' missing taxonomy_name/taxonomy_names param"
 
 
 def test_max_results_default():
@@ -1058,7 +1058,8 @@ def test_test_connection_without_db():
     qe._engine = None
 
     try:
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(qe, 'DATABASE_URL', None):
             # Without DATABASE_URL, test_connection should return False
             result = test_connection()
             assert result is False, "test_connection should return False without a DB"

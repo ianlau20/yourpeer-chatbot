@@ -24,9 +24,9 @@ from app.rag.query_executor import normalize_location, resolve_template_key
 # -----------------------------------------------------------------------
 
 def test_borough_normalization():
-    """NYC boroughs should map to their DB city values."""
+    """NYC boroughs should map to their canonical borough names."""
     cases = [
-        ("manhattan", "New York"),
+        ("manhattan", "Manhattan"),
         ("brooklyn", "Brooklyn"),
         ("queens", "Queens"),
         ("bronx", "Bronx"),
@@ -201,6 +201,27 @@ def test_pii_redaction_preserves_age():
     # And slot extraction should still find the age
     slots = extract_slots(msg)
     assert slots["age"] == 17
+
+
+def test_pii_not_echoed_in_confirmation():
+    """PII in slot values must be redacted before echoing in confirmation."""
+    from app.services.chatbot import _build_confirmation_message
+    # Simulate a street address captured as location
+    slots = {"service_type": "food", "location": "123 Main Street"}
+    msg = _build_confirmation_message(slots)
+    assert "123 Main Street" not in msg
+    assert "[ADDRESS]" in msg
+
+    # A phone number somehow in a slot value
+    slots_phone = {"service_type": "food", "location": "212-555-1234"}
+    msg_phone = _build_confirmation_message(slots_phone)
+    assert "212-555-1234" not in msg_phone
+    assert "[PHONE]" in msg_phone
+
+    # A normal location should pass through unchanged
+    slots_clean = {"service_type": "food", "location": "Brooklyn"}
+    msg_clean = _build_confirmation_message(slots_clean)
+    assert "Brooklyn" in msg_clean
 
 
 def test_pii_with_phone_and_location():

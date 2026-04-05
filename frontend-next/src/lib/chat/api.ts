@@ -22,13 +22,27 @@ import type {
 export async function sendChatMessage(
   message: string,
   sessionId: string | null,
+  coords?: { latitude: number; longitude: number } | null,
 ): Promise<ChatResponse> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      ...(coords && { latitude: coords.latitude, longitude: coords.longitude }),
+    }),
   });
-  if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    if (res.status === 429 && data?.detail) {
+      const msg = data.crisis_resources
+        ? `${data.detail}\n\n${data.crisis_resources}`
+        : data.detail;
+      throw new Error(msg);
+    }
+    throw new Error(`Request failed with status ${res.status}`);
+  }
   return res.json();
 }
 

@@ -47,7 +47,7 @@ npm run dev
 # Open http://localhost:3000/admin  (staff review console)
 ```
 
-See [SETUP.md](SETUP.md) for detailed instructions including prerequisites, IDE configuration, and Render deployment.
+See [SETUP.md](docs/SETUP.md) for detailed instructions including prerequisites, IDE configuration, and Render deployment.
 
 ## Architecture
 
@@ -80,7 +80,7 @@ The system follows a **Safer, Limited RAG** pattern with four phases:
 
 ## Features
 
-See [FEATURES.md](FEATURES.md) for the full feature reference, organized by area: conversation & intake, crisis detection, search & results, service cards, privacy & safety, accessibility, and staff tools.
+See [FEATURES.md](docs/FEATURES.md) for the full feature reference, organized by area: conversation & intake, crisis detection, search & results, service cards, privacy & safety, accessibility, and staff tools.
 
 ## Tech Stack
 
@@ -120,7 +120,7 @@ Two Claude models are used across the system, each assigned to specific tasks ba
 
 **Why Sonnet for crisis:** This is a safety-critical classification where false negatives have real consequences for vulnerable people. Sonnet's adaptive thinking adjusts reasoning depth to ambiguity, which is exactly what's needed for indirect crisis language. The volume is very low (~5% of turns reach the LLM stage) so the 3x cost premium over Haiku adds negligible total cost.
 
-**Fail-open:** If the Sonnet call fails for any reason, the system returns a general safety response rather than falling through to normal conversation. See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for full details.
+**Fail-open:** If the Sonnet call fails for any reason, the system returns a general safety response rather than falling through to normal conversation. See [CRISIS_DETECTION.md](docs/CRISIS_DETECTION.md) for full details.
 
 **LLM-as-judge** — `eval_llm_judge.py` uses Sonnet to score conversations across 8 dimensions. This runs only during evaluation, not in production.
 
@@ -134,7 +134,7 @@ Two Claude models are used across the system, each assigned to specific tasks ba
 
 These are tracked issues identified during DB audits and pilot testing, deferred for post-pilot resolution.
 
-**Result ordering favors large organizations.** The base query orders results alphabetically by `o.name, s.name`. Large systems like NYC Health + Hospitals or CAMBA have many services per borough and will consistently appear at the top of results, crowding out smaller community organizations. A better ordering strategy — randomized within results, or weighted by data completeness (has phone, has hours, recently verified) — would give users more varied and actionable results.
+**Result ordering.** Results are sorted by: (1) open now — services currently open appear first, (2) recently verified — freshest data via `l.last_validated_at DESC NULLS LAST`, (3) service name as a stable tiebreaker. When browser geolocation is available, distance is the primary sort with open-now and freshness as secondary tiebreakers.
 
 **`additional_info` field is effectively empty.** DB audit (Apr 2026) shows 3,240 of 3,251 services (99.7%) have no `additional_info`. The field is selected in the base query and rendered conditionally in the card, but it adds negligible value. Consider removing it from the SELECT in a future query optimization pass to reduce payload size.
 
@@ -146,19 +146,18 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 
 **`adversarial_fake_service` graceful handling.** A request for an impossible service (e.g., "helicopter ride") proceeds to a meaningless search rather than being redirected gracefully to real alternatives. P6 guard clause in the confirmation builder is pending.
 
-**Phone number redaction in confirmation echo.** When a user includes a phone number in their message, the number is redacted from the stored transcript but may still appear in the bot's confirmation echo before being stored. P5 fix (run `redact_pii()` on outgoing responses) is pending.
-
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [FEATURES.md](FEATURES.md) | Full feature reference — conversation & intake, crisis detection, search & results, service cards, privacy & safety, staff tools |
-| [CRISIS_DETECTION.md](CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, phrase list design, LLM prompt, and how to extend |
-| [METRICS.md](METRICS.md) | Success metrics — 18 metrics across 5 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
-| [EVAL_RESULTS.md](EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
-| [SETUP.md](SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
-| [DEPLOY.md](DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
-| [TESTING.md](TESTING.md) | Test suite guide — 444 unit tests across 14 suites + 85-scenario LLM-as-judge evaluation framework |
+| [FEATURES.md](docs/FEATURES.md) | Full feature reference — conversation & intake, crisis detection, search & results, service cards, privacy & safety, staff tools |
+| [CRISIS_DETECTION.md](docs/CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, phrase list design, LLM prompt, and how to extend |
+| [PII_REDACTION.md](docs/PII_REDACTION.md) | PII redaction — six detection categories, pattern details, tradeoffs, known gaps, and future improvements |
+| [METRICS.md](docs/METRICS.md) | Success metrics — 18 metrics across 5 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
+| [EVAL_RESULTS.md](docs/EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
+| [SETUP.md](docs/SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
+| [DEPLOY.md](docs/DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
+| [TESTING.md](docs/TESTING.md) | Test suite guide — 559 tests across 18 files + 85-scenario LLM-as-judge evaluation framework |
 | [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories

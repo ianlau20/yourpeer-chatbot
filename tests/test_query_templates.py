@@ -253,12 +253,17 @@ def test_taxonomy_aliases_match_taxonomy_names():
 def test_base_query_joins():
     """Base query must include all required table joins."""
     sql_lower = _BASE_QUERY.lower()
-    assert "join service_taxonomy" in sql_lower
-    assert "join taxonomies" in sql_lower
+    # Core joins
     assert "join service_at_locations" in sql_lower
     assert "join locations" in sql_lower
     assert "left join organizations" in sql_lower
     assert "left join physical_addresses" in sql_lower
+    # Taxonomy is now an EXISTS subquery in filters, not a base JOIN
+    assert "join service_taxonomy" not in sql_lower, \
+        "Taxonomy should use EXISTS filter, not base JOIN (avoids row duplication)"
+    # Schedule and membership use regular LEFT JOINs (not LATERAL)
+    assert "left join regular_schedules" in sql_lower
+    assert "left join eligibility" in sql_lower
 
 
 def test_base_query_phone_is_lateral():
@@ -278,11 +283,11 @@ def test_base_query_phone_priority_order():
     assert "when ph.organization_id" in sql_lower
 
 
-def test_base_query_schedule_lateral():
-    """Schedule should use LATERAL join for today's hours."""
+def test_base_query_schedule_join():
+    """Schedule should use a regular LEFT JOIN for today's hours."""
     sql_lower = _BASE_QUERY.lower()
     assert "today_sched" in sql_lower
-    assert "regular_schedules" in sql_lower
+    assert "left join regular_schedules" in sql_lower
     assert "isodow" in sql_lower
 
 
@@ -812,11 +817,11 @@ def test_requires_membership_always_present_in_card():
 
 
 def test_base_query_selects_requires_membership():
-    """Base query must select requires_membership from the membership LATERAL join."""
+    """Base query must select requires_membership from the membership LEFT JOIN."""
     assert "requires_membership" in _BASE_QUERY.lower(), \
-        "Base query missing requires_membership field — membership LATERAL join not added"
+        "Base query missing requires_membership field"
     assert "membership_elig" in _BASE_QUERY.lower(), \
-        "Base query missing membership_elig LATERAL join alias"
+        "Base query missing membership_elig join alias"
     assert "eligibility_parameters" in _BASE_QUERY.lower(), \
         "Base query missing eligibility_parameters join in membership LATERAL"
 
@@ -916,6 +921,72 @@ def test_no_schedule_data_card_is_none():
         f"is_open should be None when no schedule data, got '{card['is_open']}'"
     assert card["hours_today"] is None, \
         f"hours_today should be None when no schedule data, got '{card['hours_today']}'"
+
+
+# -----------------------------------------------------------------------
+# RESULT SORTING
+# -----------------------------------------------------------------------
+# Results are sorted with three tiers:
+#   1. Open now (services currently open appear first)
+#   2. Recently verified (l.last_validated_at DESC NULLS LAST)
+#   3. Service name (stable tiebreaker)
+# When proximity (lat/lon) is active, distance is the primary sort.
+
+def test_default_order_prioritizes_open_now():
+    """Default ORDER BY (no proximity) should prioritize open services."""
+    sql, _ = build_query("food", {"borough": "Brooklyn", "max_results": 5})
+    # Should contain the open-now CASE expression before last_validated_at
+    assert "CURRENT_TIME" in sql, "ORDER BY should include open-now ranking"
+    assert "last_validated_at" in sql, "ORDER BY should include freshness sort"
+    # Should NOT contain ST_Distance
+    assert "ST_Distance" not in sql
+
+
+def test_proximity_order_uses_distance_first():
+    """When lat/lon present, distance should be the primary sort."""
+    sql, _ = build_query("food", {
+        "lat": 40.69, "lon": -73.99, "radius_meters": 1600, "max_results": 5,
+    })
+    assert "ST_Distance" in sql, "Proximity query should sort by distance"
+    assert "CURRENT_TIME" in sql, "Proximity query should also rank by open-now"
+    assert "last_validated_at" in sql, "Proximity query should also sort by freshness"
+    # Distance should appear before open-now in ORDER BY
+    dist_pos = sql.index("ST_Distance")
+    open_pos = sql.index("CURRENT_TIME")
+    assert dist_pos < open_pos, "Distance should sort before open-now in proximity queries"
+
+
+def test_freshness_after_open_now_in_order():
+    """last_validated_at should come after the open-now ranking in ORDER BY."""
+    sql, _ = build_query("food", {"borough": "Manhattan", "max_results": 5})
+    # Only inspect the ORDER BY section (after the last WHERE clause)
+    order_section = sql[sql.rindex("ORDER BY"):]
+    open_pos = order_section.index("CURRENT_TIME")
+    fresh_pos = order_section.index("last_validated_at")
+    assert open_pos < fresh_pos, "Open-now should sort before freshness in ORDER BY"
+
+
+def test_base_query_selects_last_validated_at():
+    """The base query SELECT should include last_validated_at for sorting."""
+    assert "last_validated_at" in _BASE_QUERY, \
+        "last_validated_at must be in the base SELECT for ORDER BY to reference it"
+
+
+def test_relaxed_query_keeps_sort_order():
+    """Relaxed queries should maintain the same sort priority."""
+    sql, _ = build_relaxed_query("food", {
+        "borough": "Brooklyn", "max_results": 5,
+    })
+    assert "CURRENT_TIME" in sql, "Relaxed query should still sort by open-now"
+    assert "last_validated_at" in sql, "Relaxed query should still sort by freshness"
+
+
+def test_all_templates_use_open_now_sort():
+    """Every template's generated SQL should include open-now sorting."""
+    for key in TEMPLATES:
+        sql, _ = build_query(key, {"borough": "Brooklyn", "max_results": 5})
+        assert "CURRENT_TIME" in sql, \
+            f"Template '{key}' should include open-now sort in ORDER BY"
 
 
 # -----------------------------------------------------------------------

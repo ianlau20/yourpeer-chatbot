@@ -9,7 +9,10 @@
 import { useCallback } from "react";
 import { useChatStore, nextMsgId } from "@/lib/chat/store";
 import { sendChatMessage, sendFeedback } from "@/lib/chat/api";
+import { useGeolocation } from "./use-geolocation";
 import type { FeedbackRating } from "@/lib/chat/types";
+
+const GEOLOCATION_TRIGGER = "__use_geolocation__";
 
 export function useChat() {
   const {
@@ -24,6 +27,8 @@ export function useChat() {
     markQuickRepliesUsed,
   } = useChatStore();
 
+  const { latitude, longitude, hasCoords, requestLocation } = useGeolocation();
+
   const send = useCallback(
     async (text: string) => {
       const message = text.trim();
@@ -32,12 +37,68 @@ export function useChat() {
       // Mark any existing quick replies as used
       markQuickRepliesUsed();
 
-      // Add user message immediately
+      // Handle "Use my location" quick reply
+      if (message === GEOLOCATION_TRIGGER) {
+        addMessage({ id: nextMsgId(), role: "user", text: "Use my location" });
+        setLoading(true);
+
+        const coords = hasCoords
+          ? { latitude: latitude!, longitude: longitude! }
+          : await requestLocation();
+
+        if (!coords) {
+          // Permission denied or error — show message and let user pick borough
+          setLoading(false);
+          addMessage({
+            id: nextMsgId(),
+            role: "bot",
+            text: "I wasn't able to get your location. Which borough or neighborhood are you in?",
+            quick_replies: [
+              { label: "Manhattan", value: "Manhattan" },
+              { label: "Brooklyn", value: "Brooklyn" },
+              { label: "Queens", value: "Queens" },
+              { label: "Bronx", value: "Bronx" },
+              { label: "Staten Island", value: "Staten Island" },
+            ],
+          });
+          return;
+        }
+
+        // Got coords — send "near me" with coordinates attached
+        try {
+          const data = await sendChatMessage("near me", sessionId, coords);
+          if (data.session_id) setSessionId(data.session_id);
+
+          addMessage({
+            id: nextMsgId(),
+            role: "bot",
+            text: data.response || "(No response text)",
+            services: data.services,
+            quick_replies: data.quick_replies,
+            showFeedback: (data.services?.length ?? 0) > 0,
+          });
+        } catch (err: any) {
+          const msg = err.message || "Something went wrong";
+          setError(`Error: ${msg}`);
+          addMessage({
+            id: nextMsgId(),
+            role: "bot",
+            text: msg.includes("wait") ? msg : "Sorry, something went wrong. Please try again.",
+          });
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Normal message flow
       addMessage({ id: nextMsgId(), role: "user", text: message });
 
       setLoading(true);
       try {
-        const data = await sendChatMessage(message, sessionId);
+        // Attach coords if we have them
+        const coords = hasCoords ? { latitude: latitude!, longitude: longitude! } : null;
+        const data = await sendChatMessage(message, sessionId, coords);
         if (data.session_id) setSessionId(data.session_id);
 
         addMessage({
@@ -49,17 +110,18 @@ export function useChat() {
           showFeedback: (data.services?.length ?? 0) > 0,
         });
       } catch (err: any) {
-        setError(`Error: ${err.message}`);
+        const msg = err.message || "Something went wrong";
+        setError(`Error: ${msg}`);
         addMessage({
           id: nextMsgId(),
           role: "bot",
-          text: "Sorry, something went wrong. Please try again.",
+          text: msg.includes("wait") ? msg : "Sorry, something went wrong. Please try again.",
         });
       } finally {
         setLoading(false);
       }
     },
-    [sessionId, addMessage, setSessionId, setLoading, setError, markQuickRepliesUsed],
+    [sessionId, latitude, longitude, hasCoords, addMessage, setSessionId, setLoading, setError, markQuickRepliesUsed, requestLocation],
   );
 
   const submitFeedback = useCallback(
