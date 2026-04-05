@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 559 tests across 18 test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 597 tests across 19 test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -47,7 +47,7 @@ Without `ANTHROPIC_API_KEY`, the 5 live LLM tests are automatically skipped.
 
 ## Test Coverage Map
 
-All 14 backend modules and all 53 public functions are covered:
+All 16 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
@@ -60,11 +60,13 @@ All 14 backend modules and all 53 public functions are covered:
 | `llm_slot_extractor.py` | `test_llm_slot_extractor.py` | 19 | Full |
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 12+ | Full |
 | `session_store.py` | `test_session_store.py`, `test_chatbot.py`, `test_chat_route.py` | 7+ | Full |
-| `chat_models.py` | `test_chat_route.py` | 16 | Full |
-| `admin.py` (routes) | `test_admin.py` | 18 | Full |
-| `chat.py` (route) | `test_chat_route.py` | 14 | Full |
-| `claude_client.py` | `test_claude_client.py` | 12 | Full |
-| `main.py` | `test_main.py` | 7 | Full |
+| `session_token.py` | `test_session_token.py`, `test_chat_route.py` | 17 | Full |
+| `rate_limiter.py` | `test_rate_limiter.py`, `test_rate_limit_integration.py` | 24 | Full |
+| `chat_models.py` | `test_chat_route.py` | 19 | Full |
+| `admin.py` (routes) | `test_admin.py` | 27 | Full |
+| `chat.py` (route) | `test_chat_route.py` | 22 | Full |
+| `claude_client.py` | `test_claude_client.py` | 19 | Full |
+| `main.py` | `test_main.py` | 14 | Full |
 
 **Not covered:** Frontend TypeScript/React components (`frontend-next/`). There is no frontend test infrastructure in the project yet. See "Known Limitations" section below.
 
@@ -194,27 +196,30 @@ Validates all 13 public functions in the audit log module.
 | Ring buffer | 3 | Caps at MAX_EVENTS, evicts oldest, conversation index stays within MAX_CONVERSATIONS |
 | Thread safety | 1 | 17 concurrent threads logging and reading simultaneously |
 
-### `test_admin.py` — 18 tests
+### `test_admin.py` — 27 tests
 
 HTTP-level tests for the admin API endpoints using FastAPI TestClient.
 
 | Category | Tests | What's covered |
 |---|---|---|
+| Admin auth | 5 | Open when no key set, rejects missing header, rejects wrong key, accepts correct key, protects eval/run |
 | Stats | 2 | Empty state returns zeros, populated state returns correct counts |
 | Conversations list | 3 | Summaries, limit parameter, limit validation (rejects 0 and 999) |
 | Conversation detail | 3 | All event types returned, 404 for unknown ID, crisis session includes both event types |
 | Events | 5 | All events, type filtering, invalid type → 422, limit, limit validation |
 | Queries | 2 | Returns only query executions, limit |
 | Eval | 2 | 200 with null results when empty, returns data when set |
+| Eval run guards | 2 | 500 when no API key, 409 when already running |
+| Admin rate limits | 2 | 429 after exceeding IP limit, stricter eval/run limit |
 | Health | 1 | `GET /api/health` returns ok |
 
-### `test_chat_route.py` — 30 tests
+### `test_chat_route.py` — 38 tests
 
 HTTP-level tests for the chat endpoint and Pydantic model validation.
 
 | Category | Tests | What's covered |
 |---|---|---|
-| ChatRequest model | 5 | Valid construction, optional session_id, missing message rejected, wrong type, empty string |
+| ChatRequest model | 8 | Valid construction, optional session_id, missing message rejected, wrong type, empty string, accepts 10,000-char message, rejects 10,001-char message, rejects oversized at HTTP level (422) |
 | ServiceCard model | 4 | Minimal (service_name only), full (all 13 fields), missing required rejected, serialization |
 | QuickReply model | 3 | Valid, missing label rejected, missing value rejected |
 | ChatResponse model | 4 | Minimal with defaults, nested ServiceCards, missing required rejected, JSON round-trip |
@@ -222,6 +227,7 @@ HTTP-level tests for the chat endpoint and Pydantic model validation.
 | HTTP multi-turn | 4 | Full conversation with service cards, slot accumulation, reset, quick reply structure |
 | HTTP crisis | 1 | Returns 988 resources, no service cards, query_services not called |
 | HTTP method | 1 | GET /chat/ returns non-200 |
+| Session token validation | 5 | Forged session_id → 403, tampered signature → 403, valid signed token → 200, first message mints signed token, feedback rejects forged token |
 
 ### `test_pii_redactor.py` — 15 tests
 
@@ -261,6 +267,17 @@ Validates session CRUD and thread safety.
 | Basic operations | 5 | Save/get round-trip with deep copy, nonexistent returns {}, clear, clear nonexistent, overwrite |
 | Thread safety | 2 | 30 concurrent threads (1,500 operations), lock existence |
 
+### `test_session_token.py` — 12 tests
+
+Validates HMAC-signed session token generation and verification.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| No secret (dev mode) | 2 | Unsigned tokens generated, any string accepted |
+| With secret (production) | 5 | Signed tokens generated, generate-then-validate round-trip, unsigned rejected, forged signature rejected, tampered payload rejected |
+| Edge cases | 3 | Empty string rejected, bare dot rejected, wrong secret rejected |
+| Format robustness | 2 | Tokens with dots in raw portion handled correctly, constant-time comparison used |
+
 ### `test_geolocation.py` — 11 tests
 
 Validates browser geolocation support: coordinate acceptance, session storage, "near me" + coords flow, and proximity query integration.
@@ -274,7 +291,7 @@ Validates browser geolocation support: coordinate acceptance, session storage, "
 | RAG integration | 2 | Direct coords build proximity params, coords override location name |
 | Cross-turn persistence | 1 | Coords persist in session across messages |
 
-### `test_rate_limiter.py` — 12 tests
+### `test_rate_limiter.py` — 14 tests
 
 Validates the sliding-window rate limiter logic.
 
@@ -284,6 +301,7 @@ Validates the sliding-window rate limiter logic.
 | Per-IP limits | 3 | IP-level rate limiting, separate from session limits |
 | Feedback limits | 2 | Feedback endpoint rate limiting |
 | Bucket management | 3 | Sliding window cleanup, thread safety, clear() |
+| Memory management | 2 | Forced eviction when bucket cap exceeded, no forced eviction under cap |
 
 ### `test_rate_limit_integration.py` — 10 tests
 
@@ -306,7 +324,7 @@ Database integration tests that run against the real Streetlives PostgreSQL data
 | Result formatting | 2 | Real rows format to valid service cards, proximity returns multiple results |
 | End-to-end | 5 | Full query_services() pipeline: borough, neighborhood, coords, relaxed fallback, card field completeness |
 
-### `test_main.py` — 7 tests
+### `test_main.py` — 14 tests
 
 HTTP-level tests for the FastAPI app configuration (headless API mode).
 
@@ -315,7 +333,8 @@ HTTP-level tests for the FastAPI app configuration (headless API mode).
 | Health | 1 | `GET /api/health` |
 | Root | 1 | `GET /` returns JSON message (no static file serving) |
 | API routing | 3 | `/api/health`, `POST /chat/`, `/admin/api/stats` all routed correctly |
-| CORS | 2 | Headers present, preflight OPTIONS |
+| CSRF protection | 6 | Valid origin allowed, evil origin → 403, non-browser (no headers) allowed, Sec-Fetch-Site without origin → 403, valid Referer allowed, evil Referer → 403 |
+| CORS | 3 | Headers present for allowed origin, no headers for unknown origin, preflight OPTIONS |
 
 ## LLM-as-Judge Evaluation (`eval_llm_judge.py`)
 
