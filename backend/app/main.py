@@ -24,12 +24,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# --- CSRF protection ---
-# Validates Origin header on POST/PUT/DELETE to prevent cross-site forgery.
-app.add_middleware(CSRFMiddleware)
+
 # --- Rate limiting ---
 # Protects /chat/ and /chat/feedback. Admin and health routes are exempt.
 app.add_middleware(RateLimitMiddleware)
+# --- CSRF protection ---
+# Validates Origin header on POST/PUT/DELETE to prevent cross-site forgery.
+app.add_middleware(CSRFMiddleware)
 # --- API routes ---
 app.include_router(chat_router)
 app.include_router(admin_router)

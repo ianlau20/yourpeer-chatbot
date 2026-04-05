@@ -4,7 +4,7 @@ FastAPI dependencies for request-level concerns (rate limiting, auth, etc.).
 import json
 import logging
 import os
-from fastapi import Request
+from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
@@ -29,7 +29,6 @@ def require_admin_key(request: Request) -> None:
     auth = request.headers.get("authorization", "")
     if auth == f"Bearer {expected}":
         return
-    from fastapi import HTTPException
     raise HTTPException(
         status_code=401,
         detail="Missing or invalid admin API key",
