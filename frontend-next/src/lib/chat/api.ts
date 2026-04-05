@@ -16,6 +16,21 @@ import type {
 } from "./types";
 
 // ---------------------------------------------------------------------------
+// Timeout helper (D4)
+// ---------------------------------------------------------------------------
+
+/** Return an AbortSignal that fires after `ms` milliseconds. */
+function timeoutSignal(ms: number): AbortSignal {
+  return AbortSignal.timeout(ms);
+}
+
+// Chat requests may include LLM + DB round-trips on the backend.
+const CHAT_TIMEOUT_MS = 30_000;
+
+// Admin/data endpoints are simple DB reads.
+const ADMIN_TIMEOUT_MS = 15_000;
+
+// ---------------------------------------------------------------------------
 // Chat API
 // ---------------------------------------------------------------------------
 
@@ -32,6 +47,7 @@ export async function sendChatMessage(
       session_id: sessionId,
       ...(coords && { latitude: coords.latitude, longitude: coords.longitude }),
     }),
+    signal: timeoutSignal(CHAT_TIMEOUT_MS),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
@@ -55,6 +71,7 @@ export async function sendFeedback(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, rating }),
+    signal: timeoutSignal(ADMIN_TIMEOUT_MS),
   }).catch(() => {});
 }
 
@@ -65,7 +82,7 @@ export async function sendFeedback(
 const ADMIN_API = "/api/admin";
 
 export async function fetchAdminStats(): Promise<AdminStats> {
-  const res = await fetch(`${ADMIN_API}/stats`);
+  const res = await fetch(`${ADMIN_API}/stats`, { signal: timeoutSignal(ADMIN_TIMEOUT_MS) });
   if (!res.ok) throw new Error("Failed to load stats");
   return res.json();
 }
@@ -73,7 +90,7 @@ export async function fetchAdminStats(): Promise<AdminStats> {
 export async function fetchConversations(
   limit = 100,
 ): Promise<ConversationSummary[]> {
-  const res = await fetch(`${ADMIN_API}/conversations?limit=${limit}`);
+  const res = await fetch(`${ADMIN_API}/conversations?limit=${limit}`, { signal: timeoutSignal(ADMIN_TIMEOUT_MS) });
   if (!res.ok) throw new Error("Failed to load conversations");
   return res.json();
 }
@@ -81,7 +98,7 @@ export async function fetchConversations(
 export async function fetchConversationDetail(
   sessionId: string,
 ): Promise<AuditEvent[]> {
-  const res = await fetch(`${ADMIN_API}/conversations/${sessionId}`);
+  const res = await fetch(`${ADMIN_API}/conversations/${sessionId}`, { signal: timeoutSignal(ADMIN_TIMEOUT_MS) });
   if (!res.ok) throw new Error("Failed to load conversation");
   return res.json();
 }
@@ -89,19 +106,19 @@ export async function fetchConversationDetail(
 export async function fetchEvents(
   limit = 100,
 ): Promise<AuditEvent[]> {
-  const res = await fetch(`${ADMIN_API}/events?limit=${limit}`);
+  const res = await fetch(`${ADMIN_API}/events?limit=${limit}`, { signal: timeoutSignal(ADMIN_TIMEOUT_MS) });
   if (!res.ok) throw new Error("Failed to load events");
   return res.json();
 }
 
 export async function fetchQueries(limit = 200): Promise<QueryLogEntry[]> {
-  const res = await fetch(`${ADMIN_API}/queries?limit=${limit}`);
+  const res = await fetch(`${ADMIN_API}/queries?limit=${limit}`, { signal: timeoutSignal(ADMIN_TIMEOUT_MS) });
   if (!res.ok) throw new Error("Failed to load queries");
   return res.json();
 }
 
 export async function fetchEvalResults(): Promise<EvalReport | null> {
-  const res = await fetch(`${ADMIN_API}/eval`);
+  const res = await fetch(`${ADMIN_API}/eval`, { signal: timeoutSignal(ADMIN_TIMEOUT_MS) });
   if (!res.ok) throw new Error("Failed to load eval results");
   const data = await res.json();
   return data.results === null ? null : data;
@@ -114,7 +131,10 @@ export async function triggerEvalRun(
   const params = new URLSearchParams();
   if (scenarios) params.set("scenarios", String(scenarios));
   if (category) params.set("category", category);
-  const res = await fetch(`${ADMIN_API}/eval/run?${params}`, { method: "POST" });
+  const res = await fetch(`${ADMIN_API}/eval/run?${params}`, {
+    method: "POST",
+    signal: timeoutSignal(ADMIN_TIMEOUT_MS),
+  });
   if (!res.ok) {
     const data = await res.json();
     throw new Error(data.detail || "Failed to start eval");
@@ -123,7 +143,7 @@ export async function triggerEvalRun(
 }
 
 export async function fetchEvalStatus(): Promise<EvalRunStatus> {
-  const res = await fetch(`${ADMIN_API}/eval/status`);
+  const res = await fetch(`${ADMIN_API}/eval/status`, { signal: timeoutSignal(ADMIN_TIMEOUT_MS) });
   if (!res.ok) throw new Error("Failed to check eval status");
   return res.json();
 }

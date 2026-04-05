@@ -83,7 +83,10 @@ def get_client():
         raise _init_error
 
     try:
-        _client = anthropic.Anthropic(api_key=api_key)
+        _client = anthropic.Anthropic(
+            api_key=api_key,
+            timeout=10.0,  # D2: prevent stalled LLM calls from blocking requests
+        )
         logger.info(
             f"Anthropic client initialized. "
             f"Conversational: {CONVERSATIONAL_MODEL}, "

@@ -12,7 +12,7 @@ _SESSION_STATE: Dict[str, Tuple[dict, float]] = {}
 SESSION_TTL_SECONDS = 30 * 60
 
 # Maximum number of sessions to keep in memory.
-# If exceeded, the oldest sessions are evicted.
+# If exceeded, the least-recently-used sessions are evicted.
 MAX_SESSIONS = 500
 
 # Thread safety — FastAPI can serve concurrent requests that read/write
@@ -38,7 +38,9 @@ def save_session_slots(session_id: str, slots: dict) -> None:
         _evict_expired()
         _SESSION_STATE[session_id] = (deepcopy(slots), time.monotonic())
 
-        # Hard cap: if we're over the limit, drop the oldest sessions
+        # Hard cap: if we're over the limit, drop the least-recently-used
+        # sessions.  The sort key is the last-accessed timestamp, which is
+        # updated on every get and save — so active sessions are safe.
         if len(_SESSION_STATE) > MAX_SESSIONS:
             sorted_keys = sorted(
                 _SESSION_STATE.keys(),

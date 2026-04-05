@@ -395,6 +395,43 @@ def test_eval_run_rejects_when_already_running():
 
 
 # -----------------------------------------------------------------------
+# ADMIN RATE LIMITING (D5)
+# -----------------------------------------------------------------------
+
+def test_admin_rate_limit_blocks_after_threshold():
+    """Admin endpoints should return 429 after exceeding the IP rate limit."""
+    clear_audit_log()
+    # ADMIN_IP_LIMITS allows 30/minute — send 31 requests
+    for i in range(30):
+        r = client.get("/admin/api/stats")
+        assert r.status_code == 200, f"Request {i+1} should succeed"
+
+    r = client.get("/admin/api/stats")
+    assert r.status_code == 429
+
+
+def test_admin_eval_run_has_stricter_limit():
+    """POST /admin/api/eval/run has a tighter rate limit (5/hour)."""
+    # Need ANTHROPIC_API_KEY set so we don't get 500 before hitting rate limit,
+    # and _eval_running must be True so we get 409 (not actually starting evals).
+    import app.routes.admin as admin_mod
+    with admin_mod._eval_lock:
+        admin_mod._eval_running = True
+    try:
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+            for i in range(5):
+                r = client.post("/admin/api/eval/run")
+                assert r.status_code == 409, f"Request {i+1} should get 409 (already running)"
+
+            # 6th request should hit the eval rate limit
+            r = client.post("/admin/api/eval/run")
+            assert r.status_code == 429
+    finally:
+        with admin_mod._eval_lock:
+            admin_mod._eval_running = False
+
+
+# -----------------------------------------------------------------------
 # HEALTH CHECK (sanity — not admin but confirms app is wired)
 # -----------------------------------------------------------------------
 

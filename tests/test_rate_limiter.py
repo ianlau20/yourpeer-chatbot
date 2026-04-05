@@ -15,6 +15,7 @@ from app.services.rate_limiter import (
     _lock,
     _maybe_evict,
     _EVICTION_TTL,
+    _MAX_BUCKETS,
 )
 
 
@@ -239,3 +240,65 @@ def test_concurrent_check_and_clear():
         t.join(timeout=10)
 
     assert len(errors) == 0, f"Thread safety errors: {errors}"
+
+
+# -----------------------------------------------------------------------
+# D7 — FORCED EVICTION AT BUCKET CAP
+# -----------------------------------------------------------------------
+
+def test_forced_eviction_when_bucket_cap_exceeded():
+    """When bucket count exceeds _MAX_BUCKETS, eviction should run
+    immediately even if the interval hasn't elapsed."""
+    import app.services.rate_limiter as rl
+
+    _clear_all()
+
+    # Populate with stale entries that are older than the TTL
+    stale_time = time.monotonic() - _EVICTION_TTL - 100
+    with _lock:
+        for i in range(_MAX_BUCKETS + 100):
+            from collections import deque
+            bucket = deque(maxlen=1)
+            bucket.append(stale_time)
+            _buckets[f"stale-{i}"] = bucket
+
+        # Set last_eviction to now so the interval check would skip eviction
+        rl._last_eviction = time.monotonic()
+
+        # Bucket count exceeds cap, so eviction should be forced
+        assert len(_buckets) > _MAX_BUCKETS
+        _maybe_evict(time.monotonic())
+
+        # All stale entries should have been cleaned up
+        assert len(_buckets) == 0
+
+    _clear_all()
+
+
+def test_no_forced_eviction_under_cap():
+    """When bucket count is under _MAX_BUCKETS, eviction should respect
+    the interval timer."""
+    import app.services.rate_limiter as rl
+
+    _clear_all()
+
+    # Add a small number of stale entries (under cap)
+    stale_time = time.monotonic() - _EVICTION_TTL - 100
+    with _lock:
+        for i in range(10):
+            from collections import deque
+            bucket = deque(maxlen=1)
+            bucket.append(stale_time)
+            _buckets[f"stale-{i}"] = bucket
+
+        # Set last_eviction to now — interval check should skip eviction
+        rl._last_eviction = time.monotonic()
+
+        assert len(_buckets) == 10
+        _maybe_evict(time.monotonic())
+
+        # Entries should still be there since interval hasn't elapsed
+        # and we're under the cap
+        assert len(_buckets) == 10
+
+    _clear_all()

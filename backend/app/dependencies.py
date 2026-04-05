@@ -18,6 +18,8 @@ from app.services.rate_limiter import (
     CHAT_SESSION_LIMITS,
     CHAT_IP_LIMITS,
     FEEDBACK_SESSION_LIMITS,
+    ADMIN_IP_LIMITS,
+    ADMIN_EVAL_LIMITS,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,7 +95,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     FastAPI's body caching makes this safe — the route handler still receives
     the full body.
 
-    Only applies to POST /chat/ and POST /chat/feedback.
+    Only applies to /chat/, /chat/feedback, and /admin/api/ endpoints.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -102,15 +104,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint,
     ):
-        if request.method != "POST":
-            return await call_next(request)
-
         path = request.url.path.rstrip("/")
 
-        if path == "/chat":
-            return await self._check_chat(request, call_next)
-        elif path == "/chat/feedback":
-            return await self._check_feedback(request, call_next)
+        # --- Chat endpoints (POST only) ---
+        if request.method == "POST":
+            if path == "/chat":
+                return await self._check_chat(request, call_next)
+            elif path == "/chat/feedback":
+                return await self._check_feedback(request, call_next)
+
+        # --- Admin endpoints (all methods) ---
+        if path.startswith("/admin/api"):
+            return await self._check_admin(request, call_next)
 
         return await call_next(request)
 
@@ -148,6 +153,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
             if not result.allowed:
                 return _build_429(result.retry_after)
+
+        return await call_next(request)
+
+    async def _check_admin(self, request: Request, call_next):
+        client_ip = get_client_ip(request)
+        path = request.url.path.rstrip("/")
+
+        # Stricter limit on eval runs — they consume LLM API credits
+        if path == "/admin/api/eval/run" and request.method == "POST":
+            result = check_rate_limit(f"admin-eval:{client_ip}", ADMIN_EVAL_LIMITS)
+            if not result.allowed:
+                logger.warning(
+                    "Rate limited admin eval ip=%s (limit: %d/%ds)",
+                    client_ip, result.limit, result.window,
+                )
+                return _build_429(result.retry_after)
+
+        # General admin IP limits (all endpoints)
+        result = check_rate_limit(f"admin:{client_ip}", ADMIN_IP_LIMITS)
+        if not result.allowed:
+            logger.warning(
+                "Rate limited admin ip=%s (limit: %d/%ds)",
+                client_ip, result.limit, result.window,
+            )
+            return _build_429(result.retry_after)
 
         return await call_next(request)
 
