@@ -401,13 +401,14 @@ def test_eval_run_rejects_when_already_running():
 def test_admin_rate_limit_blocks_after_threshold():
     """Admin endpoints should return 429 after exceeding the IP rate limit."""
     clear_audit_log()
-    # ADMIN_IP_LIMITS allows 30/minute — send 31 requests
-    for i in range(30):
-        r = client.get("/admin/api/stats")
-        assert r.status_code == 200, f"Request {i+1} should succeed"
+    # Patch to a low limit so the test doesn't need 120+ requests
+    with patch("app.dependencies.ADMIN_IP_LIMITS", [(60, 5), (3600, 50)]):
+        for i in range(5):
+            r = client.get("/admin/api/stats")
+            assert r.status_code == 200, f"Request {i+1} should succeed"
 
-    r = client.get("/admin/api/stats")
-    assert r.status_code == 429
+        r = client.get("/admin/api/stats")
+        assert r.status_code == 429
 
 
 def test_admin_eval_run_has_stricter_limit():

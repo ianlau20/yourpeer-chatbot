@@ -37,13 +37,15 @@ export default function MetricsPage() {
     return <p className="text-neutral-400 text-sm">Loading metrics…</p>;
   }
 
-  // Derived metrics — same logic as original admin.html
+  // Derived metrics
   const totalSessions = stats.unique_sessions || 0;
   const totalQueries = stats.total_queries || 0;
+  const serviceIntentSessions = stats.service_intent_sessions || 0;
 
+  // Fix: denominator is sessions with service intent, not ALL sessions
   const taskCompletionRate =
-    totalSessions > 0 && totalQueries > 0
-      ? Math.min(totalQueries / totalSessions, 1)
+    serviceIntentSessions > 0 && totalQueries > 0
+      ? Math.min(totalQueries / serviceIntentSessions, 1)
       : null;
 
   const zeroResultQueries = queries.filter((q) => q.result_count === 0).length;
@@ -65,6 +67,10 @@ export default function MetricsPage() {
   const fbTotal = (stats.feedback_up || 0) + (stats.feedback_down || 0);
   const fbDisplay = fbTotal > 0 ? fmtMetric(stats.feedback_score, true) : null;
 
+  // Confirmation breakdown from the backend
+  const cb = stats.confirmation_breakdown;
+  const cbTotal = cb?.total_actions || 0;
+
   return (
     <>
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-3.5 py-2.5 text-sm text-neutral-500 mb-6">
@@ -85,14 +91,39 @@ export default function MetricsPage() {
       <MetricsSection title="1 · Intake Quality">
         <MetricRow
           name="Task Completion Rate"
-          subtitle="% of sessions reaching a confirmed query"
+          subtitle="% of service-intent sessions reaching a confirmed query"
           target="≥ 70% (pilot launch)"
           value={fmtMetric(taskCompletionRate, true)}
           status={statusClass(taskCompletionRate, 0.7, "gte", 0.55)}
         />
-        <MetricRow name="Slot Correction Rate" subtitle="% of sessions where user corrects a slot" target="≤ 15%" value={null} status="no-data" />
-        <MetricRow name="Confirmation: Confirm Rate" subtitle="% of confirmation steps where user taps confirm" target="≥ 65% confirm" value={null} status="no-data" />
-        <MetricRow name="Confirmation: Abandon Rate" subtitle="% of sessions abandoned at confirmation step" target="≤ 10%" value={null} status="no-data" />
+        <MetricRow
+          name="Slot Confirmation Rate"
+          subtitle="% of queries that went through the explicit confirmation step"
+          target="≥ 90%"
+          value={fmtMetric(stats.slot_confirmation_rate, true)}
+          status={statusClass(stats.slot_confirmation_rate, 0.9, "gte", 0.8)}
+        />
+        <MetricRow
+          name="Slot Correction Rate"
+          subtitle="% of sessions where user corrects a slot after confirmation"
+          target="≤ 15%"
+          value={fmtMetric(stats.slot_correction_rate, true)}
+          status={statusClass(stats.slot_correction_rate, 0.15, "lte", 0.25)}
+        />
+        <MetricRow
+          name="Confirmation: Confirm Rate"
+          subtitle={`% of confirmation actions that are "Yes, search" (${cbTotal} actions)`}
+          target="≥ 65% confirm"
+          value={fmtMetric(cb?.confirm_rate ?? null, true)}
+          status={statusClass(cb?.confirm_rate ?? null, 0.65, "gte", 0.5)}
+        />
+        <MetricRow
+          name="Confirmation: Abandon Rate"
+          subtitle="% of sessions that reach confirmation but never confirm"
+          target="≤ 10%"
+          value={fmtMetric(cb?.abandon_rate ?? null, true)}
+          status={statusClass(cb?.abandon_rate ?? null, 0.1, "lte", 0.2)}
+        />
         <MetricRow
           name="Avg Turns to Query"
           subtitle="Average turns from session start to first query (completed sessions)"
@@ -125,7 +156,13 @@ export default function MetricsPage() {
           value={fmtMetric(relaxedRateVal, true)}
           status={statusClass(relaxedRateVal, 0.25, "lte", 0.35)}
         />
-        <MetricRow name="Data Freshness Rate" subtitle="% of returned service cards verified within last 90 days" target="≥ 80%" value={null} status="no-data" />
+        <MetricRow
+          name="Data Freshness Rate"
+          subtitle={`% of returned service cards verified within last 90 days (${stats.data_freshness_detail?.cards_served || 0} cards served)`}
+          target="≥ 80%"
+          value={fmtMetric(stats.data_freshness_rate, true)}
+          status={statusClass(stats.data_freshness_rate, 0.8, "gte", 0.6)}
+        />
         <MetricRow name="Eligibility Fit Rate" subtitle="% of results matching all stated user criteria" target="≥ 95%" value="By design (canary)" status="no-data" />
         <MetricRow
           name="User Feedback Score"

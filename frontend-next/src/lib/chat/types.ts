@@ -44,16 +44,43 @@ export type FeedbackRating = "up" | "down";
 
 // Admin types
 
+export interface ConfirmationBreakdown {
+  confirm: number;
+  change_service: number;
+  change_location: number;
+  deny: number;
+  total_actions: number;
+  confirm_rate: number | null;
+  sessions_at_confirmation: number;
+  sessions_abandoned: number;
+  abandon_rate: number | null;
+}
+
+export interface DataFreshnessDetail {
+  cards_served: number;
+  cards_with_date: number;
+  cards_fresh: number;
+}
+
 export interface AdminStats {
   unique_sessions: number;
   total_turns: number;
   total_queries: number;
   total_crises: number;
   total_escalations: number;
+  total_resets: number;
+  service_intent_sessions: number;
   relaxed_query_rate: number;
   feedback_up: number;
   feedback_down: number;
   feedback_score: number | null;
+  slot_confirmation_rate: number | null;
+  slot_correction_rate: number | null;
+  data_freshness_rate: number | null;
+  data_freshness_detail: DataFreshnessDetail;
+  confirmation_breakdown: ConfirmationBreakdown;
+  category_distribution: Record<string, number>;
+  service_type_distribution: Record<string, number>;
 }
 
 export interface ConversationSummary {

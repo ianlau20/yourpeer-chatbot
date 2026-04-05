@@ -66,8 +66,8 @@ FEEDBACK_SESSION_LIMITS: List[Tuple[int, int]] = [
 ]
 
 ADMIN_IP_LIMITS: List[Tuple[int, int]] = [
-    (60, 30),     # 30 requests/minute per IP
-    (3600, 200),  # 200 requests/hour per IP
+    (60, 120),    # 120 requests/minute per IP (~20 page loads)
+    (3600, 600),  # 600 requests/hour per IP
 ]
 
 ADMIN_EVAL_LIMITS: List[Tuple[int, int]] = [

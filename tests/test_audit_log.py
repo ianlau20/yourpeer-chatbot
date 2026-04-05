@@ -470,6 +470,168 @@ def test_get_stats_empty():
     assert stats["total_turns"] == 0
     assert stats["unique_sessions"] == 0
     assert stats["relaxed_query_rate"] == 0
+    assert stats["total_escalations"] == 0
+    assert stats["service_intent_sessions"] == 0
+    assert stats["slot_correction_rate"] is None
+    assert stats["slot_confirmation_rate"] is None
+    assert stats["data_freshness_rate"] is None
+    assert stats["data_freshness_detail"]["cards_served"] == 0
+    assert stats["confirmation_breakdown"]["total_actions"] == 0
+    assert stats["confirmation_breakdown"]["confirm_rate"] is None
+    assert stats["confirmation_breakdown"]["abandon_rate"] is None
+
+
+def test_get_stats_escalation_count():
+    """Stats should count sessions with escalation requests."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "escalation")
+    log_conversation_turn("s2", "t", "t", {}, "greeting")
+    log_conversation_turn("s3", "t", "t", {}, "escalation")
+    # Same session escalating twice should count as 1 session
+    log_conversation_turn("s3", "t", "t", {}, "escalation")
+
+    stats = get_stats()
+    assert stats["total_escalations"] == 2  # s1 and s3
+
+
+def test_get_stats_service_intent_sessions():
+    """Stats should count only sessions with service intent, not all sessions."""
+    clear_audit_log()
+    # Session with service intent
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_conversation_turn("s1", "t", "t", {}, "confirmation")
+    # Greeting-only session (no service intent)
+    log_conversation_turn("s2", "t", "t", {}, "greeting")
+    # Crisis-only session (no service intent)
+    log_conversation_turn("s3", "t", "t", {}, "crisis")
+    # Session that reached confirmation (has service intent)
+    log_conversation_turn("s4", "t", "t", {}, "confirm_yes")
+
+    stats = get_stats()
+    assert stats["unique_sessions"] == 4
+    assert stats["service_intent_sessions"] == 2  # s1 and s4
+
+
+def test_get_stats_slot_correction_rate():
+    """Stats should compute slot correction rate from confirmation changes."""
+    clear_audit_log()
+    # Session 1: confirmed without changes
+    log_conversation_turn("s1", "t", "t", {}, "confirmation")
+    log_conversation_turn("s1", "t", "t", {}, "confirm_yes")
+    # Session 2: changed location then confirmed
+    log_conversation_turn("s2", "t", "t", {}, "confirmation")
+    log_conversation_turn("s2", "t", "t", {}, "confirm_change_location")
+    log_conversation_turn("s2", "t", "t", {}, "confirm_yes")
+    # Session 3: changed service then confirmed
+    log_conversation_turn("s3", "t", "t", {}, "confirmation")
+    log_conversation_turn("s3", "t", "t", {}, "confirm_change_service")
+    log_conversation_turn("s3", "t", "t", {}, "confirm_yes")
+
+    stats = get_stats()
+    # 2 sessions with corrections out of 3 at confirmation = 0.67
+    assert stats["slot_correction_rate"] == 0.67
+
+
+def test_get_stats_confirmation_breakdown():
+    """Stats should track the distribution of confirmation actions."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "confirm_yes")
+    log_conversation_turn("s2", "t", "t", {}, "confirm_yes")
+    log_conversation_turn("s3", "t", "t", {}, "confirm_change_location")
+    log_conversation_turn("s4", "t", "t", {}, "confirm_deny")
+
+    stats = get_stats()
+    cb = stats["confirmation_breakdown"]
+    assert cb["confirm"] == 2
+    assert cb["change_location"] == 1
+    assert cb["deny"] == 1
+    assert cb["total_actions"] == 4
+    assert cb["confirm_rate"] == 0.5  # 2 out of 4
+
+
+def test_get_stats_confirmation_abandon_rate():
+    """Stats should track sessions that reached confirmation but never confirmed."""
+    clear_audit_log()
+    # Session 1: reached confirmation and confirmed
+    log_conversation_turn("s1", "t", "t", {}, "confirmation")
+    log_conversation_turn("s1", "t", "t", {}, "confirm_yes")
+    # Session 2: reached confirmation but abandoned (denied then left)
+    log_conversation_turn("s2", "t", "t", {}, "confirmation")
+    log_conversation_turn("s2", "t", "t", {}, "confirm_deny")
+    # Session 3: reached confirmation but never acted on it
+    log_conversation_turn("s3", "t", "t", {}, "confirmation")
+
+    stats = get_stats()
+    cb = stats["confirmation_breakdown"]
+    assert cb["sessions_at_confirmation"] == 3
+    assert cb["sessions_abandoned"] == 2  # s2 (deny ≠ confirm) and s3
+    assert cb["abandon_rate"] == 0.67
+
+
+def test_get_stats_slot_confirmation_rate():
+    """Stats should track whether queries went through the confirmation step."""
+    clear_audit_log()
+    # Session 1: confirmed then queried (correct flow)
+    log_conversation_turn("s1", "t", "t", {}, "confirm_yes")
+    log_query_execution("s1", "FoodQuery", {}, 3, False, 40)
+    # Session 2: also confirmed then queried
+    log_conversation_turn("s2", "t", "t", {}, "confirm_yes")
+    log_query_execution("s2", "ShelterQuery", {}, 1, False, 30)
+    # Session 3: queried WITHOUT confirm_yes (should not happen, but track it)
+    log_query_execution("s3", "FoodQuery", {}, 2, False, 20)
+
+    stats = get_stats()
+    # 2 out of 3 query sessions had confirm_yes = 0.67
+    assert stats["slot_confirmation_rate"] == 0.67
+
+
+def test_get_stats_slot_confirmation_rate_all_confirmed():
+    """When all queries go through confirmation, rate should be 1.0."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "confirm_yes")
+    log_query_execution("s1", "Q", {}, 3, False, 40)
+    log_conversation_turn("s2", "t", "t", {}, "confirm_yes")
+    log_query_execution("s2", "Q", {}, 1, False, 30)
+
+    stats = get_stats()
+    assert stats["slot_confirmation_rate"] == 1.0
+
+
+def test_get_stats_data_freshness_rate():
+    """Stats should aggregate freshness across all queries."""
+    clear_audit_log()
+    # Query 1: 3 cards, 2 fresh
+    log_query_execution("s1", "Q", {}, 3, False, 40,
+                        freshness={"fresh": 2, "total": 3, "total_with_date": 3})
+    # Query 2: 2 cards, 1 fresh
+    log_query_execution("s2", "Q", {}, 2, False, 30,
+                        freshness={"fresh": 1, "total": 2, "total_with_date": 2})
+
+    stats = get_stats()
+    # 3 fresh out of 5 total = 0.6
+    assert stats["data_freshness_rate"] == 0.6
+    assert stats["data_freshness_detail"]["cards_served"] == 5
+    assert stats["data_freshness_detail"]["cards_fresh"] == 3
+
+
+def test_get_stats_data_freshness_no_queries():
+    """Freshness rate should be None when no queries have been executed."""
+    clear_audit_log()
+    stats = get_stats()
+    assert stats["data_freshness_rate"] is None
+    assert stats["data_freshness_detail"]["cards_served"] == 0
+
+
+def test_get_stats_data_freshness_legacy_queries():
+    """Freshness rate should handle queries logged before freshness was tracked."""
+    clear_audit_log()
+    # Simulate a query logged without freshness data (pre-upgrade)
+    log_query_execution("s1", "Q", {}, 5, False, 40)
+
+    stats = get_stats()
+    # No freshness data available — rate is None
+    assert stats["data_freshness_rate"] is None
+    assert stats["data_freshness_detail"]["cards_served"] == 0
 
 
 # -----------------------------------------------------------------------
