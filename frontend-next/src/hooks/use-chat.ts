@@ -86,7 +86,7 @@ export function useChat() {
 
         // Got coords — send "near me" with coordinates attached
         try {
-          const data = await sendChatMessage("near me", sessionId, coords);
+          const data = await withRetry(() => sendChatMessage("near me", sessionId, coords));
           if (data.session_id) setSessionId(data.session_id);
 
           addMessage({
@@ -124,7 +124,8 @@ export function useChat() {
           addMessage({
             id: nextMsgId(),
             role: "bot",
-            text: msg.includes("wait") ? msg : "Sorry, something went wrong. Please try again.",
+            text: msg.includes("wait") ? msg : "Sorry, something went wrong.",
+            retryMessage: msg.includes("wait") ? undefined : GEOLOCATION_TRIGGER,
           });
         } finally {
           setLoading(false);
@@ -193,13 +194,91 @@ export function useChat() {
     [sessionId, latitude, longitude, hasCoords, addMessage, setSessionId, setLoading, setError, markQuickRepliesUsed, requestLocation],
   );
 
-  /** Retry a failed message — removes the error and re-sends. */
+  /** Retry a failed message — removes the error and re-sends without
+   *  adding a duplicate user message (the original is still in the chat). */
   const retry = useCallback(
-    (errorMsgId: string, originalText: string) => {
+    async (errorMsgId: string, originalText: string) => {
       removeMessage(errorMsgId);
-      send(originalText);
+
+      // Geolocation retry — re-run location request + API call
+      if (originalText === GEOLOCATION_TRIGGER) {
+        setLoading(true);
+        const geoResult = hasCoords
+          ? { latitude: latitude!, longitude: longitude! }
+          : await requestLocation();
+
+        if ("error" in geoResult) {
+          setLoading(false);
+          addMessage({
+            id: nextMsgId(),
+            role: "bot",
+            text: geoResult.error,
+            quick_replies: [
+              { label: "Manhattan", value: "Manhattan" },
+              { label: "Brooklyn", value: "Brooklyn" },
+              { label: "Queens", value: "Queens" },
+              { label: "Bronx", value: "Bronx" },
+              { label: "Staten Island", value: "Staten Island" },
+            ],
+          });
+          return;
+        }
+
+        try {
+          const data = await withRetry(() => sendChatMessage("near me", sessionId, geoResult));
+          if (data.session_id) setSessionId(data.session_id);
+          addMessage({
+            id: nextMsgId(),
+            role: "bot",
+            text: data.response || "(No response text)",
+            services: data.services,
+            quick_replies: data.quick_replies,
+            showFeedback: (data.services?.length ?? 0) > 0,
+          });
+        } catch (err: any) {
+          const msg = err.message || "Something went wrong";
+          setError(`Error: ${msg}`);
+          addMessage({
+            id: nextMsgId(),
+            role: "bot",
+            text: msg.includes("wait") ? msg : "Sorry, something went wrong.",
+            retryMessage: msg.includes("wait") ? undefined : GEOLOCATION_TRIGGER,
+          });
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Normal retry — API call only, user message is already in chat
+      setLoading(true);
+      try {
+        const coords = hasCoords ? { latitude: latitude!, longitude: longitude! } : null;
+        const data = await withRetry(() => sendChatMessage(originalText, sessionId, coords));
+        if (data.session_id) setSessionId(data.session_id);
+
+        addMessage({
+          id: nextMsgId(),
+          role: "bot",
+          text: data.response || "(No response text)",
+          services: data.services,
+          quick_replies: data.quick_replies,
+          showFeedback: (data.services?.length ?? 0) > 0,
+        });
+      } catch (err: any) {
+        const msg = err.message || "Something went wrong";
+        setError(`Error: ${msg}`);
+        addMessage({
+          id: nextMsgId(),
+          role: "bot",
+          text: msg.includes("wait") ? msg : "Sorry, something went wrong.",
+          retryMessage: msg.includes("wait") ? undefined : originalText,
+        });
+      } finally {
+        setLoading(false);
+      }
     },
-    [removeMessage, send],
+    [sessionId, latitude, longitude, hasCoords, addMessage, removeMessage, setSessionId, setLoading, setError, requestLocation],
   );
 
   const submitFeedback = useCallback(
