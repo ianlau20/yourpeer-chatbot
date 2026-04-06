@@ -62,9 +62,19 @@ export function useChat() {
         addMessage({ id: nextMsgId(), role: "user", text: "Use my location" });
         setLoading(true);
 
+        // Show immediate feedback — the browser permission dialog + GPS
+        // lookup can take several seconds with no visible progress.
+        const geoProgressId = nextMsgId();
+        if (!hasCoords) {
+          addMessage({ id: geoProgressId, role: "bot", text: "Getting your location…", transient: true });
+        }
+
         const coords = hasCoords
           ? { latitude: latitude!, longitude: longitude! }
           : await requestLocation();
+
+        // Remove the "Getting your location" progress message
+        if (!hasCoords) removeMessage(geoProgressId);
 
         if ("error" in coords) {
           // Permission denied, timeout, or unavailable — show specific reason
@@ -84,9 +94,13 @@ export function useChat() {
           return;
         }
 
-        // Got coords — send "near me" with coordinates attached
+        // Got coords — show searching progress, then send API call
+        const searchProgressId = nextMsgId();
+        addMessage({ id: searchProgressId, role: "bot", text: "Found you! Searching for services nearby…", transient: true });
+
         try {
           const data = await withRetry(() => sendChatMessage("near me", sessionId, coords));
+          removeMessage(searchProgressId);
           if (data.session_id) setSessionId(data.session_id);
 
           addMessage({
@@ -98,6 +112,8 @@ export function useChat() {
             showFeedback: (data.services?.length ?? 0) > 0,
           });
         } catch (err: any) {
+          removeMessage(searchProgressId);
+
           // Stale session token — clear and retry
           if (err.message?.includes("403") && sessionId) {
             try {
@@ -191,7 +207,7 @@ export function useChat() {
         setLoading(false);
       }
     },
-    [sessionId, latitude, longitude, hasCoords, addMessage, setSessionId, setLoading, setError, markQuickRepliesUsed, requestLocation],
+    [sessionId, latitude, longitude, hasCoords, addMessage, removeMessage, setSessionId, setLoading, setError, markQuickRepliesUsed, requestLocation],
   );
 
   /** Retry a failed message — removes the error and re-sends without
@@ -203,9 +219,17 @@ export function useChat() {
       // Geolocation retry — re-run location request + API call
       if (originalText === GEOLOCATION_TRIGGER) {
         setLoading(true);
+
+        const geoProgressId = nextMsgId();
+        if (!hasCoords) {
+          addMessage({ id: geoProgressId, role: "bot", text: "Getting your location…", transient: true });
+        }
+
         const geoResult = hasCoords
           ? { latitude: latitude!, longitude: longitude! }
           : await requestLocation();
+
+        if (!hasCoords) removeMessage(geoProgressId);
 
         if ("error" in geoResult) {
           setLoading(false);
@@ -224,8 +248,12 @@ export function useChat() {
           return;
         }
 
+        const searchProgressId = nextMsgId();
+        addMessage({ id: searchProgressId, role: "bot", text: "Found you! Searching for services nearby…", transient: true });
+
         try {
           const data = await withRetry(() => sendChatMessage("near me", sessionId, geoResult));
+          removeMessage(searchProgressId);
           if (data.session_id) setSessionId(data.session_id);
           addMessage({
             id: nextMsgId(),
@@ -236,6 +264,7 @@ export function useChat() {
             showFeedback: (data.services?.length ?? 0) > 0,
           });
         } catch (err: any) {
+          removeMessage(searchProgressId);
           const msg = err.message || "Something went wrong";
           setError(`Error: ${msg}`);
           addMessage({

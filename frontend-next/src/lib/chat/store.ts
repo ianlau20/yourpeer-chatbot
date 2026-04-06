@@ -150,9 +150,11 @@ export const useChatStore = create<ChatStore>()(
       },
 
       // Only persist conversation state — not transient UI flags.
+      // Transient messages (e.g. "Getting your location…") are stripped
+      // so they don't survive page refreshes.
       partialize: (state) => ({
         sessionId: state.sessionId,
-        messages: state.messages,
+        messages: state.messages.filter((m) => !m.transient),
         lastActiveAt: state.lastActiveAt,
       }),
 
