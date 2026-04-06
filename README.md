@@ -55,7 +55,7 @@ See [SETUP.md](docs/SETUP.md) for detailed instructions including prerequisites,
 User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Confirmation → Query Templates → Streetlives DB
           ↑                      ↓                     ↓               ↓                                   ↓
    Quick-reply            Crisis Detection        PII Redaction    User confirms                      Service Cards
-   buttons                (regex + Sonnet)             ↓          or changes slots                         ↓
+   buttons                (regex + Sonnet)            ↓          or changes slots                         ↓
                           Greeting / Reset        Session Store                                       YourPeer links
                           Thanks / Help                ↓
                           Escalation             Claude Haiku (fallback
@@ -142,10 +142,6 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 
 **Eval runs share the web server host.** The "Run Evals" button runs the LLM-as-judge suite in a subprocess (isolated from request handling via `asyncio.create_subprocess_exec`), but it still runs on the same machine as the web server. Acceptable for the pilot; for production, isolate into a separate worker or task queue to avoid resource contention during long runs.
 
-**`natural_new_to_nyc` slot extraction failure.** A user arriving at Port Authority saying "Where can I sleep tonight?" is not recognized as a shelter request. "Port Authority" is not a known location, and the long message bypasses regex. P7 fix (Port Authority as a landmark location + stricter thanks classifier) is implemented but the scenario still fails intermittently. Tracked in EVAL_RESULTS.md.
-
-**`adversarial_fake_service` graceful handling.** A request for an impossible service (e.g., "helicopter ride") proceeds to a meaningless search rather than being redirected gracefully to real alternatives. P6 guard clause in the confirmation builder is pending.
-
 ## Documentation
 
 | Document | Description |
@@ -154,7 +150,7 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | [CHATBOT_BEHAVIOR.md](docs/CHATBOT_BEHAVIOR.md) | Chatbot behavior — routing pipeline, 16 message categories, LLM usage, guardrails, conversation modes, limitations, how to extend |
 | [CRISIS_DETECTION.md](docs/CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, phrase list design, LLM prompt, and how to extend |
 | [PII_REDACTION.md](docs/PII_REDACTION.md) | PII redaction — six detection categories, pattern details, tradeoffs, known gaps, and future improvements |
-| [METRICS.md](docs/METRICS.md) | Success metrics — 18 metrics across 5 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
+| [METRICS.md](docs/METRICS.md) | Success metrics — 24+ metrics across 6 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
 | [EVAL_RESULTS.md](docs/EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
 | [SETUP.md](docs/SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](docs/DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |

@@ -114,7 +114,6 @@ information, preventing hallucination.
 - **Multi-intent requests** — cannot handle "food AND shelter" in a single message
 - **Real-time location** — browser geolocation supported (opt-in); falls back to text-based location when denied
 - **Multilingual support** — English only
-- **Adversarial service handling** — requests for impossible services proceed to search
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage
 - **`additional_info` field** — 99.7% null in DB, always empty in results
 - **Persistent storage** — in-memory audit log and session store reset on server restart; DB queries are not cached

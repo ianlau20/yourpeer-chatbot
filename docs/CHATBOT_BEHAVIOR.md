@@ -113,6 +113,7 @@ Catch-all for messages that don't fit any other category. Uses Claude Haiku for 
 
 - **With service intent** (user has partially filled slots): gently reminds them they can continue their search.
 - **Without service intent**: just responds naturally without pushing services.
+- **Unrecognized service request** (user has a location but no recognized service type after 2+ turns): redirects gracefully with "I'm not sure I can help with that specifically, but I can search for services in [location]" and shows the full service menu. This handles requests for impossible services (e.g., "helicopter ride") that would otherwise loop indefinitely.
 
 Service category buttons are only shown on the first conversational turn when the user has no service intent. After that, general responses have no buttons to avoid feeling transactional.
 
@@ -190,7 +191,7 @@ The transition between modes is automatic: any message containing a service keyw
 - **Single-intent only.** The bot cannot handle "I need food AND shelter" in one message. It picks the first service type detected and ignores the second.
 - **English only.** Multi-language support (Spanish minimum) is planned but not implemented.
 - **No memory across sessions.** Each session is independent. The bot cannot reference previous visits.
-- **Emotional detection uses the same two-stage pattern as crisis detection.** Common emotional phrases are caught by regex (<1ms). Indirect or culturally specific expressions (e.g., "I've been having the worst week and I just don't see things getting better") fall through to the LLM classifier, which can return `emotional` as a category. Without an API key (regex-only mode), only the explicit phrase list is active.
+- **Emotional detection uses the same two-stage pattern as crisis detection.** Common emotional phrases are caught by regex (<1ms). Indirect or culturally specific expressions (e.g., "I've been having the worst week and I just don't see things getting better") fall through to the LLM classifier, which can return `emotional` as a category. Without an API key (regex-only mode), only the explicit phrase list is active. A service-continuation guard ensures messages with both emotional phrases and service-intent words (e.g., "I'm struggling with addiction and need treatment") route to service, not emotional.
 
 ### Search & Results
 
