@@ -51,11 +51,11 @@ All 16 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 75+ | Full |
+| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 95+ | Full |
 | `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 101+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
-| `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 45+ | Full |
+| `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 52+ | Full |
 | `crisis_detector.py` | `test_crisis_detector.py` | 20 | Full |
 | `llm_slot_extractor.py` | `test_llm_slot_extractor.py` | 19 | Full |
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 12+ | Full |
@@ -72,14 +72,18 @@ All 16 backend modules and all public functions are covered:
 
 ## Test Suites
 
-### `test_chatbot.py` — 50 tests
+### `test_chatbot.py` — 67 tests
 
-Validates the main chatbot module — message classification, slot extraction routing, PII redaction integration, confirmation flow, quick replies, and LLM fallback. External dependencies are mocked.
+Validates the main chatbot module — message classification, slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, context-aware yes/no, and LLM fallback. External dependencies are mocked.
 
 | Category | Tests | What's covered |
 |---|---|---|
-| Message classification | 10 | All routing categories: reset, greeting, thanks, help, service, general, confirm_yes, confirm_deny, confirm_change_service, confirm_change_location, bot_identity, frustration, escalation. Long messages not misclassified as greetings. Punctuation handling |
-| Routing paths | 9 | Greeting (with and without existing session), reset, thanks, help, service with results, no results, partial slots trigger follow-up, general conversation |
+| Message classification | 13 | All 16 routing categories including emotional, bot_question. Long messages not misclassified as greetings. Punctuation handling. Emotional distinct from confused. Bot question distinct from frustration and help |
+| Routing paths | 12 | Greeting (with and without existing session), reset, thanks, help, bot question (direct answer, no slot extraction), service with results, no results, partial slots trigger follow-up, general conversation |
+| Emotional awareness | 6 | Emotional classification (12 phrases), false negatives (service messages not caught), distinct from confused, peer navigator offered, no confirmation set, static fallback without LLM |
+| Context-aware yes/no | 5 | "Yes" after escalation → peer navigator, "yes" after emotional → peer navigator, "no" after escalation → gentle response, "no" after emotional → gentle non-pushy response, normal search confirmation still works |
+| Pending confirmation | 2 | Escalation clears pending confirmation, crisis clears pending confirmation |
+| No pushy buttons | 2 | General responses don't push service menu after first turn, no menu mid-search |
 | Fallback behavior | 3 | DB failure → Claude fallback. Both fail → safe static message. Query error → Claude fallback |
 | Multi-turn sessions | 2 | Slot accumulation across turns with confirmation. Reset then new search |
 | PII in chatbot flow | 2 | Name/phone redacted in transcript but slots still extract |
@@ -176,7 +180,7 @@ Validates the LLM-based slot extractor. Live tests require `ANTHROPIC_API_KEY` a
 | Complexity routing | 3 | Short messages → simple, long messages → complex, unknown locations → complex |
 | Integration (live) | 5 | End-to-end extraction, skipped without API key |
 
-### `test_audit_log.py` — 45 tests
+### `test_audit_log.py` — 52 tests
 
 Validates all 13 public functions in the audit log module.
 
@@ -192,6 +196,7 @@ Validates all 13 public functions in the audit log module.
 | Get query log | 2 | Only queries, limit |
 | Get stats (basic) | 5 | All counters, category/service distributions, relaxed query rate, empty state |
 | Get stats (pilot metrics) | 10 | Escalation count, service intent sessions, slot correction rate, confirmation breakdown, confirmation abandon rate, slot confirmation rate (partial + full), data freshness rate, no-query edge case, legacy queries without freshness |
+| Get stats (conversation quality) | 7 | Emotional detection rate, emotional → escalation, emotional → service, bot question rate, bot question → frustration, conversational discovery rate, empty state |
 | Eval results | 5 | Set/get round-trip, deep copy isolation, None when unset, file loading, missing file |
 | Clear | 1 | Wipes everything including eval results |
 | Ring buffer | 3 | Caps at MAX_EVENTS, evicts oldest, conversation index stays within MAX_CONVERSATIONS |

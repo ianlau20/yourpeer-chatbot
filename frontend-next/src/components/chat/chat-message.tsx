@@ -12,6 +12,8 @@ import { ServiceCarouselBoundary } from "./service-carousel-boundary";
 import { QuickReplies } from "./quick-replies";
 import { FeedbackRow } from "./feedback-row";
 
+import { RotateCcw } from "lucide-react";
+
 function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*([^*]+)\*\*/g, "$1")
@@ -24,9 +26,10 @@ interface ChatMessageProps {
   message: ChatMessageType;
   onQuickReply: (value: string) => void;
   onFeedback: (rating: FeedbackRating) => void;
+  onRetry?: (errorMsgId: string, originalText: string) => void;
 }
 
-export function ChatMessage({ message, onQuickReply, onFeedback }: ChatMessageProps) {
+export function ChatMessage({ message, onQuickReply, onFeedback, onRetry }: ChatMessageProps) {
   const isUser = message.role === "user";
 
   return (
@@ -41,6 +44,16 @@ export function ChatMessage({ message, onQuickReply, onFeedback }: ChatMessagePr
         }`}
       >
         {isUser ? message.text : stripMarkdown(message.text)}
+
+        {message.retryMessage && onRetry && (
+          <button
+            onClick={() => onRetry(message.id, message.retryMessage!)}
+            className="flex items-center gap-1.5 mt-2 px-3 py-1.5 text-xs font-medium text-amber-800 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors"
+          >
+            <RotateCcw size={12} />
+            Retry
+          </button>
+        )}
       </div>
 
       {message.services && message.services.length > 0 && (

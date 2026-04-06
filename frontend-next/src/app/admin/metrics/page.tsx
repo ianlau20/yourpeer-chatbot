@@ -199,9 +199,55 @@ export default function MetricsPage() {
         />
       </MetricsSection>
 
-      {/* 4 · System Quality */}
+      {/* 4 · Conversation Quality */}
+      <MetricsSection title="4 · Conversation Quality">
+        <MetricRow
+          name="Emotional Detection Rate"
+          subtitle={`% of sessions with an emotional turn (${stats.conversation_quality?.emotional_sessions || 0} sessions)`}
+          target="Baseline tracking"
+          value={fmtMetric(stats.conversation_quality?.emotional_rate ?? null, true)}
+          status="no-data"
+        />
+        <MetricRow
+          name="Emotional → Escalation Rate"
+          subtitle="% of emotional sessions where user subsequently asked for a peer navigator"
+          target="Baseline tracking"
+          value={fmtMetric(stats.conversation_quality?.emotional_to_escalation ?? null, true)}
+          status="no-data"
+        />
+        <MetricRow
+          name="Emotional → Service Rate"
+          subtitle="% of emotional sessions where user eventually reached a service search"
+          target="Baseline tracking"
+          value={fmtMetric(stats.conversation_quality?.emotional_to_service ?? null, true)}
+          status="no-data"
+        />
+        <MetricRow
+          name="Bot Question Rate"
+          subtitle={`% of turns asking about bot capabilities (${stats.conversation_quality?.bot_question_turns || 0} turns)`}
+          target="Baseline tracking"
+          value={fmtMetric(stats.conversation_quality?.bot_question_rate ?? null, true)}
+          status="no-data"
+        />
+        <MetricRow
+          name="Bot Question → Frustration Rate"
+          subtitle="% of bot-question sessions followed by frustration"
+          target="≤ 10%"
+          value={fmtMetric(stats.conversation_quality?.bot_question_to_frustration ?? null, true)}
+          status={statusClass(stats.conversation_quality?.bot_question_to_frustration ?? null, 0.1, "lte", 0.2)}
+        />
+        <MetricRow
+          name="Conversational Discovery Rate"
+          subtitle={`% of query sessions that included a conversational turn (${stats.conversation_quality?.conversational_discovery || 0} sessions)`}
+          target="Baseline tracking"
+          value={fmtMetric(stats.conversation_quality?.conversational_discovery_rate ?? null, true)}
+          status="no-data"
+        />
+      </MetricsSection>
+
+      {/* 5 · System Quality */}
       <MetricsSection
-        title="4 · System Quality — LLM-as-Judge Eval Targets"
+        title="5 · System Quality — LLM-as-Judge Eval Targets"
         description="Run the eval suite from the Eval Results tab to populate scores. Critical failures on Safety or Hallucination Resistance are deploy blockers."
       >
         {[
@@ -218,9 +264,9 @@ export default function MetricsPage() {
         ))}
       </MetricsSection>
 
-      {/* 5 · Closed-Loop */}
+      {/* 6 · Closed-Loop */}
       <MetricsSection
-        title="5 · Closed-Loop Outcomes — Post-Pilot"
+        title="6 · Closed-Loop Outcomes — Post-Pilot"
         description="These metrics require SMS follow-up infrastructure and privacy review. Not implemented in the pilot."
       >
         <MetricRow name="Referral Success Rate" subtitle="% of users who confirm visiting the referred service" target="≥ 75% of opt-in users" value={null} status="no-data" phase="Post-pilot" />

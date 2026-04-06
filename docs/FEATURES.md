@@ -6,6 +6,8 @@ Full feature reference for the YourPeer chatbot. For setup and architecture see 
 
 ## Conversation & Intake
 
+See [CHATBOT_BEHAVIOR.md](CHATBOT_BEHAVIOR.md) for the full routing pipeline, guardrails, and how to extend.
+
 - **9 service categories** — food, shelter, clothing, personal care, health care, mental health, legal, employment, and other services (benefits, IDs, etc.)
 - **Quick-reply buttons** — tappable category buttons on welcome (Food, Shelter, Showers, Clothing, etc.), borough buttons when location is needed, and confirmation actions — no typing required
 - **Confirmation before search** — bot summarizes what it will search for and lets the user confirm, change location, change service, or start over before querying the database
@@ -38,6 +40,8 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 - **Borough-level search** — uses `pa.borough` column directly (not city name expansion), which is clean and consistent across all five boroughs including Staten Island
 - **Neighborhood proximity search** — PostGIS `ST_DWithin` with 59 neighborhood center coordinates returns genuinely local results; falls back to full-borough on no results
 - **Near-me handling** — detects "food near me" and offers browser geolocation ("Use my location") alongside borough buttons; falls back to asking for a neighborhood if geolocation is denied
+- **Geolocation error specificity** — when location access fails, the user sees a specific reason ("Location access was denied" / "Your device couldn't determine your location" / "The location request timed out") instead of a generic error, with borough buttons as fallback
+- **Unrecognized service redirect** — when a user requests something the bot can't help with (e.g., "helicopter ride"), the bot acknowledges it can't help with that specifically and shows the full service menu with available categories, rather than falling through to a generic conversation response
 - **Location normalization** — maps all five boroughs and 59 NYC neighborhoods to database-compatible values, including "the Bronx" → "Bronx" and "manhattan" → "Manhattan"
 - **Data-informed nearby borough suggestions** — when a search returns no results, suggests the borough with the highest actual service count for that category (based on DB audit), not just the geographically closest borough. Only offered for borough-level searches, not neighborhood searches
 - **Relaxed fallback** — if strict filters return no results, automatically broadens the search while keeping location boundaries
@@ -60,6 +64,7 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 - **PII redaction** — names, phone numbers, SSNs, emails, and addresses are scrubbed from stored transcripts before storage
 - **No session linkage** — sessions use anonymous `conversation_id` values with ephemeral keys; no cookies or device IDs beyond necessary rate limiting
 - **Anonymized audit log** — every conversation turn, database query, crisis detection, and session reset is recorded in a thread-safe in-memory ring buffer (capped at 2,000 events). No PII is stored
+- **Local storage caveat** — chat history is persisted in the browser's `localStorage` to survive page refreshes. This includes the user's raw messages (PII redaction only happens server-side). Data auto-expires after 30 minutes of inactivity and is cleared immediately when the user taps "start over." On shared or public devices, stored data is theoretically accessible via browser developer tools until it expires
 
 ---
 
@@ -91,7 +96,10 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 ## Frontend State Management
 
 - **Chat history persistence** — conversation state (messages, session ID) is synced to `localStorage` via Zustand `persist` middleware. Users keep their conversation across page refreshes and tab close/reopen. Auto-resets after 30 minutes of inactivity to match the backend session TTL
+- **Shared device privacy note** — localStorage stores the user's raw messages (PII redaction only runs on the backend). On shared or public computers, the next user could inspect stored data via browser developer tools. The 30-minute auto-expire and "start over" (which clears localStorage immediately) mitigate this, but users on shared devices should be aware that their conversation is stored locally until it expires. A future improvement could add an explicit "clear history" option or a notice on first visit
 - **Admin data caching** — all admin pages share a centralized Zustand store with staleness-based caching (30-second threshold). Navigating between admin tabs reuses cached data instead of re-fetching from the API on every navigation
+- **Offline detection** — a `useOnlineStatus` hook tracks `navigator.onLine` and listens for browser `online`/`offline` events. When the user goes offline, an amber banner appears below the chat ("You appear to be offline") and the input field is disabled to prevent sending messages that would fail with cryptic errors
+- **Retry on failed API calls** — when a chat message fails (after one automatic retry with 1.5-second backoff for transient errors), the error message includes a "Retry" button that re-sends the original message. Rate-limit errors (429) and auth errors (403) are not auto-retried since they require different handling. Clicking Retry removes the error message and re-submits the original text
 
 ---
 

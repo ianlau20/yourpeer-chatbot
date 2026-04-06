@@ -130,6 +130,7 @@ _NEAR_ME_PHRASES = [
     "near me",
     "close to me",
     "around me",
+    "close to",
     "close by",
     "nearby",
     "closest",

@@ -6,7 +6,8 @@
 
 import type { Metadata } from "next";
 import { AdminNav } from "@/components/admin/admin-nav";
-import { RefreshCw } from "lucide-react";
+import { AdminAuthGuard } from "@/components/admin/admin-auth-guard";
+import { LogoutButton } from "@/components/admin/logout-button";
 
 export const metadata: Metadata = {
   title: "YourPeer — Staff Review Console",
@@ -17,25 +18,27 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // TODO: wrap with auth guard (Amplify or role check)
   return (
-    <div className="min-h-dvh bg-neutral-100">
-      <div className="max-w-[1280px] mx-auto px-7 py-6">
-        <header className="flex items-center justify-between pb-5 border-b border-neutral-300 mb-6">
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-xl font-bold tracking-tight text-amber-500">
-              YourPeer
-            </h1>
-            <span className="text-sm text-neutral-400">
-              Staff Review Console
-            </span>
-          </div>
-        </header>
+    <AdminAuthGuard>
+      <div className="min-h-dvh bg-neutral-100">
+        <div className="max-w-[1280px] mx-auto px-7 py-6">
+          <header className="flex items-center justify-between pb-5 border-b border-neutral-300 mb-6">
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-xl font-bold tracking-tight text-amber-500">
+                YourPeer
+              </h1>
+              <span className="text-sm text-neutral-400">
+                Staff Review Console
+              </span>
+            </div>
+            <LogoutButton />
+          </header>
 
-        <AdminNav />
+          <AdminNav />
 
-        {children}
+          {children}
+        </div>
       </div>
-    </div>
+    </AdminAuthGuard>
   );
 }

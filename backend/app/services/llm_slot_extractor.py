@@ -82,7 +82,7 @@ _EXTRACT_SLOTS_TOOL = {
                     "The age of the person who needs services. "
                     "May be the user or someone they're asking about "
                     "(e.g., 'my son is 12' → 12). "
-                    "Must be between 1 and 119."
+                    "Must be between 1 and 110."
                 ),
             },
             "urgency": {

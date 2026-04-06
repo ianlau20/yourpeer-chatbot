@@ -2,7 +2,7 @@
 
 This document defines the metrics used to evaluate the YourPeer chatbot, organized by layer. Each metric includes a definition, a concrete target, the measurement method, and whether it applies to the pilot phase or post-pilot production.
 
-Metrics are grouped into five layers: **Intake Quality**, **Answer Quality**, **Safety**, **System Quality** (automated eval), and **Closed-Loop Outcomes**. The first four are measurable from day one of the pilot. Closed-loop outcomes require additional infrastructure and are scoped to post-pilot.
+Metrics are grouped into six layers: **Intake Quality**, **Answer Quality**, **Safety**, **Conversation Quality**, **System Quality** (automated eval), and **Closed-Loop Outcomes**. The first five are measurable from day one of the pilot. Closed-loop outcomes require additional infrastructure and are scoped to post-pilot.
 
 ---
 
@@ -128,7 +128,55 @@ These metrics assess how the system handles crisis situations and sensitive cont
 
 ---
 
-## 4. System Quality (LLM-as-Judge Eval)
+## 4. Conversation Quality
+
+These metrics assess how well the chatbot handles emotional and conversational interactions beyond service search. They track whether the new emotional awareness and bot question features are working as intended.
+
+### 4.1 Emotional Detection Rate
+**Definition:** % of sessions with at least one turn classified as `emotional`.  
+**Why it matters:** If this is near 0%, either users aren't expressing emotions (unlikely for this population) or the detection is missing them. If very high, the phrase list may be too broad.  
+**Target:** Baseline tracking — no hard target until patterns emerge.  
+**Measurement:** Audit log — count unique sessions with an `emotional` category turn, divided by total sessions. ✅ Tracked in admin dashboard.  
+**Phase:** Pilot.
+
+### 4.2 Emotional → Escalation Rate
+**Definition:** Of sessions that had an `emotional` turn, what % subsequently had an `escalation` turn (user asked for a peer navigator)?  
+**Why it matters:** Measures whether the peer navigator offer in the emotional response is resonating. A healthy rate suggests users are engaging with the offer.  
+**Target:** Baseline tracking.  
+**Measurement:** Audit log — sessions with both `emotional` and `escalation` categories / sessions with `emotional`. ✅ Tracked in admin dashboard.  
+**Phase:** Pilot.
+
+### 4.3 Emotional → Service Rate
+**Definition:** Of sessions that had an `emotional` turn, what % subsequently had a service intent or query execution?  
+**Why it matters:** Shows whether users who share something emotional eventually find their way to practical help — without being pushed there by the bot. A gradual increase over the pilot suggests the empathetic approach builds trust.  
+**Target:** Baseline tracking.  
+**Measurement:** Audit log — sessions with `emotional` AND (service-intent categories OR `query_execution` event) / sessions with `emotional`. ✅ Tracked in admin dashboard.  
+**Phase:** Pilot.
+
+### 4.4 Bot Question Rate
+**Definition:** % of turns classified as `bot_question` (questions about the bot's capabilities).  
+**Why it matters:** If this spikes, users may be confused about what the bot does — which could indicate an onboarding or UX problem.  
+**Target:** Baseline tracking.  
+**Measurement:** Audit log — count of `bot_question` category turns / total turns. ✅ Tracked in admin dashboard.  
+**Phase:** Pilot.
+
+### 4.5 Bot Question → Frustration Rate
+**Definition:** Of sessions with a `bot_question` turn, what % subsequently had a `frustration` turn?  
+**Why it matters:** If users ask how the bot works and then get frustrated, the answers aren't helpful enough. This is a signal to improve the bot question prompt or add more factual content.  
+**Target:** ≤ 10%.  
+**Measurement:** Audit log — sessions with both `bot_question` and `frustration` / sessions with `bot_question`. ✅ Tracked in admin dashboard.  
+**Phase:** Pilot.
+
+### 4.6 Conversational Discovery Rate
+**Definition:** Of sessions that reached a `query_execution`, what % included a conversational turn (`general`, `emotional`, `confused`, or `greeting`) before or alongside their service search?  
+**Why it matters:** Measures whether users can find services through natural conversation, not just by tapping the welcome menu buttons. Before the conversation improvements, every general response pushed the full 9-category menu. This metric tracks whether the less-pushy approach still leads users to services.  
+**Target:** Baseline tracking.  
+**Measurement:** Audit log — query sessions with at least one conversational-category turn / all query sessions. ✅ Tracked in admin dashboard.  
+**Phase:** Pilot.
+
+---
+
+## 5. System Quality (LLM-as-Judge Eval)
 
 These metrics come from the automated evaluation framework in `tests/eval_llm_judge.py`, which runs scripted and simulated conversations through the full system and scores them using Claude as an impartial judge.
 
@@ -157,23 +205,23 @@ The eval covers 85 scenarios across 8 scoring dimensions, each rated 1–5. It c
 
 ---
 
-## 5. Closed-Loop Outcomes
+## 6. Closed-Loop Outcomes
 
 These metrics answer the ultimate question: did the referral work? They require additional infrastructure beyond the pilot and are flagged accordingly.
 
-### 5.1 Referral Success Rate
+### 6.1 Referral Success Rate
 **Definition:** % of query sessions where the user subsequently confirms they visited or contacted the referred service.  
 **Target:** ≥ 75% of users who receive results and opt into follow-up confirm contact with the service.  
 **Measurement:** Requires SMS follow-up flow — send a check-in message 24–48 hours after a confirmed referral ("Did you make it to [service name]?"). **Not implemented in pilot.**  
 **Phase:** Post-pilot.
 
-### 5.2 Service Accuracy Rate (Post-Visit)
+### 6.2 Service Accuracy Rate (Post-Visit)
 **Definition:** % of post-visit feedback responses where the service details shown (hours, address, eligibility) matched what the user found on arrival.  
 **Target:** ≥ 85%.  
 **Measurement:** Post-visit feedback SMS prompt ("Was the information we gave you accurate?"). **Not implemented in pilot.**  
 **Phase:** Post-pilot.
 
-### 5.3 Outcome Linkage
+### 6.3 Outcome Linkage
 **Definition:** Ability to correlate referral success rates with user profile attributes (borough, service type, session length, device type) to identify patterns.  
 **Why it matters:** The architecture doc identifies this as the "ultimate goal" — using outcome data to improve query templates and surface quality data back to partner organizations.  
 **Measurement:** Requires linking anonymized session IDs to follow-up responses without storing PII. Needs privacy review before implementation.  
