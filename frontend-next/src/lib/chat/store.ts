@@ -21,6 +21,7 @@ interface ChatStore {
 
   setSessionId: (id: string | null) => void;
   addMessage: (msg: ChatMessage) => void;
+  removeMessage: (id: string) => void;
   setLoading: (v: boolean) => void;
   setError: (msg: string | null) => void;
   markQuickRepliesUsed: () => void;
@@ -105,6 +106,11 @@ export const useChatStore = create<ChatStore>()(
         set((state) => ({
           messages: [...state.messages, msg],
           lastActiveAt: Date.now(),
+        })),
+
+      removeMessage: (id) =>
+        set((state) => ({
+          messages: state.messages.filter((m) => m.id !== id),
         })),
 
       setLoading: (v) => set({ isLoading: v, error: v ? null : undefined }),

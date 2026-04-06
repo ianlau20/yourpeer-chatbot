@@ -8,13 +8,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useChat } from "@/hooks/use-chat";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useChatStore } from "@/lib/chat/store";
 import { ChatMessage } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ChatStatus } from "./chat-status";
 
 export function ChatContainer() {
-  const { messages, isLoading, error, send, submitFeedback } = useChat();
+  const { messages, isLoading, error, send, retry, submitFeedback } = useChat();
+  const isOnline = useOnlineStatus();
   const chatRef = useRef<HTMLDivElement>(null);
 
   // Wait for Zustand persist to finish rehydrating from localStorage.
@@ -70,14 +72,24 @@ export function ChatContainer() {
               message={msg}
               onQuickReply={send}
               onFeedback={submitFeedback}
+              onRetry={retry}
             />
           ))
         )}
       </div>
 
+      {!isOnline && (
+        <div
+          role="alert"
+          className="mx-1 my-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800"
+        >
+          You appear to be offline. Messages will fail until your connection is restored.
+        </div>
+      )}
+
       <ChatStatus isLoading={isLoading} error={error} />
 
-      <ChatInput onSend={send} disabled={isLoading} />
+      <ChatInput onSend={send} disabled={isLoading || !isOnline} />
     </div>
   );
 }

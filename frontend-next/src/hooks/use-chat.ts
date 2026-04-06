@@ -14,6 +14,25 @@ import type { FeedbackRating } from "@/lib/chat/types";
 
 const GEOLOCATION_TRIGGER = "__use_geolocation__";
 
+/** Wait ms milliseconds. */
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Try an async operation with one automatic retry after a delay.
+ * Does NOT retry 429 (rate limit) or 403 (auth) errors.
+ */
+async function withRetry<T>(fn: () => Promise<T>, retryDelayMs = 1500): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const msg = err.message || "";
+    // Don't retry rate limits or auth errors
+    if (msg.includes("429") || msg.includes("403")) throw err;
+    await delay(retryDelayMs);
+    return fn();
+  }
+}
+
 export function useChat() {
   const {
     sessionId,
@@ -22,6 +41,7 @@ export function useChat() {
     error,
     setSessionId,
     addMessage,
+    removeMessage,
     setLoading,
     setError,
     markQuickRepliesUsed,
@@ -119,7 +139,8 @@ export function useChat() {
       try {
         // Attach coords if we have them
         const coords = hasCoords ? { latitude: latitude!, longitude: longitude! } : null;
-        const data = await sendChatMessage(message, sessionId, coords);
+        // Auto-retry once with 1.5s backoff for transient failures (not 429/403)
+        const data = await withRetry(() => sendChatMessage(message, sessionId, coords));
         if (data.session_id) setSessionId(data.session_id);
 
         addMessage({
@@ -157,16 +178,28 @@ export function useChat() {
 
         const msg = err.message || "Something went wrong";
         setError(`Error: ${msg}`);
+        // Rate-limit errors include timing info — show as-is, no retry.
+        // Other errors get a Retry button via retryMessage.
         addMessage({
           id: nextMsgId(),
           role: "bot",
-          text: msg.includes("wait") ? msg : "Sorry, something went wrong. Please try again.",
+          text: msg.includes("wait") ? msg : "Sorry, something went wrong.",
+          retryMessage: msg.includes("wait") ? undefined : message,
         });
       } finally {
         setLoading(false);
       }
     },
     [sessionId, latitude, longitude, hasCoords, addMessage, setSessionId, setLoading, setError, markQuickRepliesUsed, requestLocation],
+  );
+
+  /** Retry a failed message — removes the error and re-sends. */
+  const retry = useCallback(
+    (errorMsgId: string, originalText: string) => {
+      removeMessage(errorMsgId);
+      send(originalText);
+    },
+    [removeMessage, send],
   );
 
   const submitFeedback = useCallback(
@@ -176,5 +209,5 @@ export function useChat() {
     [sessionId],
   );
 
-  return { messages, isLoading, error, send, submitFeedback };
+  return { messages, isLoading, error, send, retry, submitFeedback };
 }

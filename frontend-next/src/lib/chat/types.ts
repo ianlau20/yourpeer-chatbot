@@ -38,6 +38,8 @@ export interface ChatMessage {
   services?: ServiceResult[];
   quick_replies?: QuickReply[];
   showFeedback?: boolean;
+  /** If set, this error message includes a Retry button that re-sends this text. */
+  retryMessage?: string;
 }
 
 export type FeedbackRating = "up" | "down";
