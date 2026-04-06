@@ -302,6 +302,21 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
         for key in regex_result:
             if llm_result.get(key) is None and regex_result.get(key) is not None:
                 llm_result[key] = regex_result[key]
+
+        # Prefer regex service_type over LLM when regex found an explicit
+        # keyword match. The regex match is deterministic ("dental" is
+        # literally in the text) while the LLM can be biased by conversation
+        # history — e.g., returning "personal_care" for "What about dental
+        # care?" because the prior turns were about showers.
+        if (regex_result.get("service_type") is not None
+                and llm_result.get("service_type") != regex_result["service_type"]):
+            logger.info(
+                f"Regex service_type override: llm='{llm_result.get('service_type')}' "
+                f"→ regex='{regex_result['service_type']}' "
+                f"(explicit keyword match in message)"
+            )
+            llm_result["service_type"] = regex_result["service_type"]
+
         return llm_result
 
     # Step 4: LLM returned nothing — fall back to regex

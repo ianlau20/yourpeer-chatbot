@@ -557,7 +557,12 @@ def _build_confirmation_message(slots: dict) -> str:
     (e.g. a street address captured as a location).
     """
     service = slots.get("service_type", "services")
-    service_label = _SERVICE_LABELS.get(service, service)
+    # Use the specific sub-type label when available (e.g., "dental care"
+    # instead of generic "health care"). Falls back to the category label.
+    service_label = (
+        slots.get("service_detail")
+        or _SERVICE_LABELS.get(service, service)
+    )
     location = slots.get("location", "your area")
     age = slots.get("age")
 
