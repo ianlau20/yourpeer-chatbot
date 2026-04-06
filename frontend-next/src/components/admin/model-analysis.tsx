@@ -648,7 +648,7 @@ export function ModelAnalysis() {
           Anthropic official docs
         </a>
         . Recommendations are preliminary &mdash; run the jury evaluation to
-        validate before deploying.
+        validate before deploying major changes.
       </div>
 
       {/* Model cards */}

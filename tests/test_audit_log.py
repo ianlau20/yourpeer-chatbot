@@ -635,8 +635,119 @@ def test_get_stats_data_freshness_legacy_queries():
 
 
 # -----------------------------------------------------------------------
-# EVAL RESULTS
+# CONVERSATION QUALITY METRICS
 # -----------------------------------------------------------------------
+
+def test_get_stats_emotional_detection_rate():
+    """Should track sessions with emotional turns."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "emotional")
+    log_conversation_turn("s2", "t", "t", {}, "greeting")
+    log_conversation_turn("s3", "t", "t", {}, "emotional")
+    log_conversation_turn("s4", "t", "t", {}, "service")
+
+    stats = get_stats()
+    cq = stats["conversation_quality"]
+    assert cq["emotional_sessions"] == 2
+    assert cq["emotional_rate"] == 0.5  # 2 of 4 sessions
+
+
+def test_get_stats_emotional_to_escalation():
+    """Should track emotional sessions that also had escalation."""
+    clear_audit_log()
+    # Session 1: emotional then escalated
+    log_conversation_turn("s1", "t", "t", {}, "emotional")
+    log_conversation_turn("s1", "t", "t", {}, "escalation")
+    # Session 2: emotional but no escalation
+    log_conversation_turn("s2", "t", "t", {}, "emotional")
+    log_conversation_turn("s2", "t", "t", {}, "service")
+
+    stats = get_stats()
+    cq = stats["conversation_quality"]
+    assert cq["emotional_to_escalation"] == 0.5  # 1 of 2
+
+
+def test_get_stats_emotional_to_service():
+    """Should track emotional sessions that reached a service search."""
+    clear_audit_log()
+    # Session 1: emotional then service
+    log_conversation_turn("s1", "t", "t", {}, "emotional")
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    # Session 2: emotional, no service (just chatting)
+    log_conversation_turn("s2", "t", "t", {}, "emotional")
+    log_conversation_turn("s2", "t", "t", {}, "general")
+
+    stats = get_stats()
+    cq = stats["conversation_quality"]
+    assert cq["emotional_to_service"] == 0.5  # 1 of 2
+
+
+def test_get_stats_bot_question_rate():
+    """Should track bot question turns as a rate of total turns."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "bot_question")
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_conversation_turn("s2", "t", "t", {}, "greeting")
+    log_conversation_turn("s2", "t", "t", {}, "bot_question")
+
+    stats = get_stats()
+    cq = stats["conversation_quality"]
+    assert cq["bot_question_turns"] == 2
+    assert cq["bot_question_rate"] == 0.5  # 2 of 4 turns
+
+
+def test_get_stats_bot_question_to_frustration():
+    """Should track bot question sessions followed by frustration."""
+    clear_audit_log()
+    # Session 1: asked bot question then got frustrated
+    log_conversation_turn("s1", "t", "t", {}, "bot_question")
+    log_conversation_turn("s1", "t", "t", {}, "frustration")
+    # Session 2: asked bot question, no frustration
+    log_conversation_turn("s2", "t", "t", {}, "bot_question")
+    log_conversation_turn("s2", "t", "t", {}, "service")
+
+    stats = get_stats()
+    cq = stats["conversation_quality"]
+    assert cq["bot_question_to_frustration"] == 0.5  # 1 of 2
+    assert cq["bot_question_sessions"] == 2
+
+
+def test_get_stats_conversational_discovery():
+    """Should track sessions that reached a query via conversation."""
+    clear_audit_log()
+    # Session 1: greeting → service → query (conversational entry)
+    log_conversation_turn("s1", "t", "t", {}, "greeting")
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_query_execution("s1", "Q", {}, 3, False, 40)
+    # Session 2: direct service → query (button tap, no conversation)
+    log_conversation_turn("s2", "t", "t", {}, "service")
+    log_query_execution("s2", "Q", {}, 2, False, 30)
+    # Session 3: emotional → service → query (conversational entry)
+    log_conversation_turn("s3", "t", "t", {}, "emotional")
+    log_conversation_turn("s3", "t", "t", {}, "service")
+    log_query_execution("s3", "Q", {}, 1, False, 20)
+
+    stats = get_stats()
+    cq = stats["conversation_quality"]
+    assert cq["conversational_discovery"] == 2  # s1 (greeting) and s3 (emotional)
+    assert cq["conversational_discovery_rate"] == 0.67  # 2 of 3 query sessions
+
+
+def test_get_stats_conversation_quality_empty():
+    """Conversation quality metrics should be None/0 when empty."""
+    clear_audit_log()
+    stats = get_stats()
+    cq = stats["conversation_quality"]
+    assert cq["emotional_sessions"] == 0
+    assert cq["emotional_rate"] is None
+    assert cq["emotional_to_escalation"] is None
+    assert cq["emotional_to_service"] is None
+    assert cq["bot_question_turns"] == 0
+    assert cq["bot_question_rate"] is None
+    assert cq["bot_question_sessions"] == 0
+    assert cq["bot_question_to_frustration"] is None
+    assert cq["conversational_discovery"] == 0
+    assert cq["conversational_discovery_rate"] is None
 
 def test_eval_results_set_and_get():
     """Should store and retrieve eval results."""

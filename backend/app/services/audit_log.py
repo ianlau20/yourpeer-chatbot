@@ -387,6 +387,50 @@ def get_stats() -> dict:
                 total_cards_with_date += f.get("total_with_date", 0)
                 total_cards_fresh += f.get("fresh", 0)
 
+    # --- Conversation quality metrics ---
+
+    # Sessions with at least one emotional turn
+    sessions_with_emotional = sum(
+        1 for cats in session_categories.values()
+        if "emotional" in cats
+    )
+
+    # Of those, how many subsequently escalated to a peer navigator?
+    emotional_then_escalation = sum(
+        1 for cats in session_categories.values()
+        if "emotional" in cats and "escalation" in cats
+    )
+
+    # Of those, how many eventually reached a service search?
+    emotional_then_service = sum(
+        1 for sid, cats in session_categories.items()
+        if "emotional" in cats and (
+            cats & _SERVICE_INTENT_CATEGORIES or sid in sessions_with_query
+        )
+    )
+
+    # Bot question turn count (not per-session — per-turn)
+    bot_question_turns = categories.get("bot_question", 0)
+
+    # Sessions with a bot question followed by frustration
+    sessions_with_bot_question = sum(
+        1 for cats in session_categories.values()
+        if "bot_question" in cats
+    )
+    bot_question_then_frustration = sum(
+        1 for cats in session_categories.values()
+        if "bot_question" in cats and "frustration" in cats
+    )
+
+    # Sessions that reached query_execution via conversation (had a general
+    # or emotional turn) vs. pure button-tap flows (only service/confirm turns)
+    _CONVERSATIONAL_CATEGORIES = {"general", "emotional", "confused", "greeting"}
+    conversational_discovery = sum(
+        1 for sid in sessions_with_query
+        if sid in session_categories
+        and session_categories[sid] & _CONVERSATIONAL_CATEGORIES
+    )
+
     return {
         "total_events": len(events),
         "total_turns": total_turns,
@@ -423,6 +467,36 @@ def get_stats() -> dict:
             "cards_served": total_cards_served,
             "cards_with_date": total_cards_with_date,
             "cards_fresh": total_cards_fresh,
+        },
+        "conversation_quality": {
+            "emotional_sessions": sessions_with_emotional,
+            "emotional_rate": (
+                round(sessions_with_emotional / len(unique_sessions), 2)
+                if unique_sessions else None
+            ),
+            "emotional_to_escalation": (
+                round(emotional_then_escalation / sessions_with_emotional, 2)
+                if sessions_with_emotional > 0 else None
+            ),
+            "emotional_to_service": (
+                round(emotional_then_service / sessions_with_emotional, 2)
+                if sessions_with_emotional > 0 else None
+            ),
+            "bot_question_turns": bot_question_turns,
+            "bot_question_rate": (
+                round(bot_question_turns / total_turns, 2)
+                if total_turns > 0 else None
+            ),
+            "bot_question_sessions": sessions_with_bot_question,
+            "bot_question_to_frustration": (
+                round(bot_question_then_frustration / sessions_with_bot_question, 2)
+                if sessions_with_bot_question > 0 else None
+            ),
+            "conversational_discovery": conversational_discovery,
+            "conversational_discovery_rate": (
+                round(conversational_discovery / len(sessions_with_query), 2)
+                if sessions_with_query else None
+            ),
         },
         "confirmation_breakdown": {
             "confirm": confirm_yes_count,

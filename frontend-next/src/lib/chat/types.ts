@@ -62,6 +62,19 @@ export interface DataFreshnessDetail {
   cards_fresh: number;
 }
 
+export interface ConversationQuality {
+  emotional_sessions: number;
+  emotional_rate: number | null;
+  emotional_to_escalation: number | null;
+  emotional_to_service: number | null;
+  bot_question_turns: number;
+  bot_question_rate: number | null;
+  bot_question_sessions: number;
+  bot_question_to_frustration: number | null;
+  conversational_discovery: number;
+  conversational_discovery_rate: number | null;
+}
+
 export interface AdminStats {
   unique_sessions: number;
   total_turns: number;
@@ -78,6 +91,7 @@ export interface AdminStats {
   slot_correction_rate: number | null;
   data_freshness_rate: number | null;
   data_freshness_detail: DataFreshnessDetail;
+  conversation_quality: ConversationQuality;
   confirmation_breakdown: ConfirmationBreakdown;
   category_distribution: Record<string, number>;
   service_type_distribution: Record<string, number>;

@@ -55,7 +55,7 @@ See [SETUP.md](docs/SETUP.md) for detailed instructions including prerequisites,
 User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Confirmation → Query Templates → Streetlives DB
           ↑                      ↓                     ↓               ↓                                   ↓
    Quick-reply            Crisis Detection        PII Redaction    User confirms                      Service Cards
-   buttons                (regex + Sonnet)            ↓          or changes slots                         ↓
+   buttons                (regex + Sonnet)             ↓          or changes slots                         ↓
                           Greeting / Reset        Session Store                                       YourPeer links
                           Thanks / Help                ↓
                           Escalation             Claude Haiku (fallback
