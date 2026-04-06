@@ -151,6 +151,7 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | Document | Description |
 |---|---|
 | [FEATURES.md](docs/FEATURES.md) | Full feature reference — conversation & intake, crisis detection, search & results, service cards, privacy & safety, staff tools |
+| [CHATBOT_BEHAVIOR.md](docs/CHATBOT_BEHAVIOR.md) | Chatbot behavior — routing pipeline, 16 message categories, LLM usage, guardrails, conversation modes, limitations, how to extend |
 | [CRISIS_DETECTION.md](docs/CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, phrase list design, LLM prompt, and how to extend |
 | [PII_REDACTION.md](docs/PII_REDACTION.md) | PII redaction — six detection categories, pattern details, tradeoffs, known gaps, and future improvements |
 | [METRICS.md](docs/METRICS.md) | Success metrics — 18 metrics across 5 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |

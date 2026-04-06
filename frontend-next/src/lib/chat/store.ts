@@ -18,10 +18,8 @@ interface ChatStore {
   lastActiveAt: number;
   isLoading: boolean;
   error: string | null;
-  /** True once the store has rehydrated from localStorage. */
-  _hasHydrated: boolean;
 
-  setSessionId: (id: string) => void;
+  setSessionId: (id: string | null) => void;
   addMessage: (msg: ChatMessage) => void;
   setLoading: (v: boolean) => void;
   setError: (msg: string | null) => void;
@@ -100,7 +98,6 @@ export const useChatStore = create<ChatStore>()(
       lastActiveAt: Date.now(),
       isLoading: false,
       error: null,
-      _hasHydrated: false,
 
       setSessionId: (id) => set({ sessionId: id }),
 
@@ -133,6 +130,19 @@ export const useChatStore = create<ChatStore>()(
     {
       name: "yourpeer-chat",
 
+      // Schema version — increment when the persisted shape changes.
+      // The migrate function handles upgrading old data so users don't
+      // lose their conversation or hit runtime errors after a deploy.
+      version: 1,
+      migrate: (persisted: any, version: number) => {
+        if (version === 0) {
+          // v0 → v1: no structural changes, just establishing the baseline.
+          // Future migrations go here as additional `if` blocks:
+          //   if (version < 2) { /* v1 → v2 migration */ }
+        }
+        return persisted;
+      },
+
       // Only persist conversation state — not transient UI flags.
       partialize: (state) => ({
         sessionId: state.sessionId,
@@ -152,9 +162,6 @@ export const useChatStore = create<ChatStore>()(
             syncMsgCounter(state.messages);
           }
         }
-
-        // Mark hydration complete — the chat UI waits for this.
-        useChatStore.setState({ _hasHydrated: true });
       },
     },
   ),

@@ -6,7 +6,7 @@
 
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { useChatStore } from "@/lib/chat/store";
 import { ChatMessage } from "./chat-message";
@@ -15,8 +15,22 @@ import { ChatStatus } from "./chat-status";
 
 export function ChatContainer() {
   const { messages, isLoading, error, send, submitFeedback } = useChat();
-  const hasHydrated = useChatStore((s) => s._hasHydrated);
   const chatRef = useRef<HTMLDivElement>(null);
+
+  // Wait for Zustand persist to finish rehydrating from localStorage.
+  // On SSR and first client render this is false; it flips to true once
+  // the store has loaded (or determined there's nothing to load).
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    // Already done (e.g. empty localStorage — synchronous)
+    if (useChatStore.persist.hasHydrated()) {
+      setHydrated(true);
+      return;
+    }
+    // Async case — wait for the callback
+    const unsub = useChatStore.persist.onFinishHydration(() => setHydrated(true));
+    return unsub;
+  }, []);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -47,7 +61,7 @@ export function ChatContainer() {
         tabIndex={0}
         className="flex-1 bg-white border border-neutral-200 rounded-2xl min-h-[400px] max-h-[75vh] overflow-y-auto p-5 flex flex-col gap-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-300/30"
       >
-        {!hasHydrated ? (
+        {!hydrated ? (
           <p className="text-neutral-400 text-sm">Loading…</p>
         ) : (
           messages.map((msg) => (

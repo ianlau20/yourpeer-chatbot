@@ -16,6 +16,8 @@ import {
   Scale,
   ExternalLink,
   Route,
+  Heart,
+  HelpCircle,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -142,15 +144,15 @@ const TASKS: TaskDef[] = [
     inputTokens: 300,
     outputTokens: 10,
     requirements: [
-      "Classify into one of 14 routing categories (service, greeting, help, frustration, etc.)",
-      "Distinguish \u2018I need help with housing\u2019 (service) from \u2018how does this work\u2019 (help)",
-      "Distinguish \u2018I don\u2019t know what to do\u2019 (confused) from mental health service request",
+      "Classify into one of 16 routing categories (service, greeting, emotional, bot_question, etc.)",
+      "Distinguish \u2018I need help with housing\u2019 (service) from \u2018how does this work\u2019 (bot_question)",
+      "Distinguish \u2018I\u2019m feeling really down\u2019 (emotional) from \u2018I don\u2019t know what to do\u2019 (confused)",
       "Handle indirect service needs (\u2018I was just released\u2019 \u2192 service)",
       "Return single category name, validated against known set",
     ],
     recommendation: "haiku",
     rationale:
-      "This is a simple classification task (pick 1 of 14 labels) with a short output (single word). Regex handles the clear cases; the LLM only sees messages where regex already failed, so the bar is \u2018better than general\u2019 not \u2018perfect.\u2019 Haiku\u2019s speed keeps the latency impact minimal for real-time chat. If the LLM fails, the system falls back to the regex result (general) \u2014 no safety risk.",
+      "This is a simple classification task (pick 1 of 16 labels) with a short output (single word). Regex handles the clear cases; the LLM only sees messages where regex already failed, so the bar is \u2018better than general\u2019 not \u2018perfect.\u2019 Haiku\u2019s speed keeps the latency impact minimal for real-time chat. If the LLM fails, the system falls back to the regex result (general) \u2014 no safety risk.",
   },
   {
     id: "crisisDetection",
@@ -169,6 +171,43 @@ const TASKS: TaskDef[] = [
     recommendation: "sonnet",
     rationale:
       "Safety-critical classification where false negatives have real consequences. Sonnet\u2019s deeper reasoning catches indirect crisis language Haiku may miss. Volume is very low (~5% of turns reach LLM stage) so the 3x cost premium adds negligible total cost.",
+  },
+  {
+    id: "emotionalAck",
+    name: "Emotional acknowledgment",
+    icon: Heart,
+    desc: "Generate a warm, empathetic response when the user shares emotional distress that isn\u2019t crisis-level (\u201CI\u2019m feeling really down\u201D, \u201Chaving a rough day\u201D). Regex catches common phrases; the LLM classifier routes indirect expressions.",
+    inputTokens: 280,
+    outputTokens: 70,
+    requirements: [
+      "Lead with acknowledgment \u2014 validate the user\u2019s feeling before anything else",
+      "Do NOT list service categories or show a menu of options",
+      "Do NOT give medical, psychological, legal, or financial advice",
+      "Do NOT diagnose, minimize, or suggest treatments",
+      "Mention peer navigator as a human support option",
+      "Keep it to 2-3 sentences that feel genuine, not scripted",
+    ],
+    recommendation: "haiku",
+    rationale:
+      "This is a short-form generation task (2-3 sentences) with clear guardrails. The output constraints are explicit: don\u2019t list services, don\u2019t give advice, acknowledge the feeling. Haiku\u2019s instruction following is strong for well-specified tasks [5], and its 4-5x speed advantage matters because emotional messages deserve an immediate response, not a noticeable delay. The guardrails are enforced by the prompt, not by model reasoning depth \u2014 Sonnet wouldn\u2019t produce a measurably warmer response given the same constraints. If tone quality becomes a concern, this is a good candidate for A/B testing via the jury eval.",
+  },
+  {
+    id: "botQuestion",
+    name: "Bot capability questions",
+    icon: HelpCircle,
+    desc: "Answer user questions about how the bot works (\u201CWhy couldn\u2019t you get my location?\u201D, \u201CWhat can you search for?\u201D, \u201CDo you work outside NYC?\u201D). Facts about the bot\u2019s capabilities are provided in the prompt.",
+    inputTokens: 350,
+    outputTokens: 60,
+    requirements: [
+      "Answer the user\u2019s specific question directly and honestly",
+      "Draw from a closed set of facts provided in the system prompt",
+      "Be honest about limitations (NYC only, browser location requires permission, etc.)",
+      "Keep response to 2-3 sentences",
+      "Do not fabricate capabilities the bot doesn\u2019t have",
+    ],
+    recommendation: "haiku",
+    rationale:
+      "Factual QA over a closed domain \u2014 all facts about the bot\u2019s capabilities are provided directly in the prompt. The model doesn\u2019t need to reason or infer; it needs to select the relevant fact and phrase it clearly. This is Haiku\u2019s sweet spot: structured input, short output, strong instruction following [5]. Volume is very low (~1-2% of turns), so even if Sonnet were marginally better, the cost and latency difference would not be justified. A static fallback response covers the case when the LLM is unavailable.",
   },
   {
     id: "jury",
@@ -296,14 +335,23 @@ interface ConfigDef {
   name: string;
   tag: string;
   desc: string;
-  models: { conv: "haiku" | "sonnet"; slots: "haiku" | "sonnet"; crisis: "haiku" | "sonnet" };
+  models: {
+    conv: "haiku" | "sonnet";
+    slots: "haiku" | "sonnet";
+    classification: "haiku" | "sonnet";
+    crisis: "haiku" | "sonnet";
+    emotionalAck: "haiku" | "sonnet";
+    botQuestion: "haiku" | "sonnet";
+    jury: "sonnet";
+    futureMultilang: "sonnet";
+  };
 }
 
 const CONFIGS: ConfigDef[] = [
-  { id: "recommended", name: "Recommended", tag: "Best balance", desc: "Haiku conv + slots, Sonnet crisis", models: { conv: "haiku", slots: "haiku", crisis: "sonnet" } },
-  { id: "allHaiku", name: "All Haiku", tag: "Cheapest", desc: "Haiku for everything", models: { conv: "haiku", slots: "haiku", crisis: "haiku" } },
-  { id: "allSonnet", name: "All Sonnet", tag: "Highest quality", desc: "Sonnet for everything", models: { conv: "sonnet", slots: "sonnet", crisis: "sonnet" } },
-  { id: "sonnetHeavy", name: "Sonnet heavy", tag: "Current pattern", desc: "Sonnet conv + slots, Haiku crisis", models: { conv: "sonnet", slots: "sonnet", crisis: "haiku" } },
+  { id: "recommended", name: "Recommended", tag: "Best balance", desc: "Haiku conv + slots + classification + emotional + bot Q, Sonnet crisis", models: { conv: "haiku", slots: "haiku", classification: "haiku", crisis: "sonnet", emotionalAck: "haiku", botQuestion: "haiku", jury: "sonnet", futureMultilang: "sonnet" } },
+  { id: "allHaiku", name: "All Haiku", tag: "Cheapest", desc: "Haiku for everything", models: { conv: "haiku", slots: "haiku", classification: "haiku", crisis: "haiku", emotionalAck: "haiku", botQuestion: "haiku", jury: "sonnet", futureMultilang: "sonnet" } },
+  { id: "allSonnet", name: "All Sonnet", tag: "Highest quality", desc: "Sonnet for everything", models: { conv: "sonnet", slots: "sonnet", classification: "sonnet", crisis: "sonnet", emotionalAck: "sonnet", botQuestion: "sonnet", jury: "sonnet", futureMultilang: "sonnet" } },
+  { id: "sonnetHeavy", name: "Sonnet heavy", tag: "Current pattern", desc: "Sonnet conv + slots, Haiku crisis", models: { conv: "sonnet", slots: "sonnet", classification: "sonnet", crisis: "haiku", emotionalAck: "sonnet", botQuestion: "sonnet", jury: "sonnet", futureMultilang: "sonnet" } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -353,7 +401,7 @@ function ModelCard({ modelKey }: { modelKey: "haiku" | "sonnet" }) {
   const accent = isHaiku ? "border-t-green-400" : "border-t-violet-400";
 
   return (
-    <div className={`border border-neutral-200 rounded-lg p-4 border-t-[3px] ${accent}`}>
+    <div className={`bg-white border border-neutral-200 rounded-lg p-4 border-t-[3px] ${accent}`}>
       <div className="flex items-baseline justify-between mb-2.5">
         <span className={`text-base font-bold ${isHaiku ? "text-green-700" : "text-violet-700"}`}>
           {m.name}
@@ -405,7 +453,7 @@ function TaskRow({ task }: { task: TaskDef }) {
   return (
     <div
       className={`border rounded-lg overflow-hidden ${
-        task.isJury ? "border-amber-300 bg-amber-50/30" : "border-neutral-200"
+        task.isJury ? "border-amber-300 bg-white" : "bg-white border-neutral-200"
       }`}
     >
       <button
@@ -534,28 +582,61 @@ export function ModelAnalysis() {
   const [llmSlotPct, setLlmSlotPct] = useState(30);
   const [crisisLlmPct, setCrisisLlmPct] = useState(5);
   const [conversationalPct, setConversationalPct] = useState(20);
+  const [classificationPct, setClassificationPct] = useState(15);
+  const [emotionalPct, setEmotionalPct] = useState(5);
+  const [botQuestionPct, setBotQuestionPct] = useState(2);
+  const [includeJury, setIncludeJury] = useState(false);
+  const [includeMultilang, setIncludeMultilang] = useState(false);
   const [activeConfig, setActiveConfig] = useState<ConfigId>("recommended");
 
   const totalTurns = monthlyUsers * turnsPerSession;
   const conversationalTurns = Math.round(totalTurns * (conversationalPct / 100));
   const slotTurns = Math.round(totalTurns * (llmSlotPct / 100));
   const crisisTurns = Math.round(totalTurns * (crisisLlmPct / 100));
+  const classificationTurns = Math.round(totalTurns * (classificationPct / 100));
+  const emotionalTurns = Math.round(totalTurns * (emotionalPct / 100));
+  const botQuestionTurns = Math.round(totalTurns * (botQuestionPct / 100));
+  // Jury: ~83 scenarios × 2 configs × ~10 turns × judge call, once per month
+  const juryTurns = includeJury ? 1660 : 0;
+  // Future multi-language: assume same conversational volume
+  const multilangTurns = includeMultilang ? conversationalTurns : 0;
 
   const configsWithCost = CONFIGS.map((c) => {
     const bd = {
       conv: taskCost(c.models.conv, "conversational", conversationalTurns),
       slots: taskCost(c.models.slots, "slotExtraction", slotTurns),
+      classification: taskCost(c.models.classification, "classification", classificationTurns),
       crisis: taskCost(c.models.crisis, "crisisDetection", crisisTurns),
+      emotionalAck: taskCost(c.models.emotionalAck, "emotionalAck", emotionalTurns),
+      botQuestion: taskCost(c.models.botQuestion, "botQuestion", botQuestionTurns),
+      jury: includeJury ? taskCost(c.models.jury, "jury", juryTurns) : 0,
+      futureMultilang: includeMultilang ? taskCost(c.models.futureMultilang, "futureMultilang", multilangTurns) : 0,
     };
-    return { ...c, breakdown: bd, total: bd.conv + bd.slots + bd.crisis };
+    return { ...c, breakdown: bd, total: Object.values(bd).reduce((a, b) => a + b, 0) };
   });
 
   const config = configsWithCost.find((c) => c.id === activeConfig)!;
 
+  // Build the list of tasks to display in the config detail grid.
+  const activeTasks: { key: string; label: string; model: "haiku" | "sonnet"; cost: number; count: number }[] = [
+    { key: "conv", label: "Conversational", model: config.models.conv, cost: config.breakdown.conv, count: conversationalTurns },
+    { key: "slots", label: "Slot extraction", model: config.models.slots, cost: config.breakdown.slots, count: slotTurns },
+    { key: "classification", label: "Classification", model: config.models.classification, cost: config.breakdown.classification, count: classificationTurns },
+    { key: "crisis", label: "Crisis detection", model: config.models.crisis, cost: config.breakdown.crisis, count: crisisTurns },
+    { key: "emotionalAck", label: "Emotional ack.", model: config.models.emotionalAck, cost: config.breakdown.emotionalAck, count: emotionalTurns },
+    { key: "botQuestion", label: "Bot questions", model: config.models.botQuestion, cost: config.breakdown.botQuestion, count: botQuestionTurns },
+  ];
+  if (includeJury) {
+    activeTasks.push({ key: "jury", label: "Jury evaluation", model: config.models.jury, cost: config.breakdown.jury, count: juryTurns });
+  }
+  if (includeMultilang) {
+    activeTasks.push({ key: "futureMultilang", label: "Multi-language", model: config.models.futureMultilang, cost: config.breakdown.futureMultilang, count: multilangTurns });
+  }
+
   return (
     <>
       {/* Intro banner */}
-      <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-3.5 py-2.5 text-sm text-neutral-500 mb-6">
+      <div className="bg-white border border-neutral-200 rounded-lg px-3.5 py-2.5 text-sm text-neutral-500 mb-6">
         Claude model cost and capability analysis for each LLM-powered task in
         the chatbot. All pricing from{" "}
         <a
@@ -594,19 +675,33 @@ export function ModelAnalysis() {
         Monthly cost calculator
       </h2>
 
-      <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-4 mb-4">
+      <div className="bg-white border border-neutral-200 rounded-lg px-4 py-4 mb-4">
         <div className="grid grid-cols-2 gap-x-6 gap-y-3">
           <SliderField label="Monthly users" value={monthlyUsers} onChange={setMonthlyUsers} min={100} max={50000} step={100} format={(v) => v.toLocaleString()} />
           <SliderField label="Turns per session" value={turnsPerSession} onChange={setTurnsPerSession} min={1} max={20} step={1} />
           <SliderField label="% needing LLM slots" value={llmSlotPct} onChange={setLlmSlotPct} min={0} max={100} step={5} format={(v) => v + "%"} />
           <SliderField label="% hitting LLM crisis" value={crisisLlmPct} onChange={setCrisisLlmPct} min={0} max={30} step={1} format={(v) => v + "%"} />
           <SliderField label="% conversational LLM" value={conversationalPct} onChange={setConversationalPct} min={0} max={60} step={5} format={(v) => v + "%"} />
+          <SliderField label="% LLM classification" value={classificationPct} onChange={setClassificationPct} min={0} max={50} step={5} format={(v) => v + "%"} />
+          <SliderField label="% emotional responses" value={emotionalPct} onChange={setEmotionalPct} min={0} max={20} step={1} format={(v) => v + "%"} />
+          <SliderField label="% bot questions" value={botQuestionPct} onChange={setBotQuestionPct} min={0} max={10} step={1} format={(v) => v + "%"} />
         </div>
+
+        <div className="flex gap-4 mt-4 pt-3 border-t border-neutral-100">
+          <ToggleField label="LLM-as-a-jury evaluation" checked={includeJury} onChange={setIncludeJury} detail="~$45-55 per monthly run" />
+          <ToggleField label="Future: multi-language" checked={includeMultilang} onChange={setIncludeMultilang} detail="Sonnet for non-English" />
+        </div>
+
         <div className="text-xs text-neutral-400 mt-3">
           {totalTurns.toLocaleString()} total turns &middot;{" "}
           {conversationalTurns.toLocaleString()} conv &middot;{" "}
           {slotTurns.toLocaleString()} slot &middot;{" "}
-          {crisisTurns.toLocaleString()} crisis
+          {classificationTurns.toLocaleString()} classify &middot;{" "}
+          {crisisTurns.toLocaleString()} crisis &middot;{" "}
+          {emotionalTurns.toLocaleString()} emotional &middot;{" "}
+          {botQuestionTurns.toLocaleString()} bot Q
+          {includeJury && <> &middot; {juryTurns.toLocaleString()} jury</>}
+          {includeMultilang && <> &middot; {multilangTurns.toLocaleString()} multilang</>}
         </div>
       </div>
 
@@ -630,7 +725,7 @@ export function ModelAnalysis() {
       </div>
 
       {/* Config detail */}
-      <div className="border border-neutral-200 rounded-lg overflow-hidden mb-6">
+      <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden mb-6">
         <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
           <div>
             <div className="text-sm font-bold">{config.name}</div>
@@ -641,24 +736,18 @@ export function ModelAnalysis() {
             <span className="text-xs text-neutral-400">/mo</span>
           </div>
         </div>
-        <div className="grid grid-cols-3">
-          {(
-            [
-              { label: "Conversational", key: "conv" as const, count: conversationalTurns },
-              { label: "Slot extraction", key: "slots" as const, count: slotTurns },
-              { label: "Crisis detection", key: "crisis" as const, count: crisisTurns },
-            ] as const
-          ).map((item, idx) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+          {activeTasks.map((item, idx) => (
             <div
               key={item.key}
-              className={`px-4 py-3 ${idx < 2 ? "border-r border-neutral-100" : ""}`}
+              className={`px-4 py-3 border-b border-neutral-100 ${(idx + 1) % 4 !== 0 ? "border-r" : ""} last:border-b-0`}
             >
               <div className="text-[0.65rem] font-bold uppercase tracking-wider text-neutral-400 mb-1">
                 {item.label}
               </div>
-              <ModelBadge model={config.models[item.key]} />
+              <ModelBadge model={item.model} />
               <div className="text-lg font-bold font-mono mt-1.5">
-                {fmt(config.breakdown[item.key])}
+                {fmt(item.cost)}
               </div>
               <div className="text-[0.65rem] text-neutral-400">
                 {item.count.toLocaleString()} calls
@@ -669,20 +758,28 @@ export function ModelAnalysis() {
       </div>
 
       {/* Scale projection */}
-      <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-4 py-3 mb-6">
+      <div className="bg-white border border-neutral-200 rounded-lg px-4 py-3 mb-6">
         <div className="text-xs font-semibold mb-2">
           Scale projection (recommended config)
         </div>
         <div className="grid grid-cols-4 gap-2">
           {[2000, 10000, 36000, 50000].map((users) => {
             const turns = users * turnsPerSession;
-            const t =
+            let t =
               ((200 / 1e6) * 1 + (80 / 1e6) * 5) *
                 Math.round(turns * (conversationalPct / 100)) +
               ((450 / 1e6) * 1 + (60 / 1e6) * 5) *
                 Math.round(turns * (llmSlotPct / 100)) +
+              ((300 / 1e6) * 1 + (10 / 1e6) * 5) *
+                Math.round(turns * (classificationPct / 100)) +
               ((350 / 1e6) * 3 + (20 / 1e6) * 15) *
-                Math.round(turns * (crisisLlmPct / 100));
+                Math.round(turns * (crisisLlmPct / 100)) +
+              ((280 / 1e6) * 1 + (70 / 1e6) * 5) *
+                Math.round(turns * (emotionalPct / 100)) +
+              ((350 / 1e6) * 1 + (60 / 1e6) * 5) *
+                Math.round(turns * (botQuestionPct / 100));
+            if (includeJury) t += ((800 / 1e6) * 3 + (400 / 1e6) * 15) * juryTurns;
+            if (includeMultilang) t += ((250 / 1e6) * 3 + (100 / 1e6) * 15) * Math.round(turns * (conversationalPct / 100));
             return (
               <div key={users} className="text-center py-1.5">
                 <div className="text-xs text-neutral-500">
@@ -766,6 +863,33 @@ function SliderField({
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full accent-neutral-800"
       />
+    </label>
+  );
+}
+
+function ToggleField({
+  label,
+  detail,
+  checked,
+  onChange,
+}: {
+  label: string;
+  detail: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2.5 cursor-pointer select-none">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-4 h-4 rounded border-neutral-300 text-amber-500 accent-amber-500 cursor-pointer"
+      />
+      <div>
+        <span className="text-xs font-medium text-neutral-700">{label}</span>
+        <span className="text-[0.65rem] text-neutral-400 ml-1.5">{detail}</span>
+      </div>
     </label>
   );
 }

@@ -41,8 +41,13 @@ def test_classify_thanks():
         assert_classified(phrase, "thanks")
 def test_classify_help():
     """Help phrases should classify as 'help'."""
-    for phrase in ["help", "what can you do", "how does this work", "who are you"]:
+    for phrase in ["help", "what is this", "who are you",
+                   "list services", "show services"]:
         assert_classified(phrase, "help")
+    # Capability questions now route to bot_question (more specific answers)
+    for phrase in ["how does this work", "what can you do",
+                   "why weren't you able to get my location"]:
+        assert_classified(phrase, "bot_question")
 def test_classify_service():
     """Messages with service keywords should classify as 'service'."""
     for phrase in ["I need food", "shelter in Brooklyn",
@@ -99,8 +104,26 @@ def test_thanks_route(fresh_session):
     assert _THANKS_RESPONSE in result["response"]
 def test_help_route(fresh_session):
     """Help should return help response."""
-    result = send("what can you do", session_id=fresh_session)
+    result = send("help", session_id=fresh_session)
     assert "free services" in result["response"].lower() or "find" in result["response"].lower()
+
+
+def test_bot_question_route(fresh_session):
+    """Bot capability questions should get direct, informative answers."""
+    result = send("why weren't you able to get my location?", session_id=fresh_session)
+    # Should explain location/capabilities, not show frustration response
+    response_lower = result["response"].lower()
+    assert "frustrat" not in response_lower
+    assert "tried places" not in response_lower
+    # Should mention location, browser, or capabilities
+    assert any(w in response_lower for w in ["location", "browser", "borough", "neighborhood", "nyc"])
+
+
+def test_bot_question_does_not_extract_slots(fresh_session):
+    """Bot questions should not trigger slot extraction."""
+    result = send("what can you search for?", session_id=fresh_session)
+    assert result["slots"].get("service_type") is None
+    assert result["slots"].get("_pending_confirmation") is None
 def test_service_with_results(fresh_session):
     """Full service request should confirm first, then query DB on confirmation."""
     r1, r2 = send_multi(
@@ -425,6 +448,84 @@ def test_confused_does_not_trigger_llm(fresh_session):
     assert len(result["quick_replies"]) >= 9
     assert result["slots"].get("service_type") is None
     assert result["slots"].get("_pending_confirmation") is None
+
+
+# -----------------------------------------------------------------------
+# EMOTIONAL AWARENESS
+# -----------------------------------------------------------------------
+
+def test_emotional_classification():
+    """Emotional phrases should classify as 'emotional', not 'confused' or 'general'."""
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        for phrase in [
+            "I'm feeling really down",
+            "I'm feeling sad",
+            "having a hard time",
+            "having a rough day",
+            "I'm scared",
+            "feeling lonely",
+            "I'm not okay",
+            "I'm struggling",
+            "stressed out",
+            "nobody cares",
+            "tired of everything",
+            "feeling hopeless",
+        ]:
+            assert_classified(phrase, "emotional")
+
+
+def test_emotional_does_not_catch_service_messages():
+    """Messages with service intent should still classify as 'service'."""
+    assert_classified("I need food", "service")
+    assert_classified("I need shelter in Brooklyn", "service")
+    assert_classified("I need mental health support", "service")
+    # "feeling hungry" has no emotional phrase match — goes to slots
+    assert_classified("I'm feeling hungry", "service")
+
+
+def test_emotional_distinct_from_confused():
+    """'I'm feeling lost' should be 'emotional', not 'confused'.
+    'I don't know what to do' should still be 'confused'."""
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        assert_classified("I'm feeling lost", "emotional")
+        assert_classified("I feel stuck", "emotional")
+        assert_classified("I don't know what to do", "confused")
+        assert_classified("what are my options", "confused")
+
+
+def test_emotional_response_has_peer_navigator(fresh_session):
+    """Emotional messages should get a warm response with a peer navigator option."""
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        result = send("I'm feeling really down", session_id=fresh_session)
+    # Should acknowledge feeling, not show a service menu
+    assert "service" not in result["response"].lower() or "peer" in result["response"].lower()
+    # Should NOT show 9 welcome category buttons
+    labels = [qr["label"] for qr in result["quick_replies"]]
+    assert "🍽️ Food" not in labels
+    # Should offer peer navigator
+    assert any("person" in qr["label"].lower() or "peer" in qr["value"].lower()
+               for qr in result["quick_replies"])
+    # Should not extract slots
+    assert result["slots"].get("service_type") is None
+
+
+def test_emotional_does_not_set_confirmation(fresh_session):
+    """Emotional messages should never trigger the confirmation flow."""
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        result = send("I'm having a really rough day", session_id=fresh_session)
+    assert result["slots"].get("_pending_confirmation") is None
+    assert result["follow_up_needed"] is False
+
+
+def test_emotional_static_fallback_without_llm(fresh_session):
+    """Without LLM, emotional messages should use the static response."""
+    with patch("app.services.chatbot.detect_crisis", return_value=None), \
+         patch("app.services.chatbot._USE_LLM", False):
+        result = send("I'm feeling really down", session_id=fresh_session)
+    assert "hear you" in result["response"].lower()
+    assert "peer navigator" in result["response"].lower()
+
+
 def test_conversation_history_passed_to_llm(fresh_session):
     """Session transcript should be stored and available for LLM context."""
     result = send("I need food in Queens", session_id=fresh_session)
@@ -434,3 +535,93 @@ def test_conversation_history_passed_to_llm(fresh_session):
     entry = slots["transcript"][0]
     assert entry["role"] == "user"
     assert "food" in entry["text"].lower()
+
+
+# -----------------------------------------------------------------------
+# PENDING CONFIRMATION LEAK (#3)
+# -----------------------------------------------------------------------
+
+def test_escalation_clears_pending_confirmation(fresh_session):
+    """Escalation during a pending confirmation should clear the flag."""
+    # Get to confirmation
+    r1 = send("I need food in Brooklyn", session_id=fresh_session)
+    assert r1["follow_up_needed"] is True
+    assert r1["slots"].get("_pending_confirmation") is True
+
+    # Escalate instead of confirming
+    r2 = send("Connect with peer navigator", session_id=fresh_session)
+    assert "peer navigator" in r2["response"].lower()
+
+    # The pending flag should be cleared
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("_pending_confirmation") is None
+
+
+def test_crisis_clears_pending_confirmation(fresh_session):
+    """Crisis during a pending confirmation should clear the flag."""
+    # Get to confirmation
+    r1 = send("I need food in Brooklyn", session_id=fresh_session)
+    assert r1["follow_up_needed"] is True
+
+    # Trigger crisis — call generate_reply directly because send()
+    # always mocks detect_crisis to None, overriding our mock.
+    from app.services.chatbot import generate_reply
+    with patch("app.services.chatbot.detect_crisis",
+               return_value=("suicide_self_harm", "Crisis response")), \
+         patch("app.services.chatbot.claude_reply", return_value=""), \
+         patch("app.services.chatbot.query_services"):
+        generate_reply("I want to hurt myself", session_id=fresh_session)
+
+    # The pending flag should be cleared
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("_pending_confirmation") is None
+
+
+# -----------------------------------------------------------------------
+# CONTEXT-AWARE "NO" (#4)
+# -----------------------------------------------------------------------
+
+def test_no_after_escalation_routes_to_general(fresh_session):
+    """'No' after escalation should NOT re-trigger search confirmation."""
+    # Fill slots and confirm
+    r1 = send("I need food in Brooklyn", session_id=fresh_session)
+    assert r1["follow_up_needed"] is True
+
+    # Escalate (this clears pending confirmation)
+    r2 = send("Connect with peer navigator", session_id=fresh_session)
+    assert "peer navigator" in r2["response"].lower()
+
+    # Say "no" — should be about the escalation, not the search
+    r3 = send("no", session_id=fresh_session)
+    assert "change your mind" in r3["response"].lower() or "anything else" in r3["response"].lower()
+    # Should NOT show the food/Brooklyn confirmation
+    assert "food" not in r3["response"].lower()
+
+
+# -----------------------------------------------------------------------
+# JUST CHATTING MODE (#5)
+# -----------------------------------------------------------------------
+
+def test_general_response_no_buttons_after_conversation(fresh_session):
+    """After the first turn, general responses should not push service buttons."""
+    # First general message — may show buttons (first turn)
+    r1 = send("how's it going?", session_id=fresh_session)
+
+    # Second general message — should NOT push the full 9-category menu
+    r2 = send("just thinking about stuff", session_id=fresh_session)
+    labels = [qr["label"] for qr in r2.get("quick_replies", [])]
+    # Should not have the full welcome menu
+    assert "🍽️ Food" not in labels
+
+
+def test_general_response_no_buttons_with_service_intent(fresh_session):
+    """General messages mid-search should not re-show the service menu."""
+    # Start a search
+    send("I need food", session_id=fresh_session)
+
+    # General follow-up mid-search
+    r2 = send("ok cool", session_id=fresh_session)
+    labels = [qr["label"] for qr in r2.get("quick_replies", [])]
+    assert "🍽️ Food" not in labels

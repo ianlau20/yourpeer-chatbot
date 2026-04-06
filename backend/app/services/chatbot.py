@@ -104,6 +104,31 @@ _FRUSTRATION_PHRASES = [
     "not useful", "this sucks", "so unhelpful",
 ]
 
+# Emotional expressions — sub-crisis distress that deserves warm
+# acknowledgment rather than a service menu or a steer-back response.
+# These must NOT overlap with service keywords ("feeling hungry" → service).
+_EMOTIONAL_PHRASES = [
+    "feeling down", "feeling really down",
+    "feeling sad", "feeling really sad",
+    "feeling bad", "feeling really bad",
+    "feeling depressed", "so depressed",
+    "feeling scared", "feeling really scared", "im scared", "i'm scared",
+    "feeling anxious", "feeling really anxious", "so anxious",
+    "feeling lonely", "feeling alone", "so lonely", "all alone",
+    "feeling hopeless", "feel hopeless",
+    "feeling lost", "i feel lost",
+    "feeling stuck", "i feel stuck",
+    "not doing well", "not doing good", "not doing ok", "not doing okay",
+    "im not okay", "i'm not okay", "i'm not ok", "im not ok",
+    "having a hard time", "having a rough time", "having a tough time",
+    "rough day", "bad day", "tough day", "hard day",
+    "stressed out", "so stressed", "really stressed",
+    "i'm struggling", "im struggling",
+    "tired of everything", "exhausted",
+    "i just need someone to talk to", "just need to talk",
+    "nobody cares", "no one cares",
+]
+
 _BOT_IDENTITY_PHRASES = [
     "are you a robot", "are you a bot", "are you ai",
     "are you a real person", "are you human",
@@ -112,6 +137,19 @@ _BOT_IDENTITY_PHRASES = [
     "is this a real person", "who am i talking to",
     "are you a computer", "are you a machine",
     "talking to a robot",
+]
+
+# Bot capability questions — asking HOW the bot works, not WHO it is.
+_BOT_QUESTION_PHRASES = [
+    "why can't you", "why cant you", "why couldn't you", "why couldnt you",
+    "why didn't you", "why didnt you", "why weren't you", "why werent you",
+    "how do you", "how does this work", "how does this bot work",
+    "what can you do", "what can you search", "what can you help with",
+    "what services do you", "what services can you",
+    "can you search outside", "do you work outside",
+    "can you explain", "can you tell me how",
+    "why did you show", "why did you give",
+    "what happened to", "what went wrong",
 ]
 
 # Confusion / overwhelm — the user doesn't know what they need.
@@ -227,6 +265,7 @@ def _classify_message(text: str) -> str:
         "crisis"           — suicide, violence, DV, trafficking, medical emergency
         "reset"            — user wants to start over
         "bot_identity"     — user asking if they're talking to AI or a person
+        "bot_question"     — user asking about the bot's capabilities or behavior
         "greeting"         — hi / hello / hey
         "thanks"           — thank you / thx
         "frustration"      — user frustrated with results or bot
@@ -237,6 +276,7 @@ def _classify_message(text: str) -> str:
         "confirm_change_service"  — user wants to change service type
         "confirm_change_location" — user wants to change location
         "confused"         — user doesn't know what they need (overwhelmed, lost)
+        "emotional"        — sub-crisis emotional expression (feeling down, rough day)
         "service"          — contains a service-related intent or slot data
         "general"          — everything else (conversational, follow-up, unclear)
     """
@@ -267,6 +307,12 @@ def _classify_message(text: str) -> str:
     for phrase in _BOT_IDENTITY_PHRASES:
         if phrase in cleaned:
             return "bot_identity"
+
+    # Check bot capability questions — "why couldn't you get my location",
+    # "how does this work", "what can you search for"
+    for phrase in _BOT_QUESTION_PHRASES:
+        if phrase in cleaned:
+            return "bot_question"
 
     # Check escalation — before greetings/thanks so "connect me with
     # a peer navigator please" doesn't fall through
@@ -322,6 +368,12 @@ def _classify_message(text: str) -> str:
     for phrase in _FRUSTRATION_PHRASES:
         if phrase in cleaned:
             return "frustration"
+
+    # Check emotional expressions — before confusion so "I'm feeling lost"
+    # gets empathetic acknowledgment, not a service menu.
+    for phrase in _EMOTIONAL_PHRASES:
+        if phrase in cleaned:
+            return "emotional"
 
     # Check confusion/overwhelm — BEFORE help and BEFORE slot extraction.
     for phrase in _CONFUSED_PHRASES:
@@ -434,6 +486,46 @@ _CONFUSED_RESPONSE = (
     "Tap any option below, or just tell me what's going on "
     "and I'll point you in the right direction."
 )
+
+_EMOTIONAL_RESPONSE = (
+    "I hear you, and I'm sorry you're going through a difficult time. "
+    "You don't have to have everything figured out right now.\n\n"
+    "If you'd like to talk to someone who understands, I can connect you "
+    "with a peer navigator — they're people who've been through similar "
+    "situations and know the system well.\n\n"
+    "Or if there's something practical I can help you find — like food, "
+    "a place to stay, or a shower — just let me know. I'm here."
+)
+
+
+def _build_empathetic_prompt(user_message: str, slots: dict) -> str:
+    """Prompt for emotionally-charged messages that aren't crisis-level."""
+    slot_context = ""
+    if slots:
+        filled = {k: v for k, v in slots.items()
+                  if v is not None and not k.startswith("_") and k != "transcript"}
+        if filled:
+            slot_context = f"\nContext from our conversation so far: {filled}\n"
+
+    return (
+        "You are YourPeer, a friendly assistant that helps people find "
+        "free social services in New York City.\n\n"
+        "The user has shared something emotional. Respond with warmth and "
+        "empathy. Your job right now is to ACKNOWLEDGE their feeling, not "
+        "to steer them toward services.\n\n"
+        "Guidelines:\n"
+        "- Lead with acknowledgment. Validate what they're feeling.\n"
+        "- Do NOT list service categories or show a menu of options.\n"
+        "- Do NOT give medical, psychological, legal, or financial advice.\n"
+        "- Do NOT diagnose, suggest treatments, or minimize their experience.\n"
+        "- Mention that you can connect them with a peer navigator if they "
+        "want someone to talk to.\n"
+        "- Gently let them know you're here if there's something practical "
+        "you can help them find, but don't push it.\n"
+        "- Keep your response to 2-3 sentences. Be genuine, not scripted.\n"
+        f"{slot_context}"
+        f"User message: {user_message}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -635,24 +727,76 @@ def _no_results_message(slots: dict) -> str:
 
 
 def _build_conversational_prompt(user_message: str, slots: dict) -> str:
-    """Prompt for general conversational messages that aren't service queries."""
+    """Prompt for general conversational messages that aren't service queries.
+
+    Two modes:
+    - If the user has partially filled slots (service intent detected earlier),
+      gently steer them back to completing the search.
+    - If no service intent yet, just be present and warm. Don't push services.
+    """
+    # Check if there's an active service search in progress
+    filled = {k: v for k, v in (slots or {}).items()
+              if v is not None and not k.startswith("_") and k != "transcript"}
+    has_service_intent = bool(filled.get("service_type") or filled.get("location"))
+
     slot_context = ""
-    if slots:
-        filled = {k: v for k, v in slots.items() if v is not None}
-        if filled:
-            slot_context = f"\nContext from our conversation so far: {filled}\n"
+    if filled:
+        slot_context = f"\nContext from our conversation so far: {filled}\n"
+
+    steer_instruction = (
+        "The user has already expressed a service need. Gently remind them "
+        "you can continue their search, or ask if they'd like to change what "
+        "they're looking for. Don't be pushy — just a brief mention."
+        if has_service_intent
+        else
+        "The user has NOT expressed a service need yet. Do NOT push services "
+        "or list categories. Just respond naturally. If the conversation "
+        "feels right, you can mention that you're here to help find services "
+        "whenever they're ready, but only as a brief aside, not the focus."
+    )
 
     return (
         "You are YourPeer, a friendly assistant that helps people find "
-        "free social services in New York City (food, shelter, clothing, "
-        "showers, health care, mental health, legal help, employment, etc.).\n"
-        "You are warm, respectful, and concise.\n"
-        "You do NOT make up service names, addresses, or phone numbers.\n"
-        "If the user seems to be asking about a service, gently steer them "
-        "to tell you what they need and where they are so you can search.\n"
+        "free social services in New York City.\n"
+        "You are warm, respectful, and concise.\n\n"
+        "STRICT RULES:\n"
+        "- You do NOT make up service names, addresses, or phone numbers.\n"
+        "- You do NOT give specific medical, legal, psychological, or "
+        "financial advice.\n"
+        "- You do NOT diagnose conditions or suggest treatments.\n"
+        "- You do NOT make promises about service availability.\n"
+        "- You do NOT encourage specific life decisions.\n"
+        "- If someone needs professional guidance, suggest they talk to a "
+        "peer navigator.\n\n"
+        f"{steer_instruction}\n"
         "Keep your response to 1-3 sentences.\n"
         f"{slot_context}"
         f"User message: {user_message}"
+    )
+
+
+def _build_bot_question_prompt(user_message: str) -> str:
+    """Prompt for questions about the bot's capabilities or behavior."""
+    return (
+        "You are YourPeer, a friendly assistant that helps people find "
+        "free social services in New York City.\n\n"
+        "The user is asking a question about how you work or what you can do. "
+        "Answer their question directly and honestly.\n\n"
+        "Facts about yourself:\n"
+        "- You search a database of verified social services in NYC maintained "
+        "by Streetlives\n"
+        "- You can find: food, shelter, clothing, showers, health care, mental "
+        "health, legal help, employment, and other services like benefits\n"
+        "- You only search within New York City (five boroughs)\n"
+        "- You use browser geolocation when the user taps 'Use my location'. "
+        "This requires the user's permission — if they deny it or their browser "
+        "doesn't support it, you ask for a neighborhood or borough instead\n"
+        "- You don't store personal information — conversations are private\n"
+        "- You can connect users with a peer navigator for human support\n"
+        "- You are an AI assistant, not a human\n\n"
+        "Keep your response to 2-3 sentences. Be honest about limitations. "
+        "If you don't know the answer, say so.\n\n"
+        f"User question: {user_message}"
     )
 
 
@@ -759,6 +903,11 @@ def generate_reply(
                 f"category='{crisis_category}'"
             )
             log_crisis_detected(session_id, crisis_category, redacted_message)
+            # Clear any pending confirmation — a user in crisis shouldn't
+            # return to a search confirmation on their next message.
+            if existing.get("_pending_confirmation"):
+                existing.pop("_pending_confirmation", None)
+                save_session_slots(session_id, existing)
             result = _empty_reply(session_id, crisis_response, existing)
             _log_turn(session_id, redacted_message, result, category)
             return result
@@ -827,6 +976,35 @@ def generate_reply(
         _log_turn(session_id, redacted_message, result, category)
         return result
 
+    # --- Bot capability questions ---
+    # "Why couldn't you get my location?", "What can you search for?"
+    # Answer directly using LLM with a factual prompt about capabilities.
+    if category == "bot_question":
+        if _USE_LLM:
+            try:
+                prompt = _build_bot_question_prompt(message)
+                response = claude_reply(prompt)
+            except Exception as e:
+                logger.error(f"Bot question LLM response failed: {e}")
+                response = (
+                    "I search a database of verified social services across "
+                    "NYC's five boroughs — food, shelter, clothing, showers, "
+                    "health care, legal help, and more. I use your browser's "
+                    "location if you allow it, or you can tell me your "
+                    "neighborhood. Let me know how I can help!"
+                )
+        else:
+            response = (
+                "I search a database of verified social services across "
+                "NYC's five boroughs — food, shelter, clothing, showers, "
+                "health care, legal help, and more. I use your browser's "
+                "location if you allow it, or you can tell me your "
+                "neighborhood. Let me know how I can help!"
+            )
+        result = _empty_reply(session_id, response, existing)
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
     # --- Confused / Overwhelmed ---
     # "I don't know what to do", "I'm lost", "I'm overwhelmed"
     # Show gentle guidance with category buttons — do NOT send to LLM
@@ -835,6 +1013,30 @@ def generate_reply(
         result = _empty_reply(
             session_id, _CONFUSED_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES) + [
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, category)
+        return result
+
+    # --- Emotional expression ---
+    # "I'm feeling really down", "having a rough day", "I'm scared"
+    # Acknowledge the feeling warmly. Don't show service buttons unless
+    # the user asks for something practical.
+    if category == "emotional":
+        if _USE_LLM:
+            try:
+                prompt = _build_empathetic_prompt(message, existing)
+                response = claude_reply(prompt)
+            except Exception as e:
+                logger.error(f"Empathetic LLM response failed: {e}")
+                response = _EMOTIONAL_RESPONSE
+        else:
+            response = _EMOTIONAL_RESPONSE
+
+        result = _empty_reply(
+            session_id, response, existing,
+            quick_replies=[
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
@@ -863,9 +1065,37 @@ def generate_reply(
         if esc_slots.get("service_type") and esc_slots.get("location"):
             category = "service"  # re-classify and fall through to slot handling
         else:
+            # Clear any pending confirmation so "no" after escalation
+            # doesn't re-trigger the search confirmation flow.
+            if existing.get("_pending_confirmation"):
+                existing.pop("_pending_confirmation", None)
+            existing["_last_action"] = "escalation"
+            save_session_slots(session_id, existing)
             result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
             _log_turn(session_id, redacted_message, result, category)
             return result
+
+    # --- Context-aware "no" handling ---
+    # "No" after an escalation means "no, I don't need the peer navigator"
+    # — not "no, don't run the search". Handle before the confirmation flow.
+    last_action = existing.get("_last_action")
+    if category == "confirm_deny" and last_action == "escalation":
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "No problem — I'm here if you change your mind. "
+            "Is there anything else I can help you with?",
+            existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "general")
+        return result
+
+    # Clear the last_action tracker now that we've checked it
+    if last_action:
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
 
     # --- Handle confirmation responses ---
     pending = existing.get("_pending_confirmation")
@@ -1061,12 +1291,22 @@ def generate_reply(
 
     # --- General conversation ---
     # The message didn't match any service keywords and isn't a greeting/reset.
-    # Use Claude Haiku for a natural conversational response that gently steers
-    # the user back toward telling us what they need.
+    # Use Claude Haiku for a natural conversational response.
+    # Don't push service category buttons — they were shown on welcome.
+    # The user can say "what can you help with" to see them again.
     response = _fallback_response(message, merged)
+    has_service_intent = bool(
+        merged.get("service_type") or merged.get("location")
+    )
     result = _empty_reply(
         session_id, response, merged,
-        quick_replies=list(_WELCOME_QUICK_REPLIES),
+        # Only show welcome buttons if the user hasn't started a search yet
+        # and hasn't had multiple conversational turns (avoid being pushy).
+        quick_replies=(
+            list(_WELCOME_QUICK_REPLIES)
+            if not has_service_intent and len(merged.get("transcript", [])) <= 1
+            else []
+        ),
     )
     _log_turn(session_id, redacted_message, result, "general")
     return result

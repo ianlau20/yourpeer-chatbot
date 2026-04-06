@@ -143,9 +143,13 @@ Categories:
 - reset: user wants to start over, clear, new search, begin again
 - help: user asking what the bot can do, how it works, list services
 - bot_identity: user asking if they're talking to AI, a robot, or a person
+- bot_question: user asking about the bot's capabilities, how it works, why it did \
+something, or what it can search for — NOT "help" (which is just "what can you do")
 - escalation: user wants to talk to a real person, peer navigator, case manager
 - frustration: user is upset with results or the bot (not helpful, waste of time)
 - confused: user doesn't know what they need (I don't know, I'm lost, overwhelmed)
+- emotional: user expressing feelings or emotional distress below crisis level \
+(feeling down, rough day, scared, lonely, struggling) — NOT a service request
 - confirm_yes: user confirming a pending action (yes, sure, ok, go ahead, search)
 - confirm_deny: user declining a pending action (no, nah, not yet, wait)
 - confirm_change_service: user wants to change the service type in a pending search
@@ -159,10 +163,14 @@ Important rules:
 "service", not "help". "help" is ONLY about how the bot works.
 - "I don't know what to do" or "I'm overwhelmed" is "confused", NOT "service" \
 or "mental_health". The user hasn't stated a need yet.
+- "I'm feeling really down" or "having a rough day" is "emotional", not "confused" \
+or "service". The user is sharing feelings, not asking for help yet.
 - If the message contains BOTH a greeting and a service need ("hi I need food"), \
 classify as "service" — the service need takes priority.
 - Short affirmative words (yes, ok, sure) are "confirm_yes".
-- Short negative words (no, nah, nope) are "confirm_deny".\
+- Short negative words (no, nah, nope) are "confirm_deny".
+- "Why weren't you able to get my location?" or "how does this work?" is \
+"bot_question", not "frustration". The user is asking a question, not complaining.\
 """
 
 
@@ -185,7 +193,8 @@ def classify_message_llm(text: str) -> str | None:
         # Validate that the response is an expected category
         valid = {
             "greeting", "thanks", "reset", "help", "bot_identity",
-            "escalation", "frustration", "confused",
+            "bot_question", "escalation", "frustration", "confused",
+            "emotional",
             "confirm_yes", "confirm_deny",
             "confirm_change_service", "confirm_change_location",
             "service", "general",

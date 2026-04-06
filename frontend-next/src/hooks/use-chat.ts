@@ -78,6 +78,27 @@ export function useChat() {
             showFeedback: (data.services?.length ?? 0) > 0,
           });
         } catch (err: any) {
+          // Stale session token — clear and retry
+          if (err.message?.includes("403") && sessionId) {
+            try {
+              useChatStore.getState().setSessionId(null);
+              const data = await sendChatMessage("near me", null, coords);
+              if (data.session_id) setSessionId(data.session_id);
+              addMessage({
+                id: nextMsgId(),
+                role: "bot",
+                text: data.response || "(No response text)",
+                services: data.services,
+                quick_replies: data.quick_replies,
+                showFeedback: (data.services?.length ?? 0) > 0,
+              });
+              setLoading(false);
+              return;
+            } catch {
+              // Fall through
+            }
+          }
+
           const msg = err.message || "Something went wrong";
           setError(`Error: ${msg}`);
           addMessage({
@@ -110,6 +131,30 @@ export function useChat() {
           showFeedback: (data.services?.length ?? 0) > 0,
         });
       } catch (err: any) {
+        // If the backend rejected our session token (e.g. SECRET changed),
+        // clear the stale sessionId and retry once with no session so the
+        // backend mints a fresh token.
+        if (err.message?.includes("403") && sessionId) {
+          try {
+            useChatStore.getState().setSessionId(null);
+            const coords = hasCoords ? { latitude: latitude!, longitude: longitude! } : null;
+            const data = await sendChatMessage(message, null, coords);
+            if (data.session_id) setSessionId(data.session_id);
+            addMessage({
+              id: nextMsgId(),
+              role: "bot",
+              text: data.response || "(No response text)",
+              services: data.services,
+              quick_replies: data.quick_replies,
+              showFeedback: (data.services?.length ?? 0) > 0,
+            });
+            setLoading(false);
+            return;
+          } catch {
+            // Retry also failed — fall through to normal error handling
+          }
+        }
+
         const msg = err.message || "Something went wrong";
         setError(`Error: ${msg}`);
         addMessage({
