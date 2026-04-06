@@ -5,13 +5,27 @@
 // https://opensource.org/licenses/MIT.
 
 import { NextRequest, NextResponse } from "next/server";
+import {
+  checkRateLimit,
+  getClientIp,
+  rateLimitResponse,
+} from "@/lib/rate-limit";
 
 const BACKEND_URL = process.env.CHAT_BACKEND_URL || "http://localhost:8000";
 
+const FEEDBACK_IP_LIMITS: [number, number][] = [
+  [60, 20], // 20 feedback requests/minute per IP
+];
+
 export async function POST(req: NextRequest) {
+  const clientIp = getClientIp(req.headers);
+  const limit = checkRateLimit(`feedback:${clientIp}`, FEEDBACK_IP_LIMITS);
+  if (!limit.allowed) {
+    return rateLimitResponse(limit.retryAfter);
+  }
+
   try {
     const body = await req.json();
-    const clientIp = req.headers.get("x-forwarded-for") || "";
     const res = await fetch(`${BACKEND_URL}/chat/feedback`, {
       method: "POST",
       headers: {

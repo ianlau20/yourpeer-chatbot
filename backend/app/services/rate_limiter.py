@@ -3,12 +3,12 @@ In-memory sliding-window rate limiter.
 
 Two-tier design:
   - Per-session limits (primary) — generous per-conversation caps.
-  - Per-IP limits (secondary, much higher) — safety net against brute-force
-    abuse that creates many sessions.  Set high so shared WiFi at shelters
-    and libraries never triggers a block.
+  - Per-IP limits (secondary) — safety net against brute-force abuse that
+    creates many sessions.  Tuned for shared WiFi at shelters and libraries:
+    30/min supports ~15 concurrent users at peak typing speed.
 
 All state lives in-process and resets on restart — acceptable for
-single-process deployments on Render free tier.
+single-process deployments on Render Starter tier.
 """
 
 import os
@@ -27,8 +27,9 @@ SESSION_PER_MINUTE = int(os.getenv("RATE_LIMIT_SESSION_PER_MIN", "12"))
 SESSION_PER_HOUR = int(os.getenv("RATE_LIMIT_SESSION_PER_HOUR", "60"))
 SESSION_PER_DAY = int(os.getenv("RATE_LIMIT_SESSION_PER_DAY", "200"))
 
-IP_PER_MINUTE = int(os.getenv("RATE_LIMIT_IP_PER_MIN", "60"))
-IP_PER_HOUR = int(os.getenv("RATE_LIMIT_IP_PER_HOUR", "300"))
+IP_PER_MINUTE = int(os.getenv("RATE_LIMIT_IP_PER_MIN", "30"))
+IP_PER_HOUR = int(os.getenv("RATE_LIMIT_IP_PER_HOUR", "150"))
+IP_PER_DAY = int(os.getenv("RATE_LIMIT_IP_PER_DAY", "500"))
 
 FEEDBACK_PER_MINUTE = int(os.getenv("RATE_LIMIT_FEEDBACK_PER_MIN", "10"))
 
@@ -59,6 +60,7 @@ CHAT_SESSION_LIMITS: List[Tuple[int, int]] = [
 CHAT_IP_LIMITS: List[Tuple[int, int]] = [
     (60, IP_PER_MINUTE),
     (3600, IP_PER_HOUR),
+    (86400, IP_PER_DAY),
 ]
 
 FEEDBACK_SESSION_LIMITS: List[Tuple[int, int]] = [

@@ -28,14 +28,14 @@ The app runs as **two processes** locally:
 | **FastAPI backend** | `:8000` | Chat API (`/chat/`), Admin API (`/admin/api/*`), health check |
 | **Next.js frontend** | `:3000` | All pages (`/chat`, `/admin/*`, existing yourpeer.nyc routes) |
 
-Next.js proxies API calls to FastAPI via `rewrites` in `next.config.js`.
+Next.js proxies API calls to FastAPI via route handlers in `src/app/api/`. The chat and feedback routes add IP-based rate limiting before proxying.
 
 ```
 Browser (:3000)
   ├── /chat              → Next.js renders ChatContainer
   ├── /admin/overview    → Next.js renders admin dashboard
-  ├── /api/chat          → rewrite → FastAPI :8000/chat/
-  ├── /api/admin/stats   → rewrite → FastAPI :8000/admin/api/stats
+  ├── /api/chat          → route handler (rate limit) → FastAPI :8000/chat/
+  ├── /api/admin/stats   → route handler (auth) → FastAPI :8000/admin/api/stats
   └── / (yourpeer.nyc)   → existing Next.js pages
 ```
 
@@ -182,12 +182,12 @@ TypeScript/Next.js support works automatically via `tsconfig.json`.
 
 The `render.yaml` deploys two services from this single repo:
 
-| Service | Name | Root dir | URL |
-|---------|------|----------|-----|
-| FastAPI backend | `yourpeer-chatbot-api` | `backend/` | `yourpeer-chatbot-api-gjn7.onrender.com` |
-| Next.js frontend | `yourpeer-chatbot` | `frontend-next/` | `yourpeer-chatbot-gjn7.onrender.com` |
+| Service | Name | Root dir | Access |
+|---------|------|----------|--------|
+| FastAPI backend | `yourpeer-chatbot-api` | `backend/` | Private (internal only) |
+| Next.js frontend | `yourpeer-chatbot` | `frontend-next/` | Public |
 
-The frontend's `CHAT_BACKEND_URL` env var points at the backend's Render URL. Next.js `rewrites` in `next.config.js` proxy `/api/chat/*` and `/api/admin/*` to the backend at that URL.
+The backend is a private service — not accessible from the public internet. All traffic flows through the Next.js frontend, which adds rate limiting and auth headers. The frontend's `CHAT_BACKEND_URL` env var points at the backend's internal Render URL.
 
 **First deploy:**
 
@@ -195,9 +195,9 @@ The frontend's `CHAT_BACKEND_URL` env var points at the backend's Render URL. Ne
 2. Go to Render → **New** → **Blueprint** → connect the repo
 3. Render reads `render.yaml` and creates both services
 4. Set the secret env vars (database URL, API keys) on the backend service
-5. After the backend deploys, copy its `.onrender.com` URL and update `CHAT_BACKEND_URL` on the frontend service if the default name doesn't match
+5. After the backend deploys, find its internal URL in the Render dashboard (under the private service's settings) and set `CHAT_BACKEND_URL` on the frontend service to that URL (format: `http://yourpeer-chatbot-api:PORT`)
 
-**After deploy:** The chat is at `https://yourpeer-chatbot-gjn7.onrender.com/chat` and the admin console is at `https://yourpeer-chatbot-gjn7.onrender.com/admin`.
+**After deploy:** The chat is at `https://<frontend-url>.onrender.com/chat` and the admin console is at `https://<frontend-url>.onrender.com/admin`. The backend has no public URL.
 
 ## Repo Structure
 

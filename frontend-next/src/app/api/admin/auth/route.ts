@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 const COOKIE_NAME = "admin_session";
@@ -60,6 +61,15 @@ export async function GET(req: NextRequest) {
 }
 
 // ---------------------------------------------------------------------------
+// Login attempt rate limits — 5 failed attempts per IP per 15 minutes.
+// Only failed attempts are counted (successful logins don't consume quota).
+// ---------------------------------------------------------------------------
+
+const LOGIN_LIMITS: [number, number][] = [
+  [900, 5], // 5 attempts per 15 minutes per IP
+];
+
+// ---------------------------------------------------------------------------
 // POST — login
 // ---------------------------------------------------------------------------
 
@@ -86,6 +96,18 @@ export async function POST(req: NextRequest) {
   const valid = a.length === b.length && timingSafeEqual(a, b);
 
   if (!valid) {
+    // Check rate limit ONLY on failed attempts — successful logins don't
+    // consume quota, so a legitimate admin can always log in even if an
+    // attacker has been brute-forcing from the same IP.
+    const clientIp = getClientIp(req.headers);
+    const limit = checkRateLimit(`admin-login:${clientIp}`, LOGIN_LIMITS);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { authenticated: false, error: "Too many login attempts. Try again later." },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+      );
+    }
+
     return NextResponse.json(
       { authenticated: false, error: "Invalid password" },
       { status: 401 },

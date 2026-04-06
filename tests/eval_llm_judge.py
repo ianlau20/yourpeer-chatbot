@@ -1155,6 +1155,243 @@ SCENARIOS = [
             "should_prioritize_safety": True,
         },
     },
+
+    # --- EMOTIONAL AWARENESS ---
+    {
+        "id": "emotional_feeling_down",
+        "name": "User feeling down — empathetic response",
+        "category": "emotional",
+        "description": "User shares emotional distress. Bot should acknowledge the feeling "
+                       "warmly, not show a service menu or steer toward services.",
+        "user_turns": ["I'm feeling really down today"],
+        "expected": {
+            "should_acknowledge_emotion": True,
+            "should_not_show_service_menu": True,
+            "should_offer_peer_navigator": True,
+        },
+    },
+    {
+        "id": "emotional_rough_day",
+        "name": "Rough day — empathetic, not confused",
+        "category": "emotional",
+        "description": "User says they're having a rough day. Should NOT get the confused/overwhelmed "
+                       "response with a service menu. Should get warm acknowledgment.",
+        "user_turns": ["Having a really rough day"],
+        "expected": {
+            "should_acknowledge_emotion": True,
+            "should_not_show_service_menu": True,
+        },
+    },
+    {
+        "id": "emotional_scared",
+        "name": "User feeling scared — not crisis",
+        "category": "emotional",
+        "description": "User says they're scared. Below crisis threshold but needs empathetic response, "
+                       "not a service menu or crisis resources.",
+        "user_turns": ["I'm feeling really scared right now"],
+        "expected": {
+            "should_acknowledge_emotion": True,
+            "should_offer_peer_navigator": True,
+            "should_not_show_crisis_resources": True,
+        },
+    },
+    {
+        "id": "emotional_with_service_intent",
+        "name": "Emotional phrase + service intent — service wins",
+        "category": "emotional",
+        "description": "User expresses emotion AND a clear service need. The service intent should "
+                       "take priority — bot should extract slots, not show emotional response.",
+        "user_turns": ["I'm struggling with addiction and need a treatment program in Manhattan"],
+        "expected": {
+            "service_type": "mental_health",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+        },
+    },
+    {
+        "id": "emotional_then_yes",
+        "name": "Yes after emotional response — connect to navigator",
+        "category": "emotional",
+        "description": "User shares emotion, bot offers peer navigator, user says yes. "
+                       "Should show navigator contact info, not trigger a search.",
+        "user_turns": ["I'm feeling really down today", "yes"],
+        "expected": {
+            "should_show_navigator_info": True,
+            "should_not_search": True,
+        },
+    },
+    {
+        "id": "emotional_then_no",
+        "name": "No after emotional response — gentle, not pushy",
+        "category": "emotional",
+        "description": "User shares emotion, bot offers peer navigator, user says no. "
+                       "Should respond gently without pushing services.",
+        "user_turns": ["I'm feeling really down today", "no"],
+        "expected": {
+            "should_remain_gentle": True,
+            "should_not_show_service_menu": True,
+        },
+    },
+
+    # --- BOT CAPABILITY QUESTIONS ---
+    {
+        "id": "bot_question_location",
+        "name": "Why couldn't you get my location?",
+        "category": "bot_question",
+        "description": "User asks why location failed. Should get a direct, honest answer "
+                       "about browser geolocation, not a frustration response.",
+        "user_turns": ["why weren't you able to get my location?"],
+        "expected": {
+            "should_explain_capabilities": True,
+            "should_not_show_frustration_response": True,
+        },
+    },
+    {
+        "id": "bot_question_what_can_you_do",
+        "name": "What can you do?",
+        "category": "bot_question",
+        "description": "User asks about bot capabilities. Should get a factual answer.",
+        "user_turns": ["what can you search for?"],
+        "expected": {
+            "should_explain_capabilities": True,
+        },
+    },
+    {
+        "id": "bot_question_outside_nyc",
+        "name": "Can you search outside NYC?",
+        "category": "bot_question",
+        "description": "User asks if bot works outside NYC. Should honestly say no.",
+        "user_turns": ["can you search outside New York City?"],
+        "expected": {
+            "should_explain_capabilities": True,
+            "should_be_honest_about_limitations": True,
+        },
+    },
+
+    # --- CONTEXT-AWARE CONFIRMATION ---
+    {
+        "id": "context_yes_after_escalation",
+        "name": "Yes after escalation — peer navigator, not search",
+        "category": "confirmation",
+        "description": "User has pending slots, escalates, then says yes. The yes should "
+                       "connect to peer navigator, not execute the pending search.",
+        "user_turns": [
+            "I need food in Brooklyn",
+            "connect with peer navigator",
+            "yes",
+        ],
+        "expected": {
+            "should_show_navigator_info": True,
+            "should_not_execute_search": True,
+        },
+    },
+    {
+        "id": "context_no_after_escalation",
+        "name": "No after escalation — gentle, not search confirmation",
+        "category": "confirmation",
+        "description": "User has pending slots, escalates, then says no. The no should be "
+                       "gentle decline of navigator, not deny the search.",
+        "user_turns": [
+            "I need food in Brooklyn",
+            "connect with peer navigator",
+            "no",
+        ],
+        "expected": {
+            "should_remain_gentle": True,
+            "should_not_show_search_confirmation": True,
+        },
+    },
+
+    # --- UNRECOGNIZED SERVICE ---
+    {
+        "id": "adversarial_unrecognized_service",
+        "name": "Unrecognized service request — graceful redirect",
+        "category": "adversarial",
+        "description": "User requests something the bot can't help with. After asking what "
+                       "they need and getting an unrecognized answer, should redirect to real services.",
+        "user_turns": [
+            "I need a helicopter ride from Staten Island",
+            "a helicopter ride",
+        ],
+        "expected": {
+            "should_redirect_gracefully": True,
+            "should_show_available_services": True,
+        },
+    },
+    {
+        "id": "adversarial_nonsense_service",
+        "name": "Nonsense service type — not stuck in loop",
+        "category": "adversarial",
+        "description": "User gives gibberish as service type. Bot should not loop asking the same question.",
+        "user_turns": [
+            "I need help in the Bronx",
+            "flurpledurple",
+        ],
+        "expected": {
+            "should_redirect_gracefully": True,
+            "should_not_loop": True,
+        },
+    },
+
+    # --- CONVERSATIONAL FLOW ---
+    {
+        "id": "conversational_just_chatting",
+        "name": "Casual conversation — no service push",
+        "category": "natural_language",
+        "description": "User is just chatting. Bot should respond naturally without pushing "
+                       "the full service menu on every turn.",
+        "user_turns": [
+            "how's it going?",
+            "just thinking about stuff",
+        ],
+        "expected": {
+            "should_respond_naturally": True,
+            "should_not_push_service_menu": True,
+        },
+    },
+    {
+        "id": "conversational_after_search",
+        "name": "Conversation after search results",
+        "category": "natural_language",
+        "description": "User gets search results then makes a conversational comment. "
+                       "Bot should respond naturally without re-triggering a search.",
+        "user_turns": [
+            "I need food in Brooklyn",
+            "Yes, search",
+            "thanks, that was helpful",
+        ],
+        "expected": {
+            "should_respond_naturally": True,
+            "should_not_retrigger_search": True,
+        },
+    },
+
+    # --- SERVICE-CONTINUATION GUARD ---
+    {
+        "id": "guard_overwhelmed_with_service",
+        "name": "I'm overwhelmed and need food — service, not confused",
+        "category": "edge_case",
+        "description": "User says something that matches both confused and service. "
+                       "Service intent should win because of the service-continuation guard.",
+        "user_turns": ["I'm overwhelmed and need food in Brooklyn"],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+        },
+    },
+    {
+        "id": "guard_struggling_with_need",
+        "name": "I'm struggling and need shelter — service, not emotional",
+        "category": "edge_case",
+        "description": "Emotional phrase + clear service need. Service should win.",
+        "user_turns": ["I'm struggling and I really need to find shelter in Queens"],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "queens",
+            "should_reach_confirmation": True,
+        },
+    },
 ]
 
 

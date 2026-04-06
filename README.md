@@ -153,8 +153,8 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | [METRICS.md](docs/METRICS.md) | Success metrics — 24+ metrics across 6 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
 | [EVAL_RESULTS.md](docs/EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
 | [SETUP.md](docs/SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
-| [DEPLOY.md](docs/DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, free tier notes |
-| [TESTING.md](docs/TESTING.md) | Test suite guide — 607 tests across 19 files + 85-scenario LLM-as-judge evaluation framework |
+| [DEPLOY.md](docs/DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, starter tier notes |
+| [TESTING.md](docs/TESTING.md) | Test suite guide — 607 tests across 19 files + 102-scenario LLM-as-judge evaluation framework |
 | [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories

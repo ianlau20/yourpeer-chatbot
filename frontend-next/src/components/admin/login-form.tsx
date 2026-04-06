@@ -32,7 +32,8 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       if (res.ok) {
         onSuccess();
       } else {
-        setError("Invalid password");
+        const data = await res.json().catch(() => null);
+        setError(data?.error || "Invalid password");
         setPassword("");
       }
     } catch {

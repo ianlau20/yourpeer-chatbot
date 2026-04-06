@@ -74,7 +74,9 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 - **CSRF middleware** — validates `Origin` and `Referer` headers on state-changing requests from browsers
 - **HMAC-signed session tokens** — session IDs are signed with `SESSION_SECRET` so clients cannot forge or tamper with them
 - **Admin API key auth** — all `/admin/api/*` endpoints require `Authorization: Bearer <ADMIN_API_KEY>` when the key is configured; open in dev mode when unset
-- **CSP headers** — Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, and Permissions-Policy headers set via Next.js config
+- **Admin login brute force protection** — failed login attempts are rate-limited to 5 per IP per 15 minutes; successful logins don't consume quota
+- **CSP headers** — Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security, and Permissions-Policy headers set via Next.js config
+- **Private backend** — the FastAPI backend runs as a Render private service, accessible only via internal networking from the Next.js frontend, not from the public internet
 - **Eval subprocess isolation** — eval runs execute in a separate subprocess to prevent blocking the web server
 
 ---
@@ -85,7 +87,8 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 - **LLM timeout** — all Anthropic API calls time out after 10 seconds
 - **DB statement timeout** — PostgreSQL queries are capped at 5 seconds via `statement_timeout`
 - **Frontend fetch timeout** — all `fetch()` calls use `AbortSignal.timeout()` — 30 seconds for chat, 15 seconds for admin/feedback
-- **Chat rate limits** — per-session (12/min, 60/hr, 200/day) and per-IP (60/min, 300/hr) sliding-window limits; configurable via env vars
+- **Chat rate limits (backend)** — per-session (12/min, 60/hr, 200/day) and per-IP (30/min, 150/hr, 500/day) sliding-window limits; configurable via env vars
+- **Chat rate limits (frontend)** — per-IP (30/min, 150/hr) sliding-window limits at the Next.js proxy layer, applied before requests reach the backend
 - **Admin rate limits** — per-IP (120/min, 600/hr) for all admin endpoints; stricter limit (5/hr) for eval runs which consume LLM API credits
 - **Feedback rate limit** — 10 requests per session per minute
 - **Rate limiter memory management** — 10-minute entry TTL, 1-minute eviction sweep, hard cap of 5,000 tracked keys with forced eviction above the cap
@@ -124,7 +127,7 @@ The frontend is designed for the population served — people who may be using s
 - **Metrics tab** — 20 live metrics across 5 layers (intake quality, answer quality, safety, system quality/eval, closed-loop) with targets and status indicators. Includes task completion rate, slot confirmation/correction rates, confirmation breakdown, data freshness rate, escalation rate, no-result rate, relaxed query rate, and more
 - **User feedback** — thumbs up/down on every bot response; feedback scores are surfaced in the admin Overview and Metrics tabs
 - **In-browser eval runner** — the Eval tab in the staff console includes a "Run Evals" button that triggers the LLM-as-judge suite as a FastAPI background task, with live progress polling and a scenario count selector (5 / 10 / 20 / all)
-- **LLM-as-judge evaluation** — 85-scenario automated evaluation framework across 17 categories, simulating conversations and scoring across 8 quality dimensions: slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, and error recovery. Outputs a structured report with per-scenario scores, critical failure tracking, and category averages. See [EVAL_RESULTS.md](EVAL_RESULTS.md) for full run history
+- **LLM-as-judge evaluation** — 102-scenario automated evaluation framework across 19 categories, simulating conversations and scoring across 8 quality dimensions: slot extraction accuracy, dialog efficiency, response tone, safety & crisis handling, confirmation UX, privacy protection, hallucination resistance, and error recovery. Outputs a structured report with per-scenario scores, critical failure tracking, and category averages. See [EVAL_RESULTS.md](EVAL_RESULTS.md) for full run history
 - **Centralized data store** — admin pages share a Zustand store with 30-second staleness caching, eliminating redundant API calls when navigating between tabs
 
 ---
