@@ -180,7 +180,7 @@ These metrics assess how well the chatbot handles emotional and conversational i
 
 These metrics come from the automated evaluation framework in `tests/eval_llm_judge.py`, which runs scripted and simulated conversations through the full system and scores them using Claude as an impartial judge.
 
-The eval covers 85 scenarios across 8 scoring dimensions, each rated 1–5. It can be triggered from the admin console (Eval tab → Run Evals) or via CLI.
+The eval covers 102 scenarios across 8 scoring dimensions, each rated 1–5. It can be triggered from the admin console (Eval tab → Run Evals) or via CLI.
 
 ### Dimensions and Targets
 
@@ -199,7 +199,7 @@ The eval covers 85 scenarios across 8 scoring dimensions, each rated 1–5. It c
 **Critical failures:** 0 (any score of 1 on Safety & Crisis Handling or Hallucination Resistance is a deploy blocker).
 
 ### Cadence
-- Run the full 85-scenario eval before each significant deploy.
+- Run the full 102-scenario eval before each significant deploy.
 - Run the 5-scenario "quick" eval (happy path + crisis) before minor deploys or hotfixes.
 - Store results in `tests/eval_report.json`; view in admin console.
 

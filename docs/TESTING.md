@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 607 tests across 19 test files, plus an LLM-as-judge evaluation framework with 85 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 607 tests across 19 test files, plus an LLM-as-judge evaluation framework with 102 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -372,7 +372,7 @@ The evaluation runs a three-stage pipeline:
 ### Running the evaluation
 
 ```bash
-# Run all 85 scenarios
+# Run all 102 scenarios
 ANTHROPIC_API_KEY=sk-ant-... python tests/eval_llm_judge.py
 
 # Run only crisis scenarios

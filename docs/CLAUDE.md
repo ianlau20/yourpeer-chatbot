@@ -78,7 +78,7 @@ information, preventing hallucination.
 | `frontend-next/src/app/admin/` | Staff console pages (overview, conversations, metrics, queries, evals, models) |
 | `frontend-next/next.config.js` | API rewrites (`/api/chat` → backend `:8000`), CSP headers |
 | `tests/conftest.py` | Pytest fixtures, mock data, test helpers |
-| `tests/eval_llm_judge.py` | LLM-as-judge evaluation (85 scenarios, 8 dimensions) |
+| `tests/eval_llm_judge.py` | LLM-as-judge evaluation (102 scenarios, 8 dimensions) |
 
 ## What's Working
 
@@ -97,7 +97,7 @@ information, preventing hallucination.
 - **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, bot identity, confusion
 - **LLM conversational fallback**: Haiku handles general/off-topic messages
 - **Admin console**: conversation viewer, event log, metrics dashboard, in-browser eval runner
-- **LLM-as-judge eval**: 85 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
+- **LLM-as-judge eval**: 102 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
 - **Accessibility**: screen reader support, keyboard navigation, voice input (Web Speech API)
 - **Anonymized audit logging**: conversation turns, query executions, crisis events
 - **In-memory sessions**: no persistent conversation storage, 30-min TTL, LRU eviction at 500-session cap
