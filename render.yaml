@@ -1,11 +1,14 @@
 services:
   # -----------------------------------------------------------------------
-  # Backend — FastAPI (headless API)
+  # Backend — FastAPI (private API, not publicly accessible)
   # -----------------------------------------------------------------------
-  - type: web
+  # Private services are only reachable from other Render services in the
+  # same account via internal networking. All public traffic flows through
+  # the Next.js frontend, which adds rate limiting and auth headers.
+  - type: private
     name: yourpeer-chatbot-api
     runtime: python
-    plan: free
+    plan: starter
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
@@ -24,22 +27,24 @@ services:
         sync: false
 
   # -----------------------------------------------------------------------
-  # Frontend — Next.js
+  # Frontend — Next.js (public-facing)
   # -----------------------------------------------------------------------
   - type: web
     name: yourpeer-chatbot
     runtime: node
-    plan: free
+    plan: starter
     rootDir: frontend-next
     buildCommand: npm install && npm run build
     startCommand: npm run start
     envVars:
       - key: NODE_VERSION
         value: "24.0.0"
-      # Points at the backend's Render URL.
-      # After first deploy, verify this matches the actual .onrender.com URL.
+      # Points at the backend's INTERNAL Render URL.
+      # Private services use http://<service-name>:<port> internally.
+      # After first deploy, verify this matches the actual internal URL
+      # shown in the Render dashboard under the private service's settings.
       - key: CHAT_BACKEND_URL
-        value: https://yourpeer-chatbot-api-gjn7.onrender.com
+        sync: false
       # Must match the backend's ADMIN_API_KEY — the Next.js proxy
       # forwards this to the backend on all /api/admin/* requests.
       - key: ADMIN_API_KEY

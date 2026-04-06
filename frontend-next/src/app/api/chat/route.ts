@@ -5,13 +5,33 @@
 // https://opensource.org/licenses/MIT.
 
 import { NextRequest, NextResponse } from "next/server";
+import {
+  checkRateLimit,
+  getClientIp,
+  rateLimitResponse,
+} from "@/lib/rate-limit";
 
 const BACKEND_URL = process.env.CHAT_BACKEND_URL || "http://localhost:8000";
 
+// Frontend-layer rate limits (per IP).
+// First line of defense — the backend has its own, stricter per-session +
+// per-IP limits. These prevent request volume from overwhelming the Node.js
+// proxy before reaching FastAPI.
+const CHAT_IP_LIMITS: [number, number][] = [
+  [60, 30],   // 30 requests/minute per IP
+  [3600, 150], // 150 requests/hour per IP
+];
+
 export async function POST(req: NextRequest) {
+  // --- Rate limit check (before parsing body or proxying) ---
+  const clientIp = getClientIp(req.headers);
+  const limit = checkRateLimit(`chat:${clientIp}`, CHAT_IP_LIMITS);
+  if (!limit.allowed) {
+    return rateLimitResponse(limit.retryAfter);
+  }
+
   try {
     const body = await req.json();
-    const clientIp = req.headers.get("x-forwarded-for") || "";
     const res = await fetch(`${BACKEND_URL}/chat/`, {
       method: "POST",
       headers: {

@@ -19,7 +19,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "font-src 'self'",
-              // All API calls go through Next.js rewrites (relative paths),
+              // All API calls go through Next.js route handlers (relative paths),
               // so 'self' is sufficient in production. Local dev needs the
               // backend directly for hot-reload proxying.
               `connect-src 'self' ${
@@ -39,27 +39,21 @@ const nextConfig = {
           // Prevents third-party iframes from silently accessing geolocation,
           // which matters since the chat collects lat/long from users.
           { key: "Permissions-Policy", value: "geolocation=(self), camera=(), microphone=()" },
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
         ],
       },
     ];
   },
   async rewrites() {
-    const backendUrl = process.env.CHAT_BACKEND_URL || "http://localhost:8000";
-    return {
-      beforeFiles: [
-        {
-          source: "/api/chat",
-          destination: `${backendUrl}/chat/`,
-        },
-        {
-          source: "/api/chat/feedback",
-          destination: `${backendUrl}/chat/feedback`,
-        },
-        // Admin routes are NOT rewritten here — they're handled by the
-        // route handler at app/api/admin/[...slug]/route.ts, which adds
-        // the Authorization header before proxying to the backend.
-      ],
-    };
+    // Chat and feedback routes are handled by the route handlers at
+    // app/api/chat/route.ts and app/api/chat/feedback/route.ts, which
+    // add IP-based rate limiting before proxying to the backend.
+    //
+    // Admin routes are handled by app/api/admin/[...slug]/route.ts,
+    // which adds the Authorization header before proxying.
+    //
+    // No rewrites needed — all API proxying is done in route handlers.
+    return { beforeFiles: [] };
   },
 };
 
