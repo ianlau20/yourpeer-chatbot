@@ -1034,6 +1034,11 @@ def generate_reply(
         else:
             response = _EMOTIONAL_RESPONSE
 
+        # Track so "yes"/"no" on the next message refers to the peer
+        # navigator offer, not a pending search confirmation.
+        existing["_last_action"] = "emotional"
+        save_session_slots(session_id, existing)
+
         result = _empty_reply(
             session_id, response, existing,
             quick_replies=[
@@ -1075,10 +1080,19 @@ def generate_reply(
             _log_turn(session_id, redacted_message, result, category)
             return result
 
-    # --- Context-aware "no" handling ---
-    # "No" after an escalation means "no, I don't need the peer navigator"
-    # — not "no, don't run the search". Handle before the confirmation flow.
+    # --- Context-aware "yes" / "no" handling ---
+    # After an escalation or emotional response, "yes" and "no" refer to the
+    # peer navigator offer — not to a pending search confirmation.
     last_action = existing.get("_last_action")
+
+    if last_action in ("escalation", "emotional") and category == "confirm_yes":
+        # "Yes" after escalation or emotional = "yes, connect me with a person"
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        _log_turn(session_id, redacted_message, result, "escalation")
+        return result
+
     if category == "confirm_deny" and last_action == "escalation":
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
@@ -1088,6 +1102,18 @@ def generate_reply(
             "Is there anything else I can help you with?",
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "general")
+        return result
+
+    if category == "confirm_deny" and last_action == "emotional":
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "That's okay. I'm here whenever you're ready. "
+            "If there's anything practical I can help you find, just let me know.",
+            existing,
         )
         _log_turn(session_id, redacted_message, result, "general")
         return result

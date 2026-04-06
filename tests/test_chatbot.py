@@ -600,6 +600,56 @@ def test_no_after_escalation_routes_to_general(fresh_session):
     assert "food" not in r3["response"].lower()
 
 
+def test_yes_after_escalation_shows_peer_navigator(fresh_session):
+    """'Yes' after escalation should show peer navigator info, not run a search."""
+    r1 = send("I need food in Brooklyn", session_id=fresh_session)
+    assert r1["follow_up_needed"] is True
+
+    # Escalate
+    r2 = send("Connect with peer navigator", session_id=fresh_session)
+    assert "peer navigator" in r2["response"].lower()
+
+    # Say "yes" — should show peer navigator info again, not execute the food search
+    r3 = send("yes", session_id=fresh_session)
+    assert "peer navigator" in r3["response"].lower()
+    assert r3["result_count"] == 0  # No service results
+
+
+def test_yes_after_emotional_routes_to_escalation(fresh_session):
+    """'Yes' after an emotional response should connect to peer navigator."""
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        r1 = send("I'm feeling really down", session_id=fresh_session)
+    # The emotional response offers a peer navigator
+    assert any("person" in qr["label"].lower() or "peer" in qr["value"].lower()
+               for qr in r1["quick_replies"])
+
+    # User says "yes" — means "yes, connect me with a person"
+    r2 = send("yes", session_id=fresh_session)
+    assert "peer navigator" in r2["response"].lower()
+
+
+def test_no_after_emotional_is_gentle(fresh_session):
+    """'No' after an emotional response should be gentle, not push services."""
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        r1 = send("I'm feeling really down", session_id=fresh_session)
+
+    r2 = send("no", session_id=fresh_session)
+    assert "okay" in r2["response"].lower() or "ready" in r2["response"].lower()
+    # Should NOT show the full service menu
+    labels = [qr["label"] for qr in r2.get("quick_replies", [])]
+    assert "🍽️ Food" not in labels
+
+
+def test_yes_still_confirms_search_normally(fresh_session):
+    """Context-aware yes should not break normal search confirmation."""
+    r1 = send("I need food in Brooklyn", session_id=fresh_session)
+    assert r1["follow_up_needed"] is True
+
+    # "yes" with no prior escalation/emotional should still run the search
+    r2 = send("Yes, search", session_id=fresh_session)
+    assert r2["result_count"] >= 1
+
+
 # -----------------------------------------------------------------------
 # JUST CHATTING MODE (#5)
 # -----------------------------------------------------------------------
