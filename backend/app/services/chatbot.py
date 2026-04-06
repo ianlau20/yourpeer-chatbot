@@ -369,29 +369,47 @@ def _classify_message(text: str) -> str:
         if phrase in cleaned:
             return "frustration"
 
-    # Check emotional expressions — before confusion so "I'm feeling lost"
-    # gets empathetic acknowledgment, not a service menu.
-    for phrase in _EMOTIONAL_PHRASES:
-        if phrase in cleaned:
-            return "emotional"
+    # Check emotional expressions — before slot extraction, but skip if the
+    # message also contains service-intent words. "I'm struggling" → emotional.
+    # "I'm struggling with addiction and need treatment" → falls through to slots.
+    _has_service_words = any(w in cleaned for w in [
+        "need", "find", "looking for", "help with", "treatment",
+        "program", "where can", "search", "shelter", "food",
+    ])
+    if not _has_service_words:
+        for phrase in _EMOTIONAL_PHRASES:
+            if phrase in cleaned:
+                return "emotional"
 
-    # Check confusion/overwhelm — BEFORE help and BEFORE slot extraction.
-    for phrase in _CONFUSED_PHRASES:
-        if phrase in cleaned:
-            return "confused"
+    # Check confusion/overwhelm — same pattern: skip if service intent present.
+    if not _has_service_words:
+        for phrase in _CONFUSED_PHRASES:
+            if phrase in cleaned:
+                return "confused"
 
     # Check help
     for phrase in _HELP_PHRASES:
         if phrase in cleaned:
             return "help"
 
-    # Try slot extraction — if it finds anything, it's a service message
+    # Try slot extraction — if it finds anything, it's a service message.
     extracted = extract_slots(text)
     has_new_slot = any(
         v is not None for v in extracted.values()
     )
     if has_new_slot:
         return "service"
+
+    # No service slots found — check emotional/confused again for messages
+    # that had service words but no actual slots (e.g. "I need to talk",
+    # which has "need" but no service_type).
+    for phrase in _EMOTIONAL_PHRASES:
+        if phrase in cleaned:
+            return "emotional"
+
+    for phrase in _CONFUSED_PHRASES:
+        if phrase in cleaned:
+            return "confused"
 
     # --- STAGE 2: LLM classification (only for messages regex couldn't route) ---
     # At this point regex returned "general". For short messages (≤3 words)

@@ -28,10 +28,11 @@ Deterministic keyword and phrase matching. Handles button taps, short phrases, a
 | 10 | `greeting` | "hi", "hello", "hey" (only if ≤3 words) | "hello" |
 | 11 | `thanks` | "thank you", "thanks" (only if no continuation like "but") | "thanks" |
 | 12 | `frustration` | "not helpful", "waste of time", "didn't work", "already tried" | "that wasn't helpful" |
-| 13 | `emotional` | "feeling down", "having a rough day", "I'm scared", "nobody cares" | "I'm feeling really down" |
-| 14 | `confused` | "I don't know what to do", "I'm overwhelmed", "where do I start" | "I'm lost" |
+| 13 | `emotional` | "feeling down", "having a rough day", "I'm scared", "nobody cares" (only if no service-intent words like "need", "find", "treatment") | "I'm feeling really down" |
+| 14 | `confused` | "I don't know what to do", "I'm overwhelmed", "where do I start" (only if no service-intent words) | "I'm lost" |
 | 15 | `help` | "help", "list services", "what is this" | "help" |
 | 16 | `service` | Slot extraction finds a service keyword (food, shelter, etc.) | "I need food in Brooklyn" |
+| 17 | `emotional` / `confused` (second pass) | Emotional/confused phrases that were skipped at step 13–14 because of service words, but slot extraction found no actual slots | "I need to feel better" |
 
 ### Stage 2 — LLM (only when Stage 1 returns "general")
 

@@ -481,6 +481,16 @@ def test_emotional_does_not_catch_service_messages():
     assert_classified("I need mental health support", "service")
     # "feeling hungry" has no emotional phrase match — goes to slots
     assert_classified("I'm feeling hungry", "service")
+    # Regression: emotional phrase + service intent → service, not emotional
+    with patch("app.services.chatbot.detect_crisis", return_value=None):
+        assert_classified(
+            "I'm struggling with addiction and need a treatment program in Manhattan",
+            "service",
+        )
+        assert_classified(
+            "I'm overwhelmed and need food in Brooklyn",
+            "service",
+        )
 
 
 def test_emotional_distinct_from_confused():
