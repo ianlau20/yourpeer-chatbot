@@ -1335,6 +1335,26 @@ def generate_reply(
 
     # --- General conversation ---
     # The message didn't match any service keywords and isn't a greeting/reset.
+
+    # If the user has a location but no service_type and we already asked
+    # what they need, they may have requested something we can't help with
+    # (e.g. "helicopter ride"). Redirect gracefully to real services.
+    if (merged.get("location")
+            and not merged.get("service_type")
+            and len(merged.get("transcript", [])) >= 2):
+        location_label = merged["location"]
+        result = _empty_reply(
+            session_id,
+            "I'm not sure I can help with that specifically, but I can "
+            f"search for services in {location_label} — things like food, "
+            "shelter, clothing, showers, health care, legal help, and more. "
+            "What would be most helpful?",
+            merged,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "unrecognized_service")
+        return result
+
     # Use Claude Haiku for a natural conversational response.
     # Don't push service category buttons — they were shown on welcome.
     # The user can say "what can you help with" to see them again.
