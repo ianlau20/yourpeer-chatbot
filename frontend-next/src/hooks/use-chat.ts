@@ -46,13 +46,13 @@ export function useChat() {
           ? { latitude: latitude!, longitude: longitude! }
           : await requestLocation();
 
-        if (!coords) {
-          // Permission denied or error — show message and let user pick borough
+        if ("error" in coords) {
+          // Permission denied, timeout, or unavailable — show specific reason
           setLoading(false);
           addMessage({
             id: nextMsgId(),
             role: "bot",
-            text: "I wasn't able to get your location. Which borough or neighborhood are you in?",
+            text: coords.error,
             quick_replies: [
               { label: "Manhattan", value: "Manhattan" },
               { label: "Brooklyn", value: "Brooklyn" },

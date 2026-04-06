@@ -23,10 +23,10 @@ export function useGeolocation() {
     loading: false,
   });
 
-  const requestLocation = useCallback((): Promise<{ latitude: number; longitude: number } | null> => {
+  const requestLocation = useCallback((): Promise<{ latitude: number; longitude: number } | { error: string }> => {
     if (!navigator.geolocation) {
       setState((s) => ({ ...s, error: "Geolocation is not supported by your browser." }));
-      return Promise.resolve(null);
+      return Promise.resolve({ error: "Your browser doesn't support location services. You can type your borough or neighborhood instead." });
     }
 
     setState((s) => ({ ...s, loading: true, error: null }));
@@ -49,19 +49,19 @@ export function useGeolocation() {
           let message: string;
           switch (err.code) {
             case err.PERMISSION_DENIED:
-              message = "Location access was denied. You can pick a borough instead.";
+              message = "Location access was denied. You can type your borough or neighborhood instead.";
               break;
             case err.POSITION_UNAVAILABLE:
-              message = "Couldn't determine your location. You can pick a borough instead.";
+              message = "Your device couldn't determine your location. You can type your borough or neighborhood instead.";
               break;
             case err.TIMEOUT:
-              message = "Location request timed out. You can pick a borough instead.";
+              message = "The location request timed out. You can type your borough or neighborhood instead.";
               break;
             default:
-              message = "Couldn't get your location. You can pick a borough instead.";
+              message = "I wasn't able to get your location. You can type your borough or neighborhood instead.";
           }
           setState({ latitude: null, longitude: null, error: message, loading: false });
-          resolve(null);
+          resolve({ error: message });
         },
         { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
       );
