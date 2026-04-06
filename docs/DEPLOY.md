@@ -6,10 +6,10 @@ The app deploys as **two Render services** from a single repo:
 
 | Service | Type | Root dir | What it runs |
 |---------|------|----------|-------------|
-| `yourpeer-chatbot-api` | Python | `backend/` | FastAPI — headless API |
-| `yourpeer-chatbot` | Node | `frontend-next/` | Next.js — chat UI + admin console |
+| `yourpeer-chatbot-api` | Private (Python) | `backend/` | FastAPI — internal API (not publicly accessible) |
+| `yourpeer-chatbot` | Web (Node) | `frontend-next/` | Next.js — chat UI + admin console (public-facing) |
 
-The Next.js frontend proxies API calls to the FastAPI backend via `rewrites` in `next.config.js`.
+The backend is a **private service** — only reachable via Render's internal networking from the Next.js frontend. All public traffic flows through the frontend, which adds IP-based rate limiting and auth headers before proxying to the backend.
 
 ### Prerequisites
 
@@ -41,7 +41,7 @@ These files must be in your repo before deploying:
    - `ADMIN_API_KEY` = a random string to protect the admin API (generate the same way)
    - `CORS_ALLOWED_ORIGINS` = your frontend URL (e.g. `https://yourpeer-chatbot-gjn7.onrender.com`)
 6. On the **frontend service** (`yourpeer-chatbot`), set:
-   - `CHAT_BACKEND_URL` = the backend's Render URL (e.g. `https://yourpeer-chatbot-api-gjn7.onrender.com`)
+   - `CHAT_BACKEND_URL` = the backend's **internal** Render URL (find this in the Render dashboard under the private service's settings — format: `http://yourpeer-chatbot-api:PORT`)
    - `ADMIN_API_KEY` = same value as the backend's `ADMIN_API_KEY` (the Next.js proxy forwards this to the backend)
 7. Deploy both services
 
@@ -49,22 +49,21 @@ The backend build takes 2–3 minutes. The frontend build takes 1–2 minutes. W
 
 ### After deploy
 
-- The chat interface is at `https://yourpeer-chatbot-gjn7.onrender.com/chat`
-- The staff review console is at `https://yourpeer-chatbot-gjn7.onrender.com/admin`
-- The API health check is at `https://yourpeer-chatbot-api-gjn7.onrender.com/api/health`
-- FastAPI docs are at `https://yourpeer-chatbot-api-gjn7.onrender.com/docs`
+- The chat interface is at `https://<frontend-url>.onrender.com/chat`
+- The staff review console is at `https://<frontend-url>.onrender.com/admin`
+- The backend has **no public URL** — it's only accessible internally from the frontend
+- Verify the old public backend URL is not reachable (if upgrading from free tier)
 
 ### Auto-deploy
 
 Render automatically redeploys both services when you push to the branch configured in the Blueprint. No manual action needed after initial setup.
 
-### Free tier limitations
+### Starter tier notes
 
-- Both services spin down after 15 minutes of inactivity
-- First request after idle takes ~30 seconds per service (cold start). The frontend wakes first, then its first API call wakes the backend — so expect ~60 seconds total on first visit after idle.
-- Warm up both URLs a minute before any demo by visiting each in your browser
-- The audit log (staff console data) is in-memory and resets on each deploy or spin-down
-- For always-on hosting, upgrade both services to Render's Starter tier ($7/month each)
+- Both services run on Render's Starter plan ($7/month each) — always-on, no cold starts
+- The backend is a private service — not reachable from the public internet
+- The audit log (staff console data) is in-memory and resets on each deploy (persistent storage is a planned improvement)
+- Rate limiting runs at two layers: the Next.js frontend (per-IP) and the FastAPI backend (per-session + per-IP)
 
 ### Environment variables reference
 
@@ -83,7 +82,7 @@ Render automatically redeploys both services when you push to the branch configu
 
 | Variable | Required | Description |
 |---|---|---|
-| `CHAT_BACKEND_URL` | Yes | Full URL of the backend service (e.g. `https://yourpeer-chatbot-api-gjn7.onrender.com`) — set automatically by `render.yaml` |
+| `CHAT_BACKEND_URL` | Yes | Internal URL of the private backend service (e.g. `http://yourpeer-chatbot-api:PORT`) — find this in the Render dashboard under the private service's settings |
 | `ADMIN_API_KEY` | Production | Must match the backend's `ADMIN_API_KEY`. The Next.js admin proxy forwards this as a Bearer token to the backend |
 | `NODE_VERSION` | No | Node.js version (e.g. `24.0.0`) — set automatically by `render.yaml`. Render uses its default if not set |
 
@@ -101,7 +100,7 @@ The frontend service does not connect to the database directly.
 
 **Frontend build fails with missing modules:** Run `cd frontend-next && rm package-lock.json && npm install` locally, commit the regenerated `package-lock.json`, and push.
 
-**Chat page loads but no responses:** Check that `CHAT_BACKEND_URL` on the frontend service points to the correct backend URL. Open the backend URL directly in your browser — you should see `{"message": "YourPeer chatbot API is running. Frontend served by Next.js."}`.
+**Chat page loads but no responses:** Check that `CHAT_BACKEND_URL` on the frontend service points to the backend's internal URL (format: `http://yourpeer-chatbot-api:PORT`). Since the backend is a private service, you can't test it directly in the browser — use the frontend's `/api/health` proxy or check the backend service logs in the Render dashboard.
 
 **Database connection errors:** Verify the `DATABASE_URL` is correct in the Render dashboard under the backend service's Environment Variables.
 
@@ -109,6 +108,4 @@ The frontend service does not connect to the database directly.
 
 **Staff console empty after deploy:** The audit log is in-memory and starts empty on each deploy. Data populates as users chat. For persistent audit data, replace the in-memory store with a database.
 
-**CORS errors in browser console:** The backend uses `allow_origins=["*"]` for demo purposes. For production, restrict this to the frontend's domain.
-
-**Cold start timeout:** On the free tier, if the backend hasn't been accessed in 15 minutes, the first frontend request may time out waiting for the backend to wake. Visit the backend's health endpoint (`/api/health`) first to warm it up, then load the frontend.
+**CORS errors in browser console:** Make sure `CORS_ALLOWED_ORIGINS` on the backend includes the frontend's public URL. Defaults to `http://localhost:3000,http://127.0.0.1:3000` for local dev.

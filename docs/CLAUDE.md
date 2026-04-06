@@ -76,7 +76,7 @@ information, preventing hallucination.
 | `frontend-next/src/lib/chat/store.ts` | Zustand chat store with `localStorage` persistence |
 | `frontend-next/src/lib/admin/store.ts` | Zustand admin store with staleness-based caching |
 | `frontend-next/src/app/admin/` | Staff console pages (overview, conversations, metrics, queries, evals, models) |
-| `frontend-next/next.config.js` | API rewrites (`/api/chat` → backend `:8000`), CSP headers |
+| `frontend-next/next.config.js` | CSP + HSTS headers, security config |
 | `tests/conftest.py` | Pytest fixtures, mock data, test helpers |
 | `tests/eval_llm_judge.py` | LLM-as-judge evaluation (102 scenarios, 8 dimensions) |
 
@@ -174,8 +174,9 @@ See `docs/SETUP.md` for full instructions.
 | `RATE_LIMIT_SESSION_PER_MIN` | No | Per-session messages/minute (default: 12) |
 | `RATE_LIMIT_SESSION_PER_HOUR` | No | Per-session messages/hour (default: 60) |
 | `RATE_LIMIT_SESSION_PER_DAY` | No | Per-session messages/day (default: 200) |
-| `RATE_LIMIT_IP_PER_MIN` | No | Per-IP messages/minute (default: 60) |
-| `RATE_LIMIT_IP_PER_HOUR` | No | Per-IP messages/hour (default: 300) |
+| `RATE_LIMIT_IP_PER_MIN` | No | Per-IP messages/minute (default: 30) |
+| `RATE_LIMIT_IP_PER_HOUR` | No | Per-IP messages/hour (default: 150) |
+| `RATE_LIMIT_IP_PER_DAY` | No | Per-IP messages/day (default: 500) |
 | `RATE_LIMIT_FEEDBACK_PER_MIN` | No | Feedback requests per session/minute (default: 10) |
 | `SESSION_SECRET` | Yes (prod) | HMAC key for signing session tokens. If unset, tokens are unsigned (dev mode) |
 | `ADMIN_API_KEY` | Yes (prod) | Bearer token required for all `/admin/api/*` endpoints. If unset, admin is open (dev mode) |
