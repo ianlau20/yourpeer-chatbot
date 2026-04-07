@@ -1163,6 +1163,7 @@ def generate_reply(
         # User wants to change service type — clear it and ask
         existing.pop("_pending_confirmation", None)
         existing["service_type"] = None
+        existing.pop("service_detail", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id,

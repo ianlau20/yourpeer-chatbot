@@ -356,6 +356,14 @@ def merge_slots(existing: dict, new_values: dict) -> dict:
                     merged[key] = value
             else:
                 merged[key] = value
+
+    # When service_type changes, clear stale service_detail so the
+    # confirmation message doesn't show the old sub-type label.
+    if (new_values.get("service_type") is not None
+            and new_values["service_type"] != existing.get("service_type")):
+        if new_values.get("service_detail") is None:
+            merged.pop("service_detail", None)
+
     return merged
 
 
