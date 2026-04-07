@@ -85,6 +85,68 @@ def test_log_conversation_turn_basic():
     assert "timestamp" in e
 
 
+def test_log_turn_includes_request_id():
+    """A logged turn should store the request_id when provided."""
+    clear_audit_log()
+    log_conversation_turn(
+        session_id="s1",
+        user_message_redacted="test",
+        bot_response="test response",
+        slots={"service_type": "food"},
+        category="service",
+        request_id="req-abc-123",
+    )
+
+    events = get_recent_events()
+    assert events[0]["request_id"] == "req-abc-123"
+
+
+def test_log_turn_request_id_defaults_none():
+    """A logged turn without request_id should store None."""
+    clear_audit_log()
+    log_conversation_turn(
+        session_id="s1",
+        user_message_redacted="test",
+        bot_response="test response",
+        slots={},
+        category="service",
+    )
+
+    events = get_recent_events()
+    assert events[0]["request_id"] is None
+
+
+def test_log_query_includes_request_id():
+    """A logged query execution should store the request_id."""
+    clear_audit_log()
+    log_query_execution(
+        session_id="s1",
+        template_name="FoodQuery",
+        params={"location": "Brooklyn"},
+        result_count=3,
+        relaxed=False,
+        execution_ms=50,
+        request_id="req-xyz-789",
+    )
+
+    queries = get_query_log()
+    assert queries[0]["request_id"] == "req-xyz-789"
+
+
+def test_log_crisis_includes_request_id():
+    """A logged crisis event should store the request_id."""
+    clear_audit_log()
+    log_crisis_detected(
+        session_id="s1",
+        crisis_category="self_harm",
+        user_message_redacted="[REDACTED]",
+        request_id="req-crisis-456",
+    )
+
+    events = get_recent_events()
+    assert events[0]["request_id"] == "req-crisis-456"
+
+
 def test_log_turn_strips_internal_slots():
     """Internal slot keys (_pending_confirmation, transcript) should be stripped."""
     clear_audit_log()

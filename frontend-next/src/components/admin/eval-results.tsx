@@ -10,6 +10,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { triggerEvalRun, fetchEvalStatus } from "@/lib/chat/api";
 import type { EvalReport } from "@/lib/chat/types";
 import { StatCard } from "./stat-card";
+import * as Dialog from "@radix-ui/react-dialog";
 
 const DIM_LABELS: Record<string, string> = {
   slot_extraction: "Slot Extraction",
@@ -45,6 +46,7 @@ export function EvalRunner({ onComplete }: EvalRunnerProps) {
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("");
   const [scenarioCount, setScenarioCount] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -57,6 +59,7 @@ export function EvalRunner({ onComplete }: EvalRunnerProps) {
   useEffect(() => () => stopPolling(), [stopPolling]);
 
   async function handleRun() {
+    setConfirmOpen(false);
     setRunning(true);
     setStatus("Starting eval run…");
     try {
@@ -87,16 +90,62 @@ export function EvalRunner({ onComplete }: EvalRunnerProps) {
     }
   }
 
+  const scenarioLabel = scenarioCount
+    ? `${scenarioCount} scenarios`
+    : "all scenarios (~100+)";
+
   return (
     <div className="flex items-center gap-3 mb-5 flex-wrap">
-      <button
-        onClick={handleRun}
-        disabled={running}
-        aria-label={running ? "Evaluation running" : "Run evaluation suite"}
-        className="px-4 py-2 rounded-lg bg-amber-300 text-neutral-900 font-semibold text-sm transition hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {running ? "⏳ Running…" : "▶ Run Evals"}
-      </button>
+      <Dialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <Dialog.Trigger asChild>
+          <button
+            disabled={running}
+            aria-label={running ? "Evaluation running" : "Run evaluation suite"}
+            className="px-4 py-2 rounded-lg bg-amber-300 text-neutral-900 font-semibold text-sm transition hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {running ? "⏳ Running…" : "▶ Run Evals"}
+          </button>
+        </Dialog.Trigger>
+
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
+          <Dialog.Content
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-white rounded-xl shadow-xl w-full max-w-md p-6"
+            aria-describedby="eval-confirm-desc"
+          >
+            <Dialog.Title className="text-lg font-bold text-neutral-900 mb-1">
+              Run evaluation suite?
+            </Dialog.Title>
+            <p id="eval-confirm-desc" className="text-sm text-neutral-500 mb-4">
+              This will run <strong>{scenarioLabel}</strong> through the full
+              chatbot pipeline and score each one using Claude Sonnet as a judge.
+            </p>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-5 text-sm text-amber-800">
+              <strong>Cost warning:</strong> Each scenario makes multiple
+              Anthropic API calls (Haiku for conversation + Sonnet for judging).
+              A full run of 100+ scenarios typically costs <strong>$2–5</strong> in
+              API credits and takes 10–20 minutes. The backend will be under
+              heavier load during the run.
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Dialog.Close asChild>
+                <button className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-100 transition">
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                onClick={handleRun}
+                className="px-4 py-2 rounded-lg bg-amber-400 text-neutral-900 text-sm font-semibold hover:bg-amber-500 transition"
+              >
+                Yes, run {scenarioLabel}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <select
         value={scenarioCount}
         onChange={(e) => setScenarioCount(e.target.value)}

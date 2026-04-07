@@ -40,6 +40,10 @@ export interface ChatMessage {
   showFeedback?: boolean;
   /** If set, this error message includes a Retry button that re-sends this text. */
   retryMessage?: string;
+  /** Transient messages (e.g. "Getting your location…") are not persisted
+   *  to localStorage. They're stripped during rehydration so they don't
+   *  survive page refreshes. */
+  transient?: boolean;
 }
 
 export type FeedbackRating = "up" | "down";

@@ -63,6 +63,7 @@ def log_conversation_turn(
     services_count: int = 0,
     quick_replies: list = None,
     follow_up_needed: bool = False,
+    request_id: Optional[str] = None,
 ):
     """Record a single conversation turn (user message + bot response)."""
     # Strip internal keys from slots for display
@@ -75,6 +76,7 @@ def log_conversation_turn(
         "type": "conversation_turn",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "session_id": session_id,
+        "request_id": request_id,
         "user_message": user_message_redacted,
         "bot_response": bot_response,
         "category": category,
@@ -104,12 +106,14 @@ def log_query_execution(
     relaxed: bool,
     execution_ms: int,
     freshness: Optional[dict] = None,
+    request_id: Optional[str] = None,
 ):
     """Record a database query execution."""
     event = {
         "type": "query_execution",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "session_id": session_id,
+        "request_id": request_id,
         "template_name": template_name,
         "params": {k: v for k, v in params.items() if k != "max_results"},
         "result_count": result_count,
@@ -127,12 +131,14 @@ def log_crisis_detected(
     session_id: str,
     crisis_category: str,
     user_message_redacted: str,
+    request_id: Optional[str] = None,
 ):
     """Record a crisis detection event."""
     event = {
         "type": "crisis_detected",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "session_id": session_id,
+        "request_id": request_id,
         "crisis_category": crisis_category,
         "user_message": user_message_redacted,
     }

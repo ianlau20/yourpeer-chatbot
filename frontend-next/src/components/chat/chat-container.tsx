@@ -49,6 +49,11 @@ export function ChatContainer() {
         <h1 className="text-xl font-bold tracking-tight text-neutral-900">
           YourPeer Chat
         </h1>
+        <span
+          title={isOnline ? "Connected" : "Offline"}
+          aria-label={isOnline ? "Connected" : "Offline"}
+          className={`inline-block w-2 h-2 rounded-full shrink-0 ${isOnline ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
+        />
         <span className="text-sm text-neutral-400">
           Find services near you
         </span>

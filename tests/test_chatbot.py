@@ -685,3 +685,51 @@ def test_general_response_no_buttons_with_service_intent(fresh_session):
     r2 = send("ok cool", session_id=fresh_session)
     labels = [qr["label"] for qr in r2.get("quick_replies", [])]
     assert "🍽️ Food" not in labels
+
+
+# -----------------------------------------------------------------------
+# BOT RESPONSE PII REDACTION IN AUDIT LOG
+# -----------------------------------------------------------------------
+
+def test_log_turn_redacts_bot_response_pii():
+    """_log_turn should redact PII from bot responses before storing."""
+    from app.services.chatbot import _log_turn
+    from app.services.audit_log import get_recent_events, clear_audit_log
+
+    clear_audit_log()
+    _log_turn(
+        session_id="s-pii-test",
+        user_msg="My name is [NAME]",
+        result={
+            "response": "Hi Bryan! I can help you find services.",
+            "slots": {"service_type": "food"},
+        },
+        category="general",
+    )
+
+    events = get_recent_events()
+    bot_response = events[0]["bot_response"]
+    assert "Bryan" not in bot_response, "PII should be redacted from bot response"
+    assert "[NAME]" in bot_response
+
+
+def test_log_turn_redacts_phone_in_bot_response():
+    """_log_turn should redact phone numbers echoed in bot responses."""
+    from app.services.chatbot import _log_turn
+    from app.services.audit_log import get_recent_events, clear_audit_log
+
+    clear_audit_log()
+    _log_turn(
+        session_id="s-pii-test-2",
+        user_msg="[PHONE]",
+        result={
+            "response": "I see your number is 212-555-1234. Let me look that up.",
+            "slots": {},
+        },
+        category="general",
+    )
+
+    events = get_recent_events()
+    bot_response = events[0]["bot_response"]
+    assert "212-555-1234" not in bot_response, "Phone should be redacted from bot response"
+    assert "[PHONE]" in bot_response

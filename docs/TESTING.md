@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 607 tests across 19 test files, plus an LLM-as-judge evaluation framework with 102 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 620 tests across 19 test files, plus an LLM-as-judge evaluation framework with 102 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -51,20 +51,20 @@ All 16 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 95+ | Full |
+| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 97+ | Full |
 | `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 101+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
-| `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 52+ | Full |
+| `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 58+ | Full |
 | `crisis_detector.py` | `test_crisis_detector.py` | 20 | Full |
 | `llm_slot_extractor.py` | `test_llm_slot_extractor.py` | 19 | Full |
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 12+ | Full |
 | `session_store.py` | `test_session_store.py`, `test_chatbot.py`, `test_chat_route.py` | 7+ | Full |
 | `session_token.py` | `test_session_token.py`, `test_chat_route.py` | 17 | Full |
 | `rate_limiter.py` | `test_rate_limiter.py`, `test_rate_limit_integration.py` | 24 | Full |
-| `chat_models.py` | `test_chat_route.py` | 19 | Full |
+| `chat_models.py` | `test_chat_route.py` | 27 | Full |
 | `admin.py` (routes) | `test_admin.py` | 27 | Full |
-| `chat.py` (route) | `test_chat_route.py` | 22 | Full |
+| `chat.py` (route) | `test_chat_route.py` | 24 | Full |
 | `claude_client.py` | `test_claude_client.py` | 19 | Full |
 | `main.py` | `test_main.py` | 14 | Full |
 
@@ -72,7 +72,7 @@ All 16 backend modules and all public functions are covered:
 
 ## Test Suites
 
-### `test_chatbot.py` — 67 tests
+### `test_chatbot.py` — 69 tests
 
 Validates the main chatbot module — message classification, slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, context-aware yes/no, and LLM fallback. External dependencies are mocked.
 
@@ -86,7 +86,7 @@ Validates the main chatbot module — message classification, slot extraction ro
 | No pushy buttons | 2 | General responses don't push service menu after first turn, no menu mid-search |
 | Fallback behavior | 3 | DB failure → Claude fallback. Both fail → safe static message. Query error → Claude fallback |
 | Multi-turn sessions | 2 | Slot accumulation across turns with confirmation. Reset then new search |
-| PII in chatbot flow | 2 | Name/phone redacted in transcript but slots still extract |
+| PII in chatbot flow | 4 | Name/phone redacted in transcript but slots still extract, bot response PII (name) redacted before audit log, bot response PII (phone) redacted before audit log |
 | Session ID | 2 | Auto-generated when none provided. Preserved when provided |
 | Response structure | 2 | All 8 required keys present. Relaxed search flag |
 | Confirmation & quick replies | 10 | Confirmation triggered, change location/service, greeting/reset/follow-up quick replies, new input re-extracts, results show post-search buttons |
@@ -180,13 +180,14 @@ Validates the LLM-based slot extractor. Live tests require `ANTHROPIC_API_KEY` a
 | Complexity routing | 3 | Short messages → simple, long messages → complex, unknown locations → complex |
 | Integration (live) | 5 | End-to-end extraction, skipped without API key |
 
-### `test_audit_log.py` — 52 tests
+### `test_audit_log.py` — 58 tests
 
 Validates all 13 public functions in the audit log module.
 
 | Category | Tests | What's covered |
 |---|---|---|
 | Log conversation turn | 5 | Correct fields, internal slot stripping (`_pending_confirmation`, `transcript`, None values), quick reply label extraction, None slots, conversation registration |
+| Request correlation IDs | 4 | request_id stored in turn events, defaults to None, stored in query execution, stored in crisis events |
 | Log query execution | 1 | Dual insertion (events + query log), `max_results` stripped |
 | Log crisis detected | 1 | Event fields, session association |
 | Log session reset | 1 | Event logged |
@@ -219,13 +220,15 @@ HTTP-level tests for the admin API endpoints using FastAPI TestClient.
 | Admin rate limits | 2 | 429 after exceeding IP limit, stricter eval/run limit |
 | Health | 1 | `GET /api/health` returns ok |
 
-### `test_chat_route.py` — 38 tests
+### `test_chat_route.py` — 46 tests
 
 HTTP-level tests for the chat endpoint and Pydantic model validation.
 
 | Category | Tests | What's covered |
 |---|---|---|
-| ChatRequest model | 8 | Valid construction, optional session_id, missing message rejected, wrong type, empty string, accepts 10,000-char message, rejects 10,001-char message, rejects oversized at HTTP level (422) |
+| ChatRequest model | 8 | Valid construction, optional session_id, missing message rejected, wrong type, empty string, accepts 1,000-char message, rejects 1,001-char message, rejects oversized at HTTP level (422) |
+| Coordinate validation | 5 | Valid coordinates accepted, boundary values (±90/±180), invalid latitude rejected, invalid longitude rejected, invalid coordinates return 422 |
+| Request correlation ID | 2 | X-Request-ID echoed in response, generated when not provided |
 | ServiceCard model | 4 | Minimal (service_name only), full (all 13 fields), missing required rejected, serialization |
 | QuickReply model | 3 | Valid, missing label rejected, missing value rejected |
 | ChatResponse model | 4 | Minimal with defaults, nested ServiceCards, missing required rejected, JSON round-trip |

@@ -197,6 +197,57 @@ def test_smart_llm_supplements_with_regex(mock_llm):
     # Regex urgency should supplement the LLM gap
     assert result["urgency"] == "high"
 
+@patch("app.services.llm_slot_extractor.extract_slots_llm")
+def test_smart_regex_overrides_biased_llm_service_type(mock_llm):
+    """When regex finds an explicit service keyword but the LLM returns a
+    different service_type (biased by conversation history), regex wins.
+
+    Scenario: user searched for showers, then says 'What about dental care?'
+    LLM sees shower-heavy history and returns personal_care. Regex found
+    'dental' → medical. Regex should take priority.
+    """
+    mock_llm.return_value = {
+        "service_type": "personal_care",  # LLM is context-biased
+        "location": None,
+        "age": None,
+        "urgency": None,
+        "gender": None,
+    }
+    result = extract_slots_smart("What about dental care?")
+    # Regex found "dental" → medical. Should override the LLM's biased answer.
+    assert result["service_type"] == "medical", \
+        f"Expected regex override to 'medical', got '{result['service_type']}'"
+    mock_llm.assert_called_once()
+
+
+@patch("app.services.llm_slot_extractor.extract_slots_llm")
+def test_smart_regex_does_not_override_when_no_regex_match(mock_llm):
+    """When regex finds no service_type but LLM does, LLM result is used."""
+    mock_llm.return_value = {
+        "service_type": "shelter",
+        "location": "Queens",
+        "age": None,
+        "urgency": None,
+        "gender": None,
+    }
+    # "I just got out of the hospital and need somewhere safe" — no explicit
+    # service keyword for shelter, but LLM infers it.
+    result = extract_slots_smart("I just got out of the hospital and need somewhere safe")
+    assert result["service_type"] == "shelter"
+
+
+@patch("app.services.llm_slot_extractor.extract_slots_llm")
+def test_smart_regex_no_override_when_llm_agrees(mock_llm):
+    """When regex and LLM agree on service_type, no override needed."""
+    mock_llm.return_value = {
+        "service_type": "medical",
+        "location": "Manhattan",
+        "age": None,
+        "urgency": None,
+        "gender": None,
+    }
+    result = extract_slots_smart("I need dental care in Manhattan")
+    assert result["service_type"] == "medical"
 
 @patch("app.services.llm_slot_extractor.extract_slots_llm")
 def test_smart_llm_failure_falls_back_to_regex(mock_llm):

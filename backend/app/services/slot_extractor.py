@@ -146,7 +146,55 @@ NEAR_ME_SENTINEL = "__near_me__"
 # TODO: Current implementation assumes a single service intent.
 # This will fail for multi-intent queries (e.g., "food and housing").
 # Consider returning a list of services instead of a single value.
-def _extract_service_type(text: str) -> Optional[str]:
+
+# Notable sub-types — specific keywords whose user-facing label differs
+# from the parent category label. When one of these matches, the
+# confirmation message echoes the user's specific term instead of the
+# generic category name. Only includes keywords where the generic label
+# would confuse the user (e.g., "dental" → "health care" loses context).
+_NOTABLE_SUB_TYPES = {
+    # medical sub-types
+    "dental": "dental care",
+    "dentist": "dental care",
+    "eye doctor": "vision care",
+    "vision": "vision care",
+    "glasses": "vision care",
+    "urgent care": "urgent care",
+    "std testing": "STD testing",
+    "sti testing": "STI testing",
+    "hiv testing": "HIV testing",
+    "vaccination": "vaccinations",
+    "vaccine": "vaccinations",
+    # mental_health sub-types
+    "substance abuse": "substance abuse services",
+    "addiction": "addiction services",
+    "rehab": "rehab services",
+    "recovery": "recovery services",
+    "aa meeting": "AA meetings",
+    "na meeting": "NA meetings",
+    "counseling": "counseling",
+    "therapy": "therapy",
+    # legal sub-types
+    "immigration": "immigration services",
+    "eviction": "eviction help",
+    "asylum": "asylum services",
+    # personal_care sub-types
+    "shower": "showers",
+    "laundry": "laundry",
+    "haircut": "haircuts",
+    # food sub-types
+    "soup kitchen": "soup kitchens",
+    "food pantry": "food pantries",
+    "groceries": "groceries",
+}
+
+def _extract_service_type(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Extract service type category and optional specific detail label.
+
+    Returns (service_type, service_detail) where service_detail is a
+    user-friendly label for the specific keyword matched, or None if the
+    keyword is the same as the category label (e.g., "food" → no detail).
+    """
     lower = text.lower()
 
     # Build a flat list of (keyword, service_type) sorted longest-first.
@@ -160,17 +208,16 @@ def _extract_service_type(text: str) -> Optional[str]:
 
     for keyword, service in all_keywords:
         if keyword in lower:
-            return service
+            detail = _NOTABLE_SUB_TYPES.get(keyword)
+            return service, detail
 
     # Fallback: check collision-prone keywords using word boundaries.
-    # These were previously removed because substring matching caused
-    # false positives (e.g. "bed" in "bed-stuy", "wash" in "washington").
-    # Word-boundary regex prevents those collisions.
-    for pattern, service in _WORD_BOUNDARY_PATTERNS.values():
+    for kw, (pattern, service) in _WORD_BOUNDARY_PATTERNS.items():
         if pattern.search(text):
-            return service
+            detail = _NOTABLE_SUB_TYPES.get(kw)
+            return service, detail
 
-    return None
+    return None, None
 
 
 def _extract_location(text: str) -> Optional[str]:
@@ -286,8 +333,10 @@ def _extract_age(text: str) -> Optional[int]:
 
 
 def extract_slots(message: str) -> dict:
+    service_type, service_detail = _extract_service_type(message)
     return {
-        "service_type": _extract_service_type(message),
+        "service_type": service_type,
+        "service_detail": service_detail,
         "location": _extract_location(message),
         "urgency": _extract_urgency(message),
         "age": _extract_age(message),
@@ -307,6 +356,14 @@ def merge_slots(existing: dict, new_values: dict) -> dict:
                     merged[key] = value
             else:
                 merged[key] = value
+
+    # When service_type changes, clear stale service_detail so the
+    # confirmation message doesn't show the old sub-type label.
+    if (new_values.get("service_type") is not None
+            and new_values["service_type"] != existing.get("service_type")):
+        if new_values.get("service_detail") is None:
+            merged.pop("service_detail", None)
+
     return merged
 
 
