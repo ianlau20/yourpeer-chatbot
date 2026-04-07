@@ -333,6 +333,64 @@ def _extract_age(text: str) -> Optional[int]:
     return None
 
 
+def _extract_family_status(text: str) -> Optional[str]:
+    """Extract family composition from user message.
+
+    Returns one of: 'with_children', 'with_family', 'alone', or None.
+    Only extracts when clearly stated — avoids guessing.
+
+    Check order matters: children > family > alone.
+    "single mother" must match children before "single" matches alone.
+    """
+    lower = text.lower()
+
+    # With children — most specific, check first
+    child_phrases = [
+        "with my kid", "with my kids", "with my child", "with my children",
+        "have kids", "have children", "have a kid", "have a child",
+        "my son", "my daughter", "my baby", "my toddler", "my infant",
+        "two kids", "three kids", "four kids",
+        "2 kids", "3 kids", "4 kids",
+        "with a baby", "with a toddler", "with an infant",
+        "my kids are", "my children are",
+        "year old daughter", "year old son", "year old child",
+        "pregnant",
+        # "single parent/mother/father" = has children, not alone
+        "single mother", "single mom", "single father", "single dad",
+        "single parent",
+    ]
+    for phrase in child_phrases:
+        if phrase in lower:
+            return "with_children"
+
+    # With family — broader family unit
+    # NOTE: "me and my" removed — too broad ("me and my friend" is not family)
+    family_phrases = [
+        "with my family", "with my partner", "with my wife",
+        "with my husband", "with my spouse",
+        "with my girlfriend", "with my boyfriend",
+        "me and my wife", "me and my husband", "me and my partner",
+    ]
+    for phrase in family_phrases:
+        if phrase in lower:
+            return "with_family"
+
+    # Alone — explicit statements
+    # NOTE: "single" alone is ambiguous — only match exact "i'm single"
+    # or the word in clear context. "single mother" is caught above.
+    alone_phrases = [
+        "i'm alone", "im alone", "i am alone",
+        "by myself", "on my own", "just me",
+        "no family", "no one with me",
+        "nobody with me",
+    ]
+    for phrase in alone_phrases:
+        if phrase in lower:
+            return "alone"
+
+    return None
+
+
 def extract_slots(message: str) -> dict:
     service_type, service_detail = _extract_service_type(message)
     return {
@@ -341,6 +399,7 @@ def extract_slots(message: str) -> dict:
         "location": _extract_location(message),
         "urgency": _extract_urgency(message),
         "age": _extract_age(message),
+        "family_status": _extract_family_status(message),
     }
 
 
@@ -392,5 +451,8 @@ def next_follow_up_question(slots: dict) -> str:
 
     if slots.get("service_type") == "shelter" and not slots.get("age"):
         return "To narrow shelter options, can you share your age?"
+
+    if slots.get("service_type") == "shelter" and not slots.get("family_status"):
+        return "Are you on your own, or do you have family or children with you?"
 
     return "Could you share one more detail to help me narrow options?"

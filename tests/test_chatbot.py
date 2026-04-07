@@ -1061,3 +1061,51 @@ def test_repeated_frustration_shorter_response(fresh_session):
     r2 = send("still not helpful", session_id=fresh_session)
     assert len(r2["response"]) < len(r1["response"]), \
         "Repeated frustration response should be shorter, not a wall of text"
+
+
+# -----------------------------------------------------------------------
+# FAMILY STATUS IN CONFIRMATION
+# -----------------------------------------------------------------------
+
+def test_confirmation_with_children():
+    """Confirmation message should mention children when family_status is set."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Brooklyn", "family_status": "with_children"}
+    msg = _build_confirmation_message(slots)
+    assert "children" in msg.lower()
+
+
+def test_confirmation_with_family():
+    """Confirmation message should mention family."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Queens", "family_status": "with_family"}
+    msg = _build_confirmation_message(slots)
+    assert "family" in msg.lower()
+
+
+def test_confirmation_alone():
+    """Confirmation message should mention 'yourself' when alone."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Bronx", "family_status": "alone"}
+    msg = _build_confirmation_message(slots)
+    assert "yourself" in msg.lower()
+
+
+def test_confirmation_no_family_status():
+    """Confirmation without family_status should not mention family."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Manhattan"}
+    msg = _build_confirmation_message(slots)
+    assert "children" not in msg.lower()
+    assert "family" not in msg.lower()
+    assert "yourself" not in msg.lower()
+
+
+def test_family_status_extracted_in_flow(fresh_session):
+    """Family status should be extracted during multi-turn shelter search."""
+    send("I need shelter", session_id=fresh_session)
+    send("Brooklyn", session_id=fresh_session)
+    result = send("I have two kids with me", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("family_status") == "with_children"

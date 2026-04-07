@@ -101,6 +101,16 @@ _EXTRACT_SLOTS_TOOL = {
                     "Used for gendered shelters and services."
                 ),
             },
+            "family_status": {
+                "type": "string",
+                "enum": ["with_children", "with_family", "alone"],
+                "description": (
+                    "with_children = user has children, kids, a baby, or is pregnant. "
+                    "with_family = user is with a partner, spouse, or other family. "
+                    "alone = user explicitly says they are alone or by themselves. "
+                    "Omit if not mentioned."
+                ),
+            },
         },
         "required": [],
     },

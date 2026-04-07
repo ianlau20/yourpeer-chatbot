@@ -907,3 +907,142 @@ def test_merge_slots_updates_detail_with_new_subtype():
     merged = merge_slots(existing, new)
     assert merged["service_type"] == "medical"
     assert merged["service_detail"] == "dental care"
+
+
+# -----------------------------------------------------------------------
+# FAMILY STATUS EXTRACTION
+# -----------------------------------------------------------------------
+
+def test_family_status_with_children():
+    """Mentions of children should extract family_status=with_children."""
+    phrases = [
+        "I have two kids with me",
+        "I need shelter for me and my kids",
+        "my daughter is 6",
+        "I'm here with my son",
+        "I have a baby",
+        "I'm pregnant and need shelter",
+        "with my children ages 4 and 7",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "with_children", f"Failed on: {phrase}"
+
+
+def test_family_status_single_parent():
+    """'Single mother/father/parent' should be with_children, not alone."""
+    phrases = [
+        "I'm a single mother",
+        "single mom with two kids",
+        "I'm a single dad",
+        "single parent needing shelter",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "with_children", \
+            f"'{phrase}' should be with_children, got: {slots['family_status']}"
+
+
+def test_family_status_with_family():
+    """Mentions of partner/spouse should extract family_status=with_family."""
+    phrases = [
+        "I'm with my partner",
+        "me and my wife need shelter",
+        "with my husband",
+        "with my family",
+        "with my girlfriend",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "with_family", f"Failed on: {phrase}"
+
+
+def test_family_status_alone():
+    """Explicit alone statements should extract family_status=alone."""
+    phrases = [
+        "I'm alone",
+        "I'm by myself",
+        "it's just me",
+        "I'm on my own",
+        "no one with me",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "alone", f"Failed on: {phrase}"
+
+
+def test_family_status_none_when_not_mentioned():
+    """Messages without family info should return None."""
+    phrases = [
+        "I need food in Brooklyn",
+        "shelter in Queens",
+        "where can I find clothing",
+        "I need help",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] is None, f"False positive on: {phrase}"
+
+
+def test_family_status_false_positive_i_have_a():
+    """'I have a question' should NOT extract family_status."""
+    phrases = [
+        "I have a question about shelters",
+        "I have a problem",
+        "I have a feeling this won't work",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] is None, \
+            f"False positive on: {phrase} → {slots['family_status']}"
+
+
+def test_family_status_false_positive_me_and_my_friend():
+    """'me and my friend' should NOT extract with_family."""
+    slots = extract_slots("me and my friend need food in Brooklyn")
+    assert slots["family_status"] is None, \
+        f"'me and my friend' should not be with_family, got: {slots['family_status']}"
+
+
+def test_family_status_false_positive_feeling_alone():
+    """Emotional 'feeling alone' should NOT extract family_status."""
+    slots = extract_slots("I'm feeling so alone right now")
+    assert slots["family_status"] is None, \
+        f"Emotional phrase should not extract family_status, got: {slots['family_status']}"
+
+
+def test_family_status_children_with_service():
+    """Family status should extract alongside service type."""
+    slots = extract_slots("I have 2 kids and need shelter in the Bronx")
+    assert slots["service_type"] == "shelter"
+    assert slots["family_status"] == "with_children"
+    assert "bronx" in slots["location"].lower()
+
+
+# -----------------------------------------------------------------------
+# FOLLOW-UP QUESTION — FAMILY STATUS
+# -----------------------------------------------------------------------
+
+def test_followup_asks_family_for_shelter():
+    """Shelter search with age but no family_status should ask about family."""
+    from app.services.slot_extractor import next_follow_up_question
+    slots = {"service_type": "shelter", "location": "Brooklyn", "age": 30}
+    question = next_follow_up_question(slots)
+    assert "family" in question.lower() or "children" in question.lower()
+
+
+def test_followup_skips_family_for_food():
+    """Food search should NOT ask about family status."""
+    from app.services.slot_extractor import next_follow_up_question
+    slots = {"service_type": "food", "location": "Brooklyn"}
+    question = next_follow_up_question(slots)
+    assert "family" not in question.lower()
+
+
+def test_followup_skips_family_when_already_set():
+    """Shelter with family_status already set should not ask again."""
+    from app.services.slot_extractor import next_follow_up_question
+    slots = {"service_type": "shelter", "location": "Brooklyn", "age": 25,
+             "family_status": "with_children"}
+    question = next_follow_up_question(slots)
+    assert "family" not in question.lower() and "children" not in question.lower()

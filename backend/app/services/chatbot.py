@@ -586,6 +586,15 @@ def _build_confirmation_message(slots: dict) -> str:
     parts = [f"I'll search for {service_label} {location}"]
     if age:
         parts[0] += f" (age {age})"
+
+    family = slots.get("family_status")
+    if family == "with_children":
+        parts[0] += ", with children"
+    elif family == "with_family":
+        parts[0] += ", with family"
+    elif family == "alone":
+        parts[0] += ", for yourself"
+
     parts[0] += "."
 
     return " ".join(parts)
