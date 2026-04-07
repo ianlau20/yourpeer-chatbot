@@ -1031,3 +1031,33 @@ def test_context_cleared_after_unrelated_message(fresh_session):
     result = send("Yes, search", session_id=fresh_session)
     assert result["result_count"] >= 1 or result["services"], \
         "Yes should trigger search, not escalation"
+
+
+# -----------------------------------------------------------------------
+# FRUSTRATION LOOP — NO REPEATED RESPONSE
+# -----------------------------------------------------------------------
+
+def test_repeated_frustration_different_response(fresh_session):
+    """Second frustration message should NOT repeat the same response."""
+    r1 = send("that's not helpful", session_id=fresh_session)
+    r2 = send("I don't like those options either", session_id=fresh_session)
+    assert r1["response"] != r2["response"], \
+        "Repeated frustration should produce a different response"
+
+
+def test_repeated_frustration_pushes_navigator(fresh_session):
+    """Second frustration should push peer navigator more strongly."""
+    send("not helpful at all", session_id=fresh_session)
+    result = send("this is useless", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "peer navigator" in response or "real people" in response
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert any("person" in l.lower() or "talk" in l.lower() for l in labels)
+
+
+def test_repeated_frustration_shorter_response(fresh_session):
+    """Second frustration response should be shorter than the first."""
+    r1 = send("that wasn't helpful", session_id=fresh_session)
+    r2 = send("still not helpful", session_id=fresh_session)
+    assert len(r2["response"]) < len(r1["response"]), \
+        "Repeated frustration response should be shorter, not a wall of text"

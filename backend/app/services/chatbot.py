@@ -1248,15 +1248,33 @@ def generate_reply(
 
     # --- Frustration ---
     if category == "frustration":
+        already_frustrated = existing.get("_last_action") == "frustration"
         existing["_last_action"] = "frustration"
         save_session_slots(session_id, existing)
-        result = _empty_reply(
-            session_id, _FRUSTRATION_RESPONSE, existing,
-            quick_replies=[
-                {"label": "🔍 Try different search", "value": "Start over"},
-                {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
-            ],
-        )
+
+        if already_frustrated:
+            # Repeated frustration — don't show the same wall of text.
+            # Keep it short, acknowledge we're not helping, push navigator.
+            result = _empty_reply(
+                session_id,
+                "I hear you — I'm clearly not finding what you need right now. "
+                "I think a peer navigator would be more helpful. They're real "
+                "people who know the system and can work with you directly. "
+                "You can also call 311 for live help anytime.",
+                existing,
+                quick_replies=[
+                    {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                    {"label": "🔄 Start over", "value": "Start over"},
+                ],
+            )
+        else:
+            result = _empty_reply(
+                session_id, _FRUSTRATION_RESPONSE, existing,
+                quick_replies=[
+                    {"label": "🔍 Try different search", "value": "Start over"},
+                    {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
+                ],
+            )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id)
         return result
 
