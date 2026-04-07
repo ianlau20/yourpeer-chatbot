@@ -794,28 +794,135 @@ def _build_conversational_prompt(user_message: str, slots: dict) -> str:
     )
 
 
-def _build_bot_question_prompt(user_message: str) -> str:
+def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
     """Prompt for questions about the bot's capabilities or behavior."""
+    # Build context about what's happened in the session so far
+    context_lines = []
+    if slots:
+        if slots.get("service_type"):
+            context_lines.append(
+                f"- The user is currently searching for: {slots.get('service_type')}"
+            )
+        if slots.get("location"):
+            context_lines.append(
+                f"- Their location is set to: {slots.get('location')}"
+            )
+        if slots.get("_latitude") is not None:
+            context_lines.append(
+                "- The user has shared their browser geolocation"
+            )
+
+    context_section = ""
+    if context_lines:
+        context_section = (
+            "Current session context:\n"
+            + "\n".join(context_lines)
+            + "\n\n"
+        )
+
     return (
         "You are YourPeer, a friendly assistant that helps people find "
         "free social services in New York City.\n\n"
         "The user is asking a question about how you work or what you can do. "
-        "Answer their question directly and honestly.\n\n"
+        "Answer their SPECIFIC question directly and honestly. Do not give a "
+        "generic overview unless they asked for one.\n\n"
+        f"{context_section}"
         "Facts about yourself:\n"
-        "- You search a database of verified social services in NYC maintained "
-        "by Streetlives\n"
-        "- You can find: food, shelter, clothing, showers, health care, mental "
-        "health, legal help, employment, and other services like benefits\n"
-        "- You only search within New York City (five boroughs)\n"
-        "- You use browser geolocation when the user taps 'Use my location'. "
-        "This requires the user's permission — if they deny it or their browser "
-        "doesn't support it, you ask for a neighborhood or borough instead\n"
-        "- You don't store personal information — conversations are private\n"
-        "- You can connect users with a peer navigator for human support\n"
-        "- You are an AI assistant, not a human\n\n"
-        "Keep your response to 2-3 sentences. Be honest about limitations. "
-        "If you don't know the answer, say so.\n\n"
+        "- You search a database of verified social services in NYC's five "
+        "boroughs, maintained by Streetlives (yourpeer.nyc)\n"
+        "- You ONLY cover New York City. You cannot search outside the five "
+        "boroughs (Manhattan, Brooklyn, Queens, Bronx, Staten Island). If "
+        "someone needs services elsewhere, suggest calling 211\n"
+        "- Service categories you can search:\n"
+        "  • Food: soup kitchens, food pantries, groceries\n"
+        "  • Shelter: emergency shelter, transitional housing\n"
+        "  • Clothing: free clothing programs\n"
+        "  • Personal care: showers, laundry, haircuts\n"
+        "  • Health care: medical, dental, vision, STD testing, vaccinations\n"
+        "  • Mental health: counseling, therapy, substance abuse, AA/NA\n"
+        "  • Legal help: immigration, eviction, asylum\n"
+        "  • Jobs: employment programs, job training, resume help\n"
+        "  • Other: benefits (SNAP/EBT/Medicaid), IDs, drop-in centers, "
+        "case workers, free wifi, mail services, transit help\n"
+        "- Geolocation: you use the browser's GPS when the user taps "
+        "'Use my location'. Common reasons it can fail:\n"
+        "  • The user denied the browser permission prompt\n"
+        "  • They're on a device/browser that doesn't support geolocation\n"
+        "  • GPS timed out (e.g., indoors with weak signal)\n"
+        "  • The site isn't served over HTTPS\n"
+        "  If geolocation fails, you ask for a neighborhood or borough instead\n"
+        "- Privacy: you don't store personal information. Conversations are "
+        "private and not linked to any identity\n"
+        "- You can connect users with a human peer navigator for support\n"
+        "- You are an AI assistant, not a human\n"
+        "- Your data comes from verified listings. Hours and availability may "
+        "change — always call ahead to confirm\n\n"
+        "Keep your response to 2-3 sentences. Answer the specific question. "
+        "Be honest about limitations.\n\n"
         f"User question: {user_message}"
+    )
+
+
+def _static_bot_answer(message: str) -> str:
+    """Pattern-matched answers for common bot questions when LLM is unavailable."""
+    lower = message.lower()
+
+    # Geolocation questions
+    if any(w in lower for w in ["location", "gps", "geolocation", "find me", "where i am"]):
+        if any(w in lower for w in ["why", "couldn't", "couldnt", "can't", "cant", "didn't", "didnt", "fail", "wrong"]):
+            return (
+                "Location access can fail for a few reasons: you may have "
+                "denied the browser permission, your device might not support "
+                "GPS, or the signal timed out (common indoors). You can always "
+                "tell me your neighborhood or borough instead."
+            )
+        return (
+            "When you tap 'Use my location', I ask your browser for GPS "
+            "coordinates to find services nearby. If that doesn't work, "
+            "just tell me your neighborhood or borough."
+        )
+
+    # Coverage / outside NYC
+    if any(w in lower for w in ["outside", "other city", "other state", "new jersey", "nj", "outside nyc"]):
+        return (
+            "I only search within New York City's five boroughs. For services "
+            "outside NYC, you can call 211 — it's a free helpline that "
+            "connects people to local resources anywhere in the US."
+        )
+
+    # What services / categories
+    if any(w in lower for w in ["what services", "what can you search", "what can you find", "what kind"]):
+        return (
+            "I can search for food (pantries, soup kitchens), shelter, "
+            "clothing, showers & personal care, health care (medical, dental, "
+            "vision), mental health (counseling, substance abuse), legal help "
+            "(immigration, eviction), jobs, and other services like benefits, "
+            "IDs, and drop-in centers."
+        )
+
+    # Privacy
+    if any(w in lower for w in ["private", "privacy", "data", "store", "save", "track"]):
+        return (
+            "Your conversations are private. I don't store personal "
+            "information or link conversations to any identity. You can "
+            "say 'start over' at any time to clear your session."
+        )
+
+    # How does it work
+    if any(w in lower for w in ["how do you work", "how does this work", "how does it work"]):
+        return (
+            "You tell me what you need and where you are, and I search a "
+            "database of verified social services in NYC maintained by "
+            "Streetlives. I'll show you matching services with addresses, "
+            "hours, and phone numbers."
+        )
+
+    # Default generic answer
+    return (
+        "I search a database of verified social services across NYC's five "
+        "boroughs — food, shelter, clothing, showers, health care, mental "
+        "health, legal help, jobs, and more. Just tell me what you need "
+        "and your neighborhood, and I'll find options for you."
     )
 
 
@@ -1007,25 +1114,13 @@ def generate_reply(
     if category == "bot_question":
         if _USE_LLM:
             try:
-                prompt = _build_bot_question_prompt(message)
+                prompt = _build_bot_question_prompt(message, slots=existing)
                 response = claude_reply(prompt)
             except Exception as e:
                 logger.error(f"Bot question LLM response failed: {e}")
-                response = (
-                    "I search a database of verified social services across "
-                    "NYC's five boroughs — food, shelter, clothing, showers, "
-                    "health care, legal help, and more. I use your browser's "
-                    "location if you allow it, or you can tell me your "
-                    "neighborhood. Let me know how I can help!"
-                )
+                response = _static_bot_answer(message)
         else:
-            response = (
-                "I search a database of verified social services across "
-                "NYC's five boroughs — food, shelter, clothing, showers, "
-                "health care, legal help, and more. I use your browser's "
-                "location if you allow it, or you can tell me your "
-                "neighborhood. Let me know how I can help!"
-            )
+            response = _static_bot_answer(message)
         result = _empty_reply(session_id, response, existing)
         _log_turn(session_id, redacted_message, result, category, request_id=request_id)
         return result
