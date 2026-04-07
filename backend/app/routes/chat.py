@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional
+import uuid
 
 from app.models.chat_models import ChatRequest, ChatResponse
 from app.services.chatbot import generate_reply
@@ -17,15 +19,14 @@ class FeedbackRequest(BaseModel):
 
 
 @router.post("/", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, raw: Request):
+    request_id = raw.headers.get("x-request-id") or str(uuid.uuid4())
     session_id = request.session_id
 
     if session_id:
-        # Existing session — verify the signature before touching any state
         if not validate_session_id(session_id):
             raise HTTPException(status_code=403, detail="Invalid session token")
     else:
-        # First message — mint a new signed token
         session_id = generate_session_id()
 
     result = generate_reply(
@@ -33,10 +34,14 @@ async def chat(request: ChatRequest):
         session_id=session_id,
         latitude=request.latitude,
         longitude=request.longitude,
+        request_id=request_id,
     )
     # Make sure the (possibly new) session_id is returned to the client
     result["session_id"] = session_id
-    return result
+    return JSONResponse(
+        content=ChatResponse(**result).model_dump(),
+        headers={"X-Request-ID": request_id},
+    )
 
 
 @router.post("/feedback")

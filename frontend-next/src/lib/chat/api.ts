@@ -39,9 +39,13 @@ export async function sendChatMessage(
   sessionId: string | null,
   coords?: { latitude: number; longitude: number } | null,
 ): Promise<ChatResponse> {
+  const requestId = crypto.randomUUID();
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Request-ID": requestId,
+    },
     body: JSON.stringify({
       message,
       session_id: sessionId,

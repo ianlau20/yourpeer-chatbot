@@ -32,16 +32,21 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
     const res = await fetch(`${BACKEND_URL}/chat/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-Request-ID": requestId,
         ...(clientIp && { "X-Forwarded-For": clientIp }),
       },
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    return NextResponse.json(data, {
+      status: res.status,
+      headers: { "X-Request-ID": requestId },
+    });
   } catch (err) {
     return NextResponse.json(
       { detail: "Failed to reach chat backend" },

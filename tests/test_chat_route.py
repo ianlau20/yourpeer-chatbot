@@ -71,15 +71,15 @@ def test_chat_request_empty_string_accepted():
 
 
 def test_chat_request_accepts_long_message():
-    """ChatRequest should accept messages up to the 10,000-char limit."""
-    msg = "a" * 10_000
+    """ChatRequest should accept messages up to the 1,000-char limit."""
+    msg = "a" * 1_000
     r = ChatRequest(message=msg)
-    assert len(r.message) == 10_000
+    assert len(r.message) == 1_000
 
 
 def test_chat_request_rejects_oversized_message():
-    """ChatRequest should reject messages exceeding 10,000 chars."""
-    msg = "a" * 10_001
+    """ChatRequest should reject messages exceeding 1,000 chars."""
+    msg = "a" * 1_001
     try:
         ChatRequest(message=msg)
         assert False, "Should have raised ValidationError"
@@ -88,8 +88,8 @@ def test_chat_request_rejects_oversized_message():
 
 
 def test_chat_route_rejects_oversized_message_http():
-    """POST /chat/ with a message over 10,000 chars should return 422."""
-    msg = "a" * 10_001
+    """POST /chat/ with a message over 1,000 chars should return 422."""
+    msg = "a" * 1_001
     response = client.post("/chat/", json={"message": msg})
     assert response.status_code == 422
 
