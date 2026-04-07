@@ -15,6 +15,8 @@ interface ChatInputProps {
   disabled: boolean;
 }
 
+const MAX_MESSAGE_LENGTH = 1000;
+
 export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +37,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   function handleTranscript(transcript: string) {
     setValue((prev) => {
       const sep = prev.length > 0 ? " " : "";
-      return prev + sep + transcript;
+      return (prev + sep + transcript).slice(0, MAX_MESSAGE_LENGTH);
     });
   }
 
@@ -50,6 +52,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        maxLength={MAX_MESSAGE_LENGTH}
         placeholder="What do you need help with?"
         autoComplete="off"
         disabled={disabled}
