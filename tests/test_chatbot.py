@@ -969,3 +969,65 @@ def test_bot_question_outside_nyc_gets_specific_response(fresh_session):
     result = send("Can you search outside NYC?", session_id=fresh_session)
     response = result["response"].lower()
     assert "new york" in response or "nyc" in response or "five boroughs" in response
+
+
+# -----------------------------------------------------------------------
+# CONTEXT-AWARE YES/NO — EXPANDED
+# -----------------------------------------------------------------------
+
+def test_yes_after_frustration_resets(fresh_session):
+    """'Yes' after frustration should start a new search."""
+    send("I need food", session_id=fresh_session)
+    send("Brooklyn", session_id=fresh_session)
+    send("Yes, search", session_id=fresh_session)
+    send("that wasn't helpful at all", session_id=fresh_session)
+    result = send("yes", session_id=fresh_session)
+    # Should reset — show welcome quick replies
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "🍽️ Food" in labels
+
+
+def test_no_after_frustration_offers_navigator(fresh_session):
+    """'No' after frustration should offer peer navigator."""
+    send("that wasn't helpful", session_id=fresh_session)
+    result = send("no", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "person" in response or "let me know" in response
+
+
+def test_yes_after_confused_escalates(fresh_session):
+    """'Yes' after confused should connect to peer navigator."""
+    send("I don't know what to do", session_id=fresh_session)
+    result = send("yes", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "peer" in response or "navigator" in response or "streetlives" in response
+
+
+def test_no_after_confused_gentle_response(fresh_session):
+    """'No' after confused should give gentle encouragement."""
+    send("I'm so lost", session_id=fresh_session)
+    result = send("no", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "okay" in response or "ready" in response
+    # Should have some way forward
+    qr = result.get("quick_replies", [])
+    assert len(qr) > 0, "Should show quick replies after declining"
+
+
+def test_no_after_emotional_has_quick_replies(fresh_session):
+    """'No' after emotional should show quick reply buttons."""
+    send("I'm having a really rough day", session_id=fresh_session)
+    result = send("no", session_id=fresh_session)
+    qr = result.get("quick_replies", [])
+    assert len(qr) > 0, "Should show quick replies so user has a next step"
+
+
+def test_context_cleared_after_unrelated_message(fresh_session):
+    """_last_action should be cleared after any non-yes/no message."""
+    send("I'm feeling really down", session_id=fresh_session)
+    # Send an unrelated message — should clear _last_action
+    send("I need food in Brooklyn", session_id=fresh_session)
+    # "yes" should now refer to the pending confirmation, not escalation
+    result = send("Yes, search", session_id=fresh_session)
+    assert result["result_count"] >= 1 or result["services"], \
+        "Yes should trigger search, not escalation"

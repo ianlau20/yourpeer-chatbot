@@ -1206,6 +1206,8 @@ def generate_reply(
     # Show gentle guidance with category buttons — do NOT send to LLM
     # (which would misinterpret as a mental health request).
     if category == "confused":
+        existing["_last_action"] = "confused"
+        save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id, _CONFUSED_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES) + [
@@ -1246,6 +1248,8 @@ def generate_reply(
 
     # --- Frustration ---
     if category == "frustration":
+        existing["_last_action"] = "frustration"
+        save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id, _FRUSTRATION_RESPONSE, existing,
             quick_replies=[
@@ -1289,6 +1293,28 @@ def generate_reply(
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id)
         return result
 
+    if last_action == "confused" and category == "confirm_yes":
+        # "Yes" after confused = "yes, connect me with a person"
+        # (the confused handler shows a "Talk to a person" button)
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id)
+        return result
+
+    if last_action == "frustration" and category == "confirm_yes":
+        # "Yes" after frustration = "yes, start a new search"
+        # (the frustration handler shows "Try different search" button)
+        existing.pop("_last_action", None)
+        clear_session(session_id)
+        log_session_reset(session_id)
+        result = _empty_reply(
+            session_id, _RESET_RESPONSE, {},
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "reset", request_id=request_id)
+        return result
+
     if category == "confirm_deny" and last_action == "escalation":
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
@@ -1310,6 +1336,37 @@ def generate_reply(
             "That's okay. I'm here whenever you're ready. "
             "If there's anything practical I can help you find, just let me know.",
             existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        return result
+
+    if category == "confirm_deny" and last_action in ("frustrated", "frustration"):
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "No worries. If you'd like to try something else or talk to a "
+            "real person, just let me know.",
+            existing,
+            quick_replies=[
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        return result
+
+    if category == "confirm_deny" and last_action == "confused":
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "That's okay — no rush. I'm here when you're ready. "
+            "You can also talk to a real person if that would help.",
+            existing,
+            quick_replies=[
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+            ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
         return result
