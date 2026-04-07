@@ -1396,12 +1396,23 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
     relaxed = False
 
     try:
+        # Only use browser geolocation coordinates when the user chose
+        # "Use my location" (near-me sentinel).  If they typed a text
+        # location like "Midtown East", the coordinates from a prior
+        # near-me request must NOT override the text location.
+        location = slots.get("location")
+        use_coords = (
+            location == NEAR_ME_SENTINEL
+            and slots.get("_latitude") is not None
+            and slots.get("_longitude") is not None
+        )
+
         results = query_services(
             service_type=slots.get("service_type"),
-            location=slots.get("location"),
+            location=location,
             age=slots.get("age"),
-            latitude=slots.get("_latitude"),
-            longitude=slots.get("_longitude"),
+            latitude=slots.get("_latitude") if use_coords else None,
+            longitude=slots.get("_longitude") if use_coords else None,
         )
 
         # Log the query execution

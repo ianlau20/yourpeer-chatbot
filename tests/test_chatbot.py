@@ -733,3 +733,37 @@ def test_log_turn_redacts_phone_in_bot_response():
     bot_response = events[0]["bot_response"]
     assert "212-555-1234" not in bot_response, "Phone should be redacted from bot response"
     assert "[PHONE]" in bot_response
+
+
+# -----------------------------------------------------------------------
+# GEOLOCATION COORDINATE PRIORITY
+# -----------------------------------------------------------------------
+
+def test_text_location_overrides_stored_coords(fresh_session):
+    """When user provides a text location after using 'near me', the query
+    should use the text location and NOT the stored browser coordinates."""
+    from unittest.mock import patch, call
+    from app.services.chatbot import generate_reply
+    from conftest import MOCK_QUERY_RESULTS
+
+    with patch("app.services.chatbot.claude_reply", return_value="How can I help?"), \
+         patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS) as mock_query, \
+         patch("app.services.chatbot.detect_crisis", return_value=None):
+
+        # Step 1: User says "food near me" with browser coordinates (Harlem)
+        generate_reply("food near me", session_id=fresh_session, latitude=40.8116, longitude=-73.9465)
+        # Step 2: Confirm the near-me search
+        generate_reply("Yes, search", session_id=fresh_session)
+
+        # Step 3: New search with a TEXT location (Midtown East)
+        generate_reply("mental health in Midtown East", session_id=fresh_session)
+        generate_reply("Yes, search", session_id=fresh_session)
+
+        # The LAST call to query_services should use Midtown East,
+        # NOT the Harlem coordinates
+        last_call = mock_query.call_args
+        assert last_call.kwargs.get("latitude") is None or last_call[1].get("latitude") is None, \
+            "Stored coordinates should not override text location"
+        location_arg = last_call.kwargs.get("location") or last_call[1].get("location")
+        assert location_arg is not None, "Text location should be passed"
+        assert "near_me" not in str(location_arg).lower(), "Should not use near-me sentinel"
