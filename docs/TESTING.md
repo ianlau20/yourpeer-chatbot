@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 620 tests across 19 test files, plus an LLM-as-judge evaluation framework with 102 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 654 tests across 19 test files, plus an LLM-as-judge evaluation framework with 102 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -51,8 +51,8 @@ All 16 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 97+ | Full |
-| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 101+ | Full |
+| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 118+ | Full |
+| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 114+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
 | `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 58+ | Full |
@@ -72,38 +72,45 @@ All 16 backend modules and all public functions are covered:
 
 ## Test Suites
 
-### `test_chatbot.py` — 69 tests
+### `test_chatbot.py` — 90 tests
 
-Validates the main chatbot module — message classification, slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, context-aware yes/no, and LLM fallback. External dependencies are mocked.
+Validates the main chatbot module — message classification, slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, and LLM fallback. External dependencies are mocked.
 
 | Category | Tests | What's covered |
 |---|---|---|
 | Message classification | 13 | All 16 routing categories including emotional, bot_question. Long messages not misclassified as greetings. Punctuation handling. Emotional distinct from confused. Bot question distinct from frustration and help |
+| Privacy classification | 2 | 19 privacy phrases (ICE, police, benefits, recording, anonymity) all route to bot_question. Privacy phrasing not misclassified as service request |
 | Routing paths | 12 | Greeting (with and without existing session), reset, thanks, help, bot question (direct answer, no slot extraction), service with results, no results, partial slots trigger follow-up, general conversation |
 | Emotional awareness | 6 | Emotional classification (12 phrases), false negatives (service messages not caught), distinct from confused, peer navigator offered, no confirmation set, static fallback without LLM |
 | Context-aware yes/no | 5 | "Yes" after escalation → peer navigator, "yes" after emotional → peer navigator, "no" after escalation → gentle response, "no" after emotional → gentle non-pushy response, normal search confirmation still works |
 | Pending confirmation | 2 | Escalation clears pending confirmation, crisis clears pending confirmation |
 | No pushy buttons | 2 | General responses don't push service menu after first turn, no menu mid-search |
+| Static bot answers | 14 | Pattern-matched fallbacks for: geolocation failure, geolocation general, outside NYC (211), service categories, ICE privacy, police privacy, benefits privacy, who-can-see, delete/clear, identity/anonymity, general privacy, how-it-works, unknown default |
+| Bot question full flow | 3 | Privacy question gets specific answer, geolocation question explains failure, outside-NYC mentions coverage |
 | Fallback behavior | 3 | DB failure → Claude fallback. Both fail → safe static message. Query error → Claude fallback |
 | Multi-turn sessions | 2 | Slot accumulation across turns with confirmation. Reset then new search |
+| Geolocation priority | 1 | Text location overrides stored browser coordinates from prior near-me search |
 | PII in chatbot flow | 4 | Name/phone redacted in transcript but slots still extract, bot response PII (name) redacted before audit log, bot response PII (phone) redacted before audit log |
 | Session ID | 2 | Auto-generated when none provided. Preserved when provided |
 | Response structure | 2 | All 8 required keys present. Relaxed search flag |
+| Service detail in confirmation | 3 | Confirmation uses service_detail ("dental care" not "health care"), falls back to generic label, change-service clears detail |
 | Confirmation & quick replies | 10 | Confirmation triggered, change location/service, greeting/reset/follow-up quick replies, new input re-extracts, results show post-search buttons |
 | Bug fix regressions | 7 | "No" breaks confirmation loop, deny phrases classified correctly, cancel variants trigger reset, expanded frustration phrases, thanks-with-continuation falls through, empty/whitespace message guard |
 
-### `test_slot_extractor.py` — 56 tests
+### `test_slot_extractor.py` — 69 tests
 
 Validates the regex-based slot extraction pipeline.
 
 | Category | Tests | What's covered |
 |---|---|---|
 | Service type | 10 | All 9 categories plus false positive prevention |
+| "Other services" keyword | 2 | Quick reply value "I need other services" and singular form both extract service_type=other |
+| Service detail extraction | 7 | Sub-type labels: dental→dental care, therapy→therapy, immigration→immigration services, shower→showers, food pantry→food pantries, AA meeting→AA meetings. Generic "food" has no detail |
 | Location | 6 | Preposition patterns, known NYC names, "near me" detection, false positives |
 | Age | 3 | Multiple formats, out-of-range rejection |
 | Urgency | 2 | High and medium levels |
 | Multi-slot | 2 | Single message filling multiple slots |
-| Merge logic | 5 | New over empty, preserving existing, near-me sentinel behavior |
+| Merge logic | 8 | New over empty, preserving existing, near-me sentinel behavior, stale service_detail cleared on service change, detail persists when service unchanged, new detail replaces old |
 | Flow control | 5 | `is_enough_to_answer`, follow-up question routing |
 | Word-boundary keywords | 12 | Restored collision-prone keywords (bed, wash, id, eat, hat) match correctly and don't false-positive on location names |
 | New keywords | 10 | Expanded coverage across all 9 categories + urgency terms for target population |

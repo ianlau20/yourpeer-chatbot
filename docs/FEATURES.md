@@ -9,11 +9,14 @@ Full feature reference for the YourPeer chatbot. For setup and architecture see 
 See [CHATBOT_BEHAVIOR.md](CHATBOT_BEHAVIOR.md) for the full routing pipeline, guardrails, and how to extend.
 
 - **9 service categories** — food, shelter, clothing, personal care, health care, mental health, legal, employment, and other services (benefits, IDs, etc.)
+- **Service sub-type labels** — when a user asks for a specific sub-type like "dental care" or "AA meeting", the confirmation echoes the specific term ("I'll search for dental care") instead of the generic category label ("health care"). Sub-type detail is cleared when the user changes service type
 - **Quick-reply buttons** — tappable category buttons on welcome (Food, Shelter, Showers, Clothing, etc.), borough buttons when location is needed, and confirmation actions — no typing required
 - **Confirmation before search** — bot summarizes what it will search for and lets the user confirm, change location, change service, or start over before querying the database
 - **Conversational slot-filling** — multi-turn dialog that asks only what's needed, one question at a time
 - **LLM-enhanced extraction** — optional Claude Sonnet slot extraction handles nuanced inputs like "my son is 12 and needs a coat" or "I'm in Queens but looking for food in the Bronx." Uses a complexity-based routing strategy: regex for simple messages, LLM for complex ones. Activates automatically when `ANTHROPIC_API_KEY` is set; falls back to regex-only otherwise
 - **Conversational routing** — greetings, thanks, help requests, "start over", and other common patterns are handled naturally without triggering database queries
+- **Privacy question handling** — questions about privacy, ICE, police, benefits impact, anonymity, recording, and data deletion are classified as bot questions and answered with specific reassurances. Pattern-matched static fallbacks cover 7 privacy topic areas when the LLM is unavailable
+- **Bot question context awareness** — the bot_question LLM prompt receives session context (current search, location, geolocation state) so answers are relevant to what just happened. Includes detailed facts about geolocation failure reasons, service category contents, and NYC-only coverage
 - **Frustration handling** — detects expressions like "that wasn't helpful" or "I already tried those places" and responds with empathy plus escalation options instead of another search attempt
 - **Bot identity transparency** — "are you a robot?" or "am I talking to a person?" triggers an honest AI disclosure with an offer to connect to a real person
 - **Overwhelm/confusion routing** — "I don't know what to do" or "I'm lost" shows gentle guidance with category buttons instead of sending the message to the LLM (which would misinterpret it as a mental health request)
@@ -40,6 +43,7 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 - **Borough-level search** — uses `pa.borough` column directly (not city name expansion), which is clean and consistent across all five boroughs including Staten Island
 - **Neighborhood proximity search** — PostGIS `ST_DWithin` with 59 neighborhood center coordinates returns genuinely local results; falls back to full-borough on no results
 - **Near-me handling** — detects "food near me" and offers browser geolocation ("Use my location") alongside borough buttons; falls back to asking for a neighborhood if geolocation is denied
+- **Text location overrides stored coordinates** — when a user previously used "Use my location" and then types a text location like "Midtown East", the text location is used for the search (not the stored GPS coordinates). Coordinates are only used when the active location is the near-me sentinel
 - **Geolocation error specificity** — when location access fails, the user sees a specific reason ("Location access was denied" / "Your device couldn't determine your location" / "The location request timed out") instead of a generic error, with borough buttons as fallback
 - **Unrecognized service redirect** — when a user requests something the bot can't help with (e.g., "helicopter ride"), the bot acknowledges it can't help with that specifically and shows the full service menu with available categories, rather than falling through to a generic conversation response
 - **Location normalization** — maps all five boroughs and 59 NYC neighborhoods to database-compatible values, including "the Bronx" → "Bronx" and "manhattan" → "Manhattan"

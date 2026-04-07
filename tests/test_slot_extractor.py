@@ -805,3 +805,105 @@ def test_new_urgency_keywords():
 
 
 # -----------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------
+# "OTHER SERVICES" KEYWORD
+# -----------------------------------------------------------------------
+
+def test_other_services_keyword():
+    """'I need other services' (quick reply value) should extract service_type=other."""
+    slots = extract_slots("I need other services")
+    assert slots["service_type"] == "other", f"Got: {slots['service_type']}"
+
+
+def test_other_service_singular():
+    """'other service' should also extract service_type=other."""
+    slots = extract_slots("I need other service help")
+    assert slots["service_type"] == "other"
+
+
+# -----------------------------------------------------------------------
+# SERVICE DETAIL EXTRACTION
+# -----------------------------------------------------------------------
+
+def test_service_detail_dental():
+    """'dental' should extract service_type=medical with service_detail='dental care'."""
+    slots = extract_slots("I need dental care")
+    assert slots["service_type"] == "medical"
+    assert slots["service_detail"] == "dental care"
+
+
+def test_service_detail_therapy():
+    """'therapy' should extract service_type=mental_health with service_detail='therapy'."""
+    slots = extract_slots("I need therapy")
+    assert slots["service_type"] == "mental_health"
+    assert slots["service_detail"] == "therapy"
+
+
+def test_service_detail_immigration():
+    """'immigration' should extract service_type=legal with service_detail='immigration services'."""
+    slots = extract_slots("I need immigration help")
+    assert slots["service_type"] == "legal"
+    assert slots["service_detail"] == "immigration services"
+
+
+def test_service_detail_shower():
+    """'shower' should extract service_type=personal_care with service_detail='showers'."""
+    slots = extract_slots("I need a shower")
+    assert slots["service_type"] == "personal_care"
+    assert slots["service_detail"] == "showers"
+
+
+def test_service_detail_food_pantry():
+    """'food pantry' should extract service_type=food with service_detail='food pantries'."""
+    slots = extract_slots("where is the nearest food pantry")
+    assert slots["service_type"] == "food"
+    assert slots["service_detail"] == "food pantries"
+
+
+def test_service_detail_none_for_generic():
+    """Generic keywords like 'food' should have no service_detail."""
+    slots = extract_slots("I need food")
+    assert slots["service_type"] == "food"
+    assert slots["service_detail"] is None
+
+
+def test_service_detail_aa_meeting():
+    """'AA meeting' should extract mental_health with detail='AA meetings'."""
+    slots = extract_slots("where can I find an AA meeting")
+    assert slots["service_type"] == "mental_health"
+    assert slots["service_detail"] == "AA meetings"
+
+
+# -----------------------------------------------------------------------
+# MERGE SLOTS — SERVICE DETAIL CLEARING
+# -----------------------------------------------------------------------
+
+def test_merge_slots_clears_stale_detail():
+    """When service_type changes and new extraction has no detail, old detail is cleared."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "medical", "service_detail": "dental care", "location": "Brooklyn"}
+    new = {"service_type": "food", "service_detail": None, "location": None}
+    merged = merge_slots(existing, new)
+    assert merged["service_type"] == "food"
+    assert "service_detail" not in merged or merged.get("service_detail") is None
+
+
+def test_merge_slots_keeps_detail_when_same_service():
+    """When service_type doesn't change, service_detail should persist."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "medical", "service_detail": "dental care"}
+    new = {"service_type": None, "location": "Queens"}
+    merged = merge_slots(existing, new)
+    assert merged["service_detail"] == "dental care"
+
+
+def test_merge_slots_updates_detail_with_new_subtype():
+    """When service_type changes and new extraction has a detail, use the new one."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "food", "service_detail": None, "location": "Brooklyn"}
+    new = {"service_type": "medical", "service_detail": "dental care"}
+    merged = merge_slots(existing, new)
+    assert merged["service_type"] == "medical"
+    assert merged["service_detail"] == "dental care"

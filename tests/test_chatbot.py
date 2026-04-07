@@ -767,3 +767,205 @@ def test_text_location_overrides_stored_coords(fresh_session):
         location_arg = last_call.kwargs.get("location") or last_call[1].get("location")
         assert location_arg is not None, "Text location should be passed"
         assert "near_me" not in str(location_arg).lower(), "Should not use near-me sentinel"
+
+
+# -----------------------------------------------------------------------
+# PRIVACY QUESTIONS — CLASSIFICATION
+# -----------------------------------------------------------------------
+
+def test_classify_privacy_questions():
+    """Privacy-related questions should classify as bot_question."""
+    privacy_questions = [
+        "is this private",
+        "is this confidential",
+        "is this safe",
+        "are you recording me",
+        "who can see this",
+        "can anyone see my messages",
+        "do you share my information",
+        "do you store my data",
+        "can ICE see this",
+        "can the police see what I said",
+        "will this affect my benefits",
+        "can my case worker see this",
+        "can the shelter see what I wrote",
+        "how do i delete my conversation",
+        "do you know who I am",
+        "do you know my name",
+        "do you save my info",
+        "do you track me",
+        "is this anonymous",
+    ]
+    for phrase in privacy_questions:
+        assert_classified(phrase, "bot_question")
+
+
+def test_privacy_not_confused_with_service():
+    """Privacy questions should not be misclassified as service requests."""
+    # "benefits" is also an "other" service keyword, but in privacy context
+    # "will this affect my benefits" should be bot_question not service
+    assert_classified("will this affect my benefits", "bot_question")
+
+
+# -----------------------------------------------------------------------
+# STATIC BOT ANSWERS — PATTERN MATCHING
+# -----------------------------------------------------------------------
+
+def test_static_bot_answer_geolocation_failure():
+    """Geolocation failure questions get a specific answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Why couldn't you get my location?")
+    assert "permission" in response.lower() or "denied" in response.lower()
+    assert "neighborhood" in response.lower() or "borough" in response.lower()
+
+
+def test_static_bot_answer_geolocation_general():
+    """General geolocation questions get a relevant answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("How does location work?")
+    assert "gps" in response.lower() or "location" in response.lower()
+
+
+def test_static_bot_answer_outside_nyc():
+    """Outside-NYC questions mention 211."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Can you search outside NYC?")
+    assert "211" in response
+    assert "new york" in response.lower() or "nyc" in response.lower()
+
+
+def test_static_bot_answer_services_list():
+    """Service category questions list available categories."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("What services can you search for?")
+    assert "food" in response.lower()
+    assert "shelter" in response.lower()
+    assert "legal" in response.lower()
+
+
+def test_static_bot_answer_privacy_ice():
+    """ICE-related privacy questions give specific reassurance."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Can ICE see my conversation?")
+    assert "ice" in response.lower()
+    assert "government" in response.lower() or "identifying" in response.lower()
+
+
+def test_static_bot_answer_privacy_police():
+    """Police-related questions give specific reassurance."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Do you share with the police?")
+    assert "law enforcement" in response.lower()
+
+
+def test_static_bot_answer_privacy_benefits():
+    """Benefits-impact questions give specific reassurance."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Will this affect my benefits or case?")
+    assert "benefits" in response.lower()
+    assert "case" in response.lower() or "provider" in response.lower()
+
+
+def test_static_bot_answer_privacy_who_can_see():
+    """Visibility questions reassure no one else can see."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Can anyone see what I said?")
+    assert "no one" in response.lower() or "nobody" in response.lower()
+
+
+def test_static_bot_answer_privacy_delete():
+    """Delete/clear questions explain how."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("How do I delete my conversation?")
+    assert "start over" in response.lower()
+
+
+def test_static_bot_answer_privacy_identity():
+    """Identity questions confirm anonymity."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Do you know my name?")
+    assert "don't know" in response.lower() or "do not know" in response.lower()
+
+
+def test_static_bot_answer_privacy_general():
+    """General privacy question gets comprehensive answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Is this confidential?")
+    assert "private" in response.lower() or "anonymous" in response.lower()
+
+
+def test_static_bot_answer_how_it_works():
+    """'How does this work' gets an explanation."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("How does this work?")
+    assert "database" in response.lower() or "search" in response.lower()
+
+
+def test_static_bot_answer_default():
+    """Unknown bot questions get a generic but useful answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Why is the sky blue?")
+    assert "service" in response.lower()
+
+
+# -----------------------------------------------------------------------
+# SERVICE DETAIL IN CONFIRMATION
+# -----------------------------------------------------------------------
+
+def test_confirmation_uses_service_detail(fresh_session):
+    """Confirmation message should use service_detail when available."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "medical", "service_detail": "dental care", "location": "Brooklyn"}
+    msg = _build_confirmation_message(slots)
+    assert "dental care" in msg.lower()
+    assert "health care" not in msg.lower(), "Should use detail, not generic label"
+
+
+def test_confirmation_falls_back_to_label(fresh_session):
+    """Confirmation message should use generic label when no service_detail."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "food", "location": "Queens"}
+    msg = _build_confirmation_message(slots)
+    assert "food" in msg.lower()
+
+
+def test_change_service_clears_detail(fresh_session):
+    """Changing service type during confirmation should clear service_detail."""
+    from app.services.session_store import get_session_slots
+
+    # Start a dental care search
+    send("I need dental care", session_id=fresh_session)
+    send("Brooklyn", session_id=fresh_session)
+
+    # At confirmation, change service
+    send("Change service", session_id=fresh_session)
+
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_detail") is None, "service_detail should be cleared"
+    assert slots.get("service_type") is None, "service_type should be cleared"
+
+
+# -----------------------------------------------------------------------
+# BOT QUESTION HANDLER — FULL FLOW
+# -----------------------------------------------------------------------
+
+def test_bot_question_privacy_gets_specific_response(fresh_session):
+    """Privacy questions should get a specific answer, not generic overview."""
+    result = send("Is this private? Can anyone see what I type?", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should mention privacy, not just list service categories
+    assert "private" in response or "anonymous" in response or "no one" in response
+
+
+def test_bot_question_geolocation_gets_specific_response(fresh_session):
+    """Geolocation questions should explain why it might fail."""
+    result = send("Why couldn't you get my location?", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "permission" in response or "browser" in response or "neighborhood" in response
+
+
+def test_bot_question_outside_nyc_gets_specific_response(fresh_session):
+    """Outside-NYC questions should mention coverage limitation."""
+    result = send("Can you search outside NYC?", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "new york" in response or "nyc" in response or "five boroughs" in response

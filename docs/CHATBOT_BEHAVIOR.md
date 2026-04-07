@@ -19,7 +19,7 @@ Deterministic keyword and phrase matching. Handles button taps, short phrases, a
 | 1 | `crisis` | Regex + LLM crisis detection (see [CRISIS_DETECTION.md](CRISIS_DETECTION.md)) | "I want to hurt myself" |
 | 2 | `reset` | "start over", "new search", "cancel" | "start over" |
 | 3 | `bot_identity` | "are you a robot", "am I talking to a person" | "are you AI?" |
-| 4 | `bot_question` | "why can't you", "how does this work", "what can you search" | "why couldn't you get my location?" |
+| 4 | `bot_question` | "why can't you", "how does this work", "what can you search", "is this private", "can ICE see", "will this affect my benefits", "do you know who I am" | "why couldn't you get my location?", "is this safe?" |
 | 5 | `escalation` | "peer navigator", "talk to a person", "talk to someone" | "connect with peer navigator" |
 | 6 | `confirm_change_service` | "change service", "different service" | "change service" |
 | 7 | `confirm_change_location` | "change location", "different area" | "change location" |
@@ -58,7 +58,11 @@ Responds honestly that the user is talking to an AI assistant, offers to connect
 
 ### Bot Question
 
-Answers questions about the bot's capabilities directly and honestly. Uses an LLM prompt loaded with factual information about the system: searches a verified NYC services database, covers five boroughs only, uses browser geolocation (requires permission), doesn't store personal information. Falls back to a static capabilities summary when the LLM is unavailable.
+Answers questions about the bot's capabilities directly and honestly. Uses an LLM prompt loaded with detailed factual information about the system, including session context (current search state, whether geolocation is active). The prompt includes specific details about service categories, geolocation failure reasons, NYC-only coverage (suggests 211 for elsewhere), and comprehensive privacy facts (no ICE connection, no law enforcement sharing, no impact on benefits).
+
+Privacy questions are specifically classified into this category, including concerns about ICE, police, case workers, benefits impact, anonymity, recording, and data deletion. This ensures the population served — who may avoid seeking help due to surveillance fears — gets direct, reassuring answers.
+
+When the LLM is unavailable, `_static_bot_answer()` provides pattern-matched fallbacks for 7 topic areas: geolocation failures, NYC coverage, service categories, immigration/ICE privacy, law enforcement privacy, benefits/provider privacy, identity/anonymity, data deletion, and general privacy. Unknown questions get a useful generic answer rather than silence.
 
 This category catches messages like "why weren't you able to get my location?" that previously misrouted to the frustration handler.
 

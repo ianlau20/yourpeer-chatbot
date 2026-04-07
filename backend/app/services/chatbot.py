@@ -150,6 +150,15 @@ _BOT_QUESTION_PHRASES = [
     "can you explain", "can you tell me how",
     "why did you show", "why did you give",
     "what happened to", "what went wrong",
+    # Privacy questions
+    "is this private", "is this confidential", "is this safe",
+    "is this anonymous", "are you recording",
+    "who can see", "can anyone see", "do you share",
+    "do you store", "do you save", "do you track",
+    "can ice see", "can the police", "will this affect my",
+    "can my case worker", "can my caseworker", "can the shelter see",
+    "how do i delete", "how do i clear",
+    "do you know who i am", "do you know my name",
 ]
 
 # Confusion / overwhelm — the user doesn't know what they need.
@@ -852,7 +861,16 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
         "  • The site isn't served over HTTPS\n"
         "  If geolocation fails, you ask for a neighborhood or borough instead\n"
         "- Privacy: you don't store personal information. Conversations are "
-        "private and not linked to any identity\n"
+        "private and not linked to any identity. Specifics:\n"
+        "  • You are NOT connected to any government agency, including ICE\n"
+        "  • You do NOT share information with law enforcement\n"
+        "  • Shelters, case workers, and providers cannot see the conversation\n"
+        "  • Using this chat will NOT affect benefits or case status\n"
+        "  • If a user shares PII by accident, it's automatically redacted\n"
+        "  • Saying 'start over' clears the session immediately\n"
+        "  • Chat history on the device auto-expires after 30 minutes\n"
+        "  • On shared/public devices, other users could potentially see "
+        "the chat until it expires\n"
         "- You can connect users with a human peer navigator for support\n"
         "- You are an AI assistant, not a human\n"
         "- Your data comes from verified listings. Hours and availability may "
@@ -900,12 +918,70 @@ def _static_bot_answer(message: str) -> str:
             "IDs, and drop-in centers."
         )
 
-    # Privacy
-    if any(w in lower for w in ["private", "privacy", "data", "store", "save", "track"]):
+    # Privacy — immigration / law enforcement fears
+    if any(w in lower for w in ["ice", "immigration", "deport", "undocumented", "immigrant"]):
         return (
-            "Your conversations are private. I don't store personal "
-            "information or link conversations to any identity. You can "
-            "say 'start over' at any time to clear your session."
+            "I don't collect any identifying information — no name, no "
+            "address, no immigration status. I'm not connected to any "
+            "government agency, including ICE. Your conversation is "
+            "anonymous and is not shared with anyone."
+        )
+
+    if any(w in lower for w in ["police", "cop", "law enforcement", "report", "arrest"]):
+        return (
+            "I don't share any information with law enforcement. I don't "
+            "know who you are, and your conversation here is anonymous. "
+            "The only exception is if you're in immediate danger — I'll "
+            "share crisis hotline numbers, but that's your choice to call."
+        )
+
+    # Privacy — benefits / provider visibility
+    if any(w in lower for w in ["benefits", "case worker", "caseworker", "shelter see", "affect my"]):
+        return (
+            "Using this chat won't affect your benefits or case status. "
+            "Shelters, case workers, and service providers can't see your "
+            "conversation here. I just help you find services — I don't "
+            "report anything to anyone."
+        )
+
+    # Privacy — who can see / recording / sharing
+    if any(w in lower for w in [
+        "who can see", "anyone see", "see what i", "see my",
+        "recording", "record", "listening",
+        "share", "sharing", "shared with", "tell anyone",
+    ]):
+        return (
+            "No one else can see your conversation. I don't record audio "
+            "or share your messages with other people or organizations. "
+            "If you're on a shared device, you can say 'start over' to "
+            "clear the chat history."
+        )
+
+    # Privacy — delete / clear data
+    if any(w in lower for w in ["delete", "clear", "erase", "remove my", "forget"]):
+        return (
+            "Say 'start over' and your session will be cleared immediately. "
+            "On this device, your chat history is stored temporarily in your "
+            "browser and auto-expires after 30 minutes of inactivity."
+        )
+
+    # Privacy — identity / anonymity
+    if any(w in lower for w in ["know my name", "know who i am", "anonymous", "identify"]):
+        return (
+            "I don't know who you are. I don't ask for or store your name, "
+            "phone number, or any personal details. If you share personal "
+            "info by accident, it's automatically removed before anything "
+            "is saved."
+        )
+
+    # Privacy — general
+    if any(w in lower for w in ["private", "privacy", "data", "store", "save", "track",
+                                 "safe to", "confidential", "secure", "trust"]):
+        return (
+            "Your conversations are private and anonymous. I don't store "
+            "personal information or link conversations to any identity. "
+            "I'm not connected to any government agency or service provider. "
+            "You can say 'start over' at any time to clear your session."
         )
 
     # How does it work
