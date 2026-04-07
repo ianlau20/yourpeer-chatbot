@@ -558,6 +558,50 @@ SCENARIOS = [
             "should_offer_human_option": True,
         },
     },
+    {
+        "id": "edge_frustration_loop",
+        "name": "Repeated frustration — escalating dissatisfaction",
+        "category": "edge_case",
+        "description": "User is frustrated, gets the standard frustration response, "
+                       "then expresses frustration again. The bot should NOT repeat "
+                       "the same response. It should give a shorter, more empathetic "
+                       "reply and push harder toward the peer navigator.",
+        "user_turns": [
+            "I need food in the Bronx",
+            "Yes, search",
+            "That's not helpful, I already tried all those places",
+            "I don't like those options either",
+        ],
+        "expected": {
+            "should_not_repeat_response": True,
+            "second_frustration_shorter_than_first": True,
+            "should_offer_escalation": True,
+            "should_remain_empathetic": True,
+            "should_push_peer_navigator": True,
+        },
+    },
+    {
+        "id": "edge_frustration_to_resolution",
+        "name": "Frustrated user eventually reaches help",
+        "category": "edge_case",
+        "description": "User is frustrated after initial results, continues expressing "
+                       "dissatisfaction, but eventually accepts help via peer navigator. "
+                       "The bot should de-escalate, not loop, and provide a clear path "
+                       "to human support.",
+        "user_turns": [
+            "I need shelter in Manhattan",
+            "Yes, search",
+            "None of those work for me",
+            "This is useless",
+            "yes",
+        ],
+        "expected": {
+            "should_not_repeat_frustration_response": True,
+            "should_offer_escalation": True,
+            "final_yes_should_connect_to_navigator_or_reset": True,
+            "should_remain_empathetic_throughout": True,
+        },
+    },
 
     # --- NEW: NATURAL LANGUAGE (real-world personas from docs) ---
     {
