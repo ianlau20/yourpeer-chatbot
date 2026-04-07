@@ -4,7 +4,7 @@ This document describes how the YourPeer chatbot detects and redacts personally 
 
 ## Overview
 
-PII redaction runs on every incoming message before it is stored in the session transcript or audit log. The original (unredacted) text is still used for slot extraction so that location names and ages parse correctly, but the redacted version is all that persists.
+PII redaction runs on every incoming user message and on bot responses before they are stored in the session transcript or audit log. The original (unredacted) user text is still used for slot extraction so that location names and ages parse correctly, but the redacted version is all that persists.
 
 The confirmation echo ("I'll search for food in Brooklyn") also runs through the redactor so that PII accidentally captured in a slot value (e.g. a street address extracted as a location) is never displayed back to the user.
 
@@ -101,9 +101,10 @@ All four patterns optionally capture a trailing apartment/unit identifier (`Apt 
 | Location | What Gets Redacted | Why |
 |---|---|---|
 | `chatbot.generate_reply()` | Every incoming user message | Redacted version stored in session transcript and audit log |
+| `chatbot._log_turn()` | Bot response before audit log storage | Prevents PII echoed by the LLM (e.g. "Hi Bryan!") from persisting in transcripts |
 | `chatbot._build_confirmation_message()` | Slot values echoed in confirmation | Prevents PII captured in location slot from being displayed back |
 
-Slot extraction runs on the **original** (unredacted) text so that locations and ages still parse. Only the redacted version is stored.
+Slot extraction runs on the **original** (unredacted) text so that locations and ages still parse. Only redacted versions of both user messages and bot responses are stored.
 
 ## Code Location
 

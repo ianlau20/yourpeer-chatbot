@@ -420,8 +420,7 @@ def _classify_message(text: str) -> str:
         llm_category = classify_message_llm(text)
         if llm_category is not None:
             logger.info(
-                f"LLM classifier override: regex='general' → llm='{llm_category}' "
-                f"for message: '{text[:60]}...'"
+                f"LLM classifier override: regex='general' → llm='{llm_category}'"
             )
             return llm_category
 
@@ -1466,10 +1465,11 @@ def _execute_and_respond(session_id: str, message: str, slots: dict) -> dict:
 def _log_turn(session_id: str, user_msg: str, result: dict, category: str, request_id: str | None = None):
     """Log a conversation turn to the audit log."""
     try:
+        bot_response_redacted, _ = redact_pii(result.get("response", ""))
         log_conversation_turn(
             session_id=session_id,
             user_message_redacted=user_msg,
-            bot_response=result.get("response", ""),
+            bot_response=bot_response_redacted,
             slots=result.get("slots", {}),
             category=category,
             services_count=result.get("result_count", 0),

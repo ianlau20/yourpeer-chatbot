@@ -95,6 +95,85 @@ def test_chat_route_rejects_oversized_message_http():
 
 
 # -----------------------------------------------------------------------
+# PYDANTIC MODELS — Coordinate Validation
+# -----------------------------------------------------------------------
+
+def test_chat_request_valid_coordinates():
+    """ChatRequest should accept valid lat/lng."""
+    r = ChatRequest(message="hi", latitude=40.7128, longitude=-74.0060)
+    assert r.latitude == 40.7128
+    assert r.longitude == -74.0060
+
+
+def test_chat_request_boundary_coordinates():
+    """ChatRequest should accept boundary lat/lng values."""
+    r = ChatRequest(message="hi", latitude=90, longitude=180)
+    assert r.latitude == 90
+    r = ChatRequest(message="hi", latitude=-90, longitude=-180)
+    assert r.latitude == -90
+
+
+def test_chat_request_rejects_invalid_latitude():
+    """ChatRequest should reject latitude outside ±90."""
+    try:
+        ChatRequest(message="hi", latitude=91, longitude=0)
+        assert False, "Should have raised ValidationError"
+    except ValidationError:
+        pass
+    try:
+        ChatRequest(message="hi", latitude=-91, longitude=0)
+        assert False, "Should have raised ValidationError"
+    except ValidationError:
+        pass
+
+
+def test_chat_request_rejects_invalid_longitude():
+    """ChatRequest should reject longitude outside ±180."""
+    try:
+        ChatRequest(message="hi", latitude=0, longitude=181)
+        assert False, "Should have raised ValidationError"
+    except ValidationError:
+        pass
+    try:
+        ChatRequest(message="hi", latitude=0, longitude=-181)
+        assert False, "Should have raised ValidationError"
+    except ValidationError:
+        pass
+
+
+def test_chat_route_rejects_invalid_coordinates_http():
+    """POST /chat/ with out-of-range coordinates should return 422."""
+    response = client.post("/chat/", json={
+        "message": "hi",
+        "latitude": 100,
+        "longitude": 0,
+    })
+    assert response.status_code == 422
+
+
+# -----------------------------------------------------------------------
+# REQUEST CORRELATION ID
+# -----------------------------------------------------------------------
+
+def test_chat_route_returns_request_id_header():
+    """POST /chat/ should echo X-Request-ID in the response."""
+    response = client.post(
+        "/chat/",
+        json={"message": "hello"},
+        headers={"X-Request-ID": "test-req-123"},
+    )
+    assert response.headers.get("x-request-id") == "test-req-123"
+
+
+def test_chat_route_generates_request_id_if_missing():
+    """POST /chat/ should generate X-Request-ID when not provided."""
+    response = client.post("/chat/", json={"message": "hello"})
+    req_id = response.headers.get("x-request-id")
+    assert req_id is not None
+    assert len(req_id) > 0
+
+
+# -----------------------------------------------------------------------
 # PYDANTIC MODELS — ServiceCard
 # -----------------------------------------------------------------------
 

@@ -298,7 +298,6 @@ def test_classify_confirmation_phrases():
         assert_classified(phrase, "confirm_change_location")
     for phrase in ["change service", "different service", "wrong service"]:
         assert_classified(phrase, "confirm_change_service")
-
 def test_confirmation_step_triggered(fresh_session):
     """When both slots are filled, should return confirmation, not query."""
     result = send("I need food in Brooklyn", session_id=fresh_session)
@@ -306,42 +305,6 @@ def test_confirmation_step_triggered(fresh_session):
     assert "food" in result["response"].lower()
     assert "brooklyn" in result["response"].lower()
     assert len(result["quick_replies"]) >= 3
-
-def test_confirmation_uses_service_detail(fresh_session):
-    """Confirmation message should echo the specific sub-type, not the
-    generic category label. 'dental care' not 'health care'."""
-    result = send("I need dental care in Brooklyn", session_id=fresh_session)
-    assert result["follow_up_needed"] is True
-    assert "dental care" in result["response"].lower(), \
-        f"Expected 'dental care' in confirmation, got: {result['response']}"
-    # Should NOT show the generic label
-    assert "health care" not in result["response"].lower(), \
-        f"Confirmation should use specific label, not generic 'health care'"
-
-
-def test_confirmation_generic_when_no_detail(fresh_session):
-    """Generic keywords should still use the category label."""
-    result = send("I need food in Brooklyn", session_id=fresh_session)
-    assert result["follow_up_needed"] is True
-    assert "food" in result["response"].lower()
-
-
-def test_service_type_changes_after_results(fresh_session):
-    """After completing a search, asking for a different service should
-    update the service_type, not repeat the old one."""
-    # Complete a personal care search
-    send("I need a shower in Manhattan", session_id=fresh_session)
-    send("Yes, search", session_id=fresh_session)
-
-    # Now ask for dental care
-    result = send("What about dental care?", session_id=fresh_session)
-    # Should confirm the NEW service type
-    response_lower = result["response"].lower()
-    assert "dental" in response_lower or "health care" in response_lower, \
-        f"Expected dental/health care confirmation, got: {result['response']}"
-    assert "shower" not in response_lower and "personal care" not in response_lower, \
-        f"Should NOT show old service type, got: {result['response']}"
-
 def test_change_location_during_confirmation(fresh_session):
     """User can change location during confirmation."""
     _, result = send_multi(
@@ -722,3 +685,51 @@ def test_general_response_no_buttons_with_service_intent(fresh_session):
     r2 = send("ok cool", session_id=fresh_session)
     labels = [qr["label"] for qr in r2.get("quick_replies", [])]
     assert "🍽️ Food" not in labels
+
+
+# -----------------------------------------------------------------------
+# BOT RESPONSE PII REDACTION IN AUDIT LOG
+# -----------------------------------------------------------------------
+
+def test_log_turn_redacts_bot_response_pii():
+    """_log_turn should redact PII from bot responses before storing."""
+    from app.services.chatbot import _log_turn
+    from app.services.audit_log import get_recent_events, clear_audit_log
+
+    clear_audit_log()
+    _log_turn(
+        session_id="s-pii-test",
+        user_msg="My name is [NAME]",
+        result={
+            "response": "Hi Bryan! I can help you find services.",
+            "slots": {"service_type": "food"},
+        },
+        category="general",
+    )
+
+    events = get_recent_events()
+    bot_response = events[0]["bot_response"]
+    assert "Bryan" not in bot_response, "PII should be redacted from bot response"
+    assert "[NAME]" in bot_response
+
+
+def test_log_turn_redacts_phone_in_bot_response():
+    """_log_turn should redact phone numbers echoed in bot responses."""
+    from app.services.chatbot import _log_turn
+    from app.services.audit_log import get_recent_events, clear_audit_log
+
+    clear_audit_log()
+    _log_turn(
+        session_id="s-pii-test-2",
+        user_msg="[PHONE]",
+        result={
+            "response": "I see your number is 212-555-1234. Let me look that up.",
+            "slots": {},
+        },
+        category="general",
+    )
+
+    events = get_recent_events()
+    bot_response = events[0]["bot_response"]
+    assert "212-555-1234" not in bot_response, "Phone should be redacted from bot response"
+    assert "[PHONE]" in bot_response

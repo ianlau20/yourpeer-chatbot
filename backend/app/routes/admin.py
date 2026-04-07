@@ -47,8 +47,10 @@ router = APIRouter(
     dependencies=[Depends(require_admin_key)],  # S1: all admin routes require auth
 )
 
-# Path to the eval runner (relative to project root)
-TESTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tests"
+# Path to the eval/test directory. Configurable via EVAL_DIR env var;
+# falls back to inferring from the file's location in the repo tree.
+_DEFAULT_TESTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tests"
+TESTS_DIR = Path(os.getenv("EVAL_DIR", str(_DEFAULT_TESTS_DIR)))
 
 
 # ---------------------------------------------------------------------------
