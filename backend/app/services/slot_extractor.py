@@ -92,6 +92,7 @@ SERVICE_KEYWORDS = {
 
     # --- Other Services (taxonomy: Other service) ---
     "other": [
+        "other services", "other service",
         "benefits", "snap", "ebt", "food stamps", "medicaid",
         "social security", "disability", "ssi", "public assistance",
         "identification", "birth certificate", "need an id",
