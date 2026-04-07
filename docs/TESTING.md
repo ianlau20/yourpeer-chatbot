@@ -225,7 +225,7 @@ HTTP-level tests for the chat endpoint and Pydantic model validation.
 
 | Category | Tests | What's covered |
 |---|---|---|
-| ChatRequest model | 8 | Valid construction, optional session_id, missing message rejected, wrong type, empty string, accepts 10,000-char message, rejects 10,001-char message, rejects oversized at HTTP level (422) |
+| ChatRequest model | 8 | Valid construction, optional session_id, missing message rejected, wrong type, empty string, accepts 1,000-char message, rejects 1,001-char message, rejects oversized at HTTP level (422) |
 | ServiceCard model | 4 | Minimal (service_name only), full (all 13 fields), missing required rejected, serialization |
 | QuickReply model | 3 | Valid, missing label rejected, missing value rejected |
 | ChatResponse model | 4 | Minimal with defaults, nested ServiceCards, missing required rejected, JSON round-trip |

@@ -83,7 +83,8 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 
 ## Stability & Rate Limiting
 
-- **Message length limit** — chat messages are capped at 10,000 characters via Pydantic validation; oversized messages get a 422 response before any processing
+- **Message length limit** — chat messages are capped at 1,000 characters on both frontend (`maxLength` on input + voice transcript clamping) and backend (Pydantic validation); oversized messages get a 422 response before any processing
+- **Coordinate validation** — `latitude` and `longitude` fields on `ChatRequest` enforce valid ranges (±90 and ±180) via Pydantic `Field` constraints
 - **LLM timeout** — all Anthropic API calls time out after 10 seconds
 - **DB statement timeout** — PostgreSQL queries are capped at 5 seconds via `statement_timeout`
 - **Frontend fetch timeout** — all `fetch()` calls use `AbortSignal.timeout()` — 30 seconds for chat, 15 seconds for admin/feedback
@@ -101,8 +102,14 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 - **Chat history persistence** — conversation state (messages, session ID) is synced to `localStorage` via Zustand `persist` middleware. Users keep their conversation across page refreshes and tab close/reopen. Auto-resets after 30 minutes of inactivity to match the backend session TTL
 - **Shared device privacy note** — localStorage stores the user's raw messages (PII redaction only runs on the backend). On shared or public computers, the next user could inspect stored data via browser developer tools. The 30-minute auto-expire and "start over" (which clears localStorage immediately) mitigate this, but users on shared devices should be aware that their conversation is stored locally until it expires. A future improvement could add an explicit "clear history" option or a notice on first visit
 - **Admin data caching** — all admin pages share a centralized Zustand store with staleness-based caching (30-second threshold). Navigating between admin tabs reuses cached data instead of re-fetching from the API on every navigation
-- **Offline detection** — a `useOnlineStatus` hook tracks `navigator.onLine` and listens for browser `online`/`offline` events. When the user goes offline, an amber banner appears below the chat ("You appear to be offline") and the input field is disabled to prevent sending messages that would fail with cryptic errors
+- **Offline detection** — a `useOnlineStatus` hook tracks `navigator.onLine` and listens for browser `online`/`offline` events. A green/red status dot next to the "YourPeer Chat" title provides persistent connection status. When the user goes offline, an amber banner appears below the chat ("You appear to be offline") and the input field is disabled to prevent sending messages that would fail with cryptic errors
 - **Retry on failed API calls** — when a chat message fails (after one automatic retry with 1.5-second backoff for transient errors), the error message includes a "Retry" button that re-sends the original message. Rate-limit errors (429) and auth errors (403) are not auto-retried since they require different handling. Clicking Retry removes the error message and re-submits the original text
+
+---
+
+## Observability
+
+- **Request correlation IDs** — every chat request is tagged with a `X-Request-ID` UUID generated in the frontend API client. The ID flows through the Next.js proxy → FastAPI backend → `generate_reply()` → all audit log entries (`conversation_turn`, `query_execution`, `crisis_detected`). The ID is also returned as a response header, making it visible in browser dev tools for end-to-end tracing
 
 ---
 
