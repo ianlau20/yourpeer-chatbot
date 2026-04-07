@@ -556,7 +556,9 @@ def _build_confirmation_message(slots: dict) -> str:
     (e.g. a street address captured as a location).
     """
     service = slots.get("service_type", "services")
-    service_label = _SERVICE_LABELS.get(service, service)
+    # Prefer the specific sub-type label (e.g. "dental care") over the
+    # generic category label (e.g. "health care") when available.
+    service_label = slots.get("service_detail") or _SERVICE_LABELS.get(service, service)
     location = slots.get("location", "your area")
     age = slots.get("age")
 
@@ -1153,7 +1155,7 @@ def generate_reply(
         # User confirmed — clear the flag and execute the query
         existing.pop("_pending_confirmation", None)
         save_session_slots(session_id, existing)
-        result = _execute_and_respond(session_id, message, existing)
+        result = _execute_and_respond(session_id, message, existing, request_id=request_id)
         _log_turn(session_id, redacted_message, result, category, request_id=request_id)
         return result
 
@@ -1385,7 +1387,7 @@ def generate_reply(
 # QUERY EXECUTION (after confirmation)
 # ---------------------------------------------------------------------------
 
-def _execute_and_respond(session_id: str, message: str, slots: dict) -> dict:
+def _execute_and_respond(session_id: str, message: str, slots: dict, request_id: str | None = None) -> dict:
     """Execute the DB query and return results. Called after user confirms."""
     bot_response = None
     services_list = []
