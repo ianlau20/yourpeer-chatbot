@@ -1484,7 +1484,8 @@ def generate_reply(
             )
         else:
             pending_extracted = extract_slots(message)
-        pending_has_new = any(v is not None for v in pending_extracted.values())
+        pending_has_new = any(v is not None for k, v in pending_extracted.items()
+                              if k != "additional_services")
 
         if not pending_has_new:
             # No new slots — user is probably trying to confirm or is confused.
@@ -1530,7 +1531,8 @@ def generate_reply(
         extracted = extract_slots(message)
 
     # Track whether THIS message contributed any new slot data
-    has_new_slots = any(v is not None for v in extracted.values())
+    has_new_slots = any(v is not None for k, v in extracted.items()
+                        if k != "additional_services")
 
     merged = merge_slots(existing, extracted)
 
@@ -1668,6 +1670,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             age=slots.get("age"),
             latitude=slots.get("_latitude") if use_coords else None,
             longitude=slots.get("_longitude") if use_coords else None,
+            family_status=slots.get("family_status"),
         )
 
         # Log the query execution

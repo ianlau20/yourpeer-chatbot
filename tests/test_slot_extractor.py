@@ -1046,3 +1046,123 @@ def test_followup_skips_family_when_already_set():
              "family_status": "with_children"}
     question = next_follow_up_question(slots)
     assert "family" not in question.lower() and "children" not in question.lower()
+
+
+# -----------------------------------------------------------------------
+# MULTI-SERVICE EXTRACTION
+# -----------------------------------------------------------------------
+
+def test_extract_all_two_services():
+    """'food and shelter' should extract both service types."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food and shelter in Brooklyn")
+    types = [r[0] for r in results]
+    assert "food" in types
+    assert "shelter" in types
+    assert len(types) == 2
+
+
+def test_extract_all_three_services():
+    """Three services should all be extracted."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food, shelter, and clothing")
+    types = [r[0] for r in results]
+    assert len(types) == 3
+    assert "food" in types
+    assert "shelter" in types
+    assert "clothing" in types
+
+
+def test_extract_all_no_duplicates():
+    """Same category mentioned twice should only appear once."""
+    from app.services.slot_extractor import _extract_all_service_types
+    # "food" and "food pantry" are both category "food"
+    results = _extract_all_service_types("I need food from a food pantry")
+    types = [r[0] for r in results]
+    assert types.count("food") == 1
+
+
+def test_extract_all_mental_health_not_double_match():
+    """'mental health' should match mental_health, not also 'health' as medical."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need mental health support")
+    types = [r[0] for r in results]
+    assert "mental_health" in types
+    assert "medical" not in types, "'mental health' should not also match 'health'"
+
+
+def test_extract_all_preserves_detail():
+    """Sub-type details should be preserved for each service."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need dental care and therapy")
+    details = {r[0]: r[1] for r in results}
+    assert details.get("medical") == "dental care"
+    assert details.get("mental_health") == "therapy"
+
+
+def test_extract_all_single_service():
+    """Single service should return a list of one."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food")
+    assert len(results) == 1
+    assert results[0][0] == "food"
+
+
+def test_extract_all_no_service():
+    """No service keywords should return empty list."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("hello how are you")
+    assert results == []
+
+
+def test_extract_slots_additional_services():
+    """extract_slots should return primary + additional_services."""
+    slots = extract_slots("I need food and shelter in Brooklyn")
+    assert slots["service_type"] == "food"
+    assert len(slots["additional_services"]) == 1
+    assert slots["additional_services"][0][0] == "shelter"
+    assert slots["location"] is not None
+
+
+def test_extract_slots_no_additional():
+    """Single service should have empty additional_services."""
+    slots = extract_slots("I need food in Brooklyn")
+    assert slots["service_type"] == "food"
+    assert slots["additional_services"] == []
+
+
+def test_extract_slots_additional_none_message():
+    """No service should have empty additional_services and None primary."""
+    slots = extract_slots("hello")
+    assert slots["service_type"] is None
+    assert slots["additional_services"] == []
+
+
+def test_merge_slots_skips_additional_services():
+    """merge_slots should not persist additional_services in session."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "food", "location": "Brooklyn"}
+    new = {"service_type": "food", "additional_services": [("shelter", None)]}
+    merged = merge_slots(existing, new)
+    assert "additional_services" not in merged
+
+
+def test_extract_all_food_and_legal():
+    """'food and legal help' should extract both."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food and legal help in Manhattan")
+    types = [r[0] for r in results]
+    assert "food" in types
+    assert "legal" in types
+
+
+def test_extract_all_complex_multi_intent():
+    """Complex multi-intent with details should work."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types(
+        "I need a shower, some food, and help with my immigration case"
+    )
+    types = [r[0] for r in results]
+    assert "personal_care" in types
+    assert "food" in types
+    assert "legal" in types
