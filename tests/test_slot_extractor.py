@@ -168,6 +168,97 @@ def test_no_service_type():
         slots = extract_slots(phrase)
         assert slots["service_type"] is None, f"False positive on: {phrase} → {slots['service_type']}"
 
+def test_service_detail_specific_keywords():
+    """Notable sub-type keywords should populate service_detail."""
+    cases = [
+        ("I need dental care", "medical", "dental care"),
+        ("I need to see a dentist", "medical", "dental care"),
+        ("I need an eye doctor", "medical", "vision care"),
+        ("Where can I get an HIV testing", "medical", "HIV testing"),
+        ("I need help with immigration", "legal", "immigration services"),
+        ("I'm facing eviction", "legal", "eviction help"),
+        ("I need a shower", "personal_care", "showers"),
+        ("Where can I do laundry", "personal_care", "laundry"),
+        ("I need a haircut", "personal_care", "haircuts"),
+        ("I need counseling", "mental_health", "counseling"),
+        ("I need rehab", "mental_health", "rehab services"),
+        ("I'm looking for a soup kitchen", "food", "soup kitchens"),
+        ("Where's the nearest food pantry", "food", "food pantries"),
+    ]
+    for phrase, expected_type, expected_detail in cases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == expected_type, \
+            f"Wrong service_type for: {phrase} → {slots['service_type']}"
+        assert slots["service_detail"] == expected_detail, \
+            f"Wrong service_detail for: {phrase} → {slots['service_detail']}"
+
+
+def test_service_detail_none_for_generic():
+    """Generic category keywords should NOT populate service_detail."""
+    cases = [
+        ("I need food", "food"),
+        ("I need shelter", "shelter"),
+        ("I need clothing", "clothing"),
+        ("I need medical help", "medical"),
+        ("I need legal help", "legal"),
+        ("I need a job", "employment"),
+    ]
+    for phrase, expected_type in cases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] == expected_type, \
+            f"Wrong service_type for: {phrase}"
+        assert slots["service_detail"] is None, \
+            f"Unexpected service_detail for generic keyword: {phrase} → {slots['service_detail']}"
+
+
+# =========================================================================
+# tests/test_slot_extractor.py — add after test_age_out_of_range()
+# =========================================================================
+
+def test_spoken_number_age_extraction():
+    """Voice-transcribed word-form numbers should extract as ages."""
+    cases = [
+        ("I'm seventeen", 17),
+        ("I am twenty two", 22),
+        ("age forty five", 45),
+        ("thirteen years old", 13),
+        ("im eighteen", 18),
+        ("I'm sixty five", 65),
+        ("I am thirty", 30),
+        ("im twelve", 12),
+    ]
+    for phrase, expected in cases:
+        slots = extract_slots(phrase)
+        assert slots["age"] == expected, \
+            f"Expected age {expected} for: {phrase} → {slots['age']}"
+
+
+def test_spoken_number_digit_priority():
+    """Digit patterns should still work and take priority over word forms."""
+    cases = [
+        ("I'm 17", 17),
+        ("I am 22", 22),
+        ("age 30", 30),
+        ("45 years old", 45),
+    ]
+    for phrase, expected in cases:
+        slots = extract_slots(phrase)
+        assert slots["age"] == expected, \
+            f"Expected age {expected} for: {phrase} → {slots['age']}"
+
+
+def test_spoken_number_no_false_positives():
+    """Spoken numbers without age-context phrases should NOT extract as age."""
+    phrases = [
+        "I need food in Brooklyn",
+        "There are five of us",
+        "I've been here for twelve days",
+        "Give me twenty options",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["age"] is None, \
+            f"False positive age in: {phrase} → {slots['age']}"
 
 # -----------------------------------------------------------------------
 # LOCATION EXTRACTION
