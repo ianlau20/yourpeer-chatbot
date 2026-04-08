@@ -92,6 +92,7 @@ SERVICE_KEYWORDS = {
 
     # --- Other Services (taxonomy: Other service) ---
     "other": [
+        "other services", "other service",
         "benefits", "snap", "ebt", "food stamps", "medicaid",
         "social security", "disability", "ssi", "public assistance",
         "identification", "birth certificate", "need an id",
@@ -188,18 +189,23 @@ _NOTABLE_SUB_TYPES = {
     "groceries": "groceries",
 }
 
-def _extract_service_type(text: str) -> tuple[Optional[str], Optional[str]]:
-    """Extract service type category and optional specific detail label.
+def _extract_all_service_types(text: str) -> list[tuple[str, Optional[str]]]:
+    """Extract ALL service type categories from a message.
 
-    Returns (service_type, service_detail) where service_detail is a
-    user-friendly label for the specific keyword matched, or None if the
-    keyword is the same as the category label (e.g., "food" → no detail).
+    Returns a list of (service_type, service_detail) tuples, deduplicated
+    by category. Order reflects first appearance in text.
+
+    Examples:
+        "I need food and shelter" → [("food", None), ("shelter", None)]
+        "dental care in Brooklyn" → [("medical", "dental care")]
+        "hello" → []
     """
     lower = text.lower()
+    found = []  # list of (service_type, service_detail)
+    seen_categories = set()
+    matched_spans = []  # track matched positions to avoid sub-matches
 
     # Build a flat list of (keyword, service_type) sorted longest-first.
-    # This ensures "mental health" matches before "health",
-    # "food bank" before "food", "substance abuse" before "abuse", etc.
     all_keywords = []
     for service, keywords in SERVICE_KEYWORDS.items():
         for kw in keywords:
@@ -207,16 +213,41 @@ def _extract_service_type(text: str) -> tuple[Optional[str], Optional[str]]:
     all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
 
     for keyword, service in all_keywords:
-        if keyword in lower:
+        pos = lower.find(keyword)
+        if pos == -1:
+            continue
+
+        # Skip if this position overlaps with an already-matched longer keyword
+        # (e.g., "mental health" already matched, don't also match "health")
+        end = pos + len(keyword)
+        if any(pos < ms_end and end > ms_start for ms_start, ms_end in matched_spans):
+            continue
+
+        if service not in seen_categories:
             detail = _NOTABLE_SUB_TYPES.get(keyword)
-            return service, detail
+            found.append((service, detail))
+            seen_categories.add(service)
+        matched_spans.append((pos, end))
 
-    # Fallback: check collision-prone keywords using word boundaries.
+    # Fallback: check collision-prone keywords using word boundaries
     for kw, (pattern, service) in _WORD_BOUNDARY_PATTERNS.items():
-        if pattern.search(text):
+        if service not in seen_categories and pattern.search(text):
             detail = _NOTABLE_SUB_TYPES.get(kw)
-            return service, detail
+            found.append((service, detail))
+            seen_categories.add(service)
 
+    return found
+
+
+def _extract_service_type(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Extract the primary service type category from a message.
+
+    Returns (service_type, service_detail) for the first match.
+    For all matches, use _extract_all_service_types().
+    """
+    all_types = _extract_all_service_types(text)
+    if all_types:
+        return all_types[0]
     return None, None
 
 
@@ -332,20 +363,93 @@ def _extract_age(text: str) -> Optional[int]:
     return None
 
 
+def _extract_family_status(text: str) -> Optional[str]:
+    """Extract family composition from user message.
+
+    Returns one of: 'with_children', 'with_family', 'alone', or None.
+    Only extracts when clearly stated — avoids guessing.
+
+    Check order matters: children > family > alone.
+    "single mother" must match children before "single" matches alone.
+    """
+    lower = text.lower()
+
+    # With children — most specific, check first
+    child_phrases = [
+        "with my kid", "with my kids", "with my child", "with my children",
+        "have kids", "have children", "have a kid", "have a child",
+        "my son", "my daughter", "my baby", "my toddler", "my infant",
+        "two kids", "three kids", "four kids",
+        "2 kids", "3 kids", "4 kids",
+        "with a baby", "with a toddler", "with an infant",
+        "my kids are", "my children are",
+        "year old daughter", "year old son", "year old child",
+        "pregnant",
+        # "single parent/mother/father" = has children, not alone
+        "single mother", "single mom", "single father", "single dad",
+        "single parent",
+    ]
+    for phrase in child_phrases:
+        if phrase in lower:
+            return "with_children"
+
+    # With family — broader family unit
+    # NOTE: "me and my" removed — too broad ("me and my friend" is not family)
+    family_phrases = [
+        "with my family", "with my partner", "with my wife",
+        "with my husband", "with my spouse",
+        "with my girlfriend", "with my boyfriend",
+        "me and my wife", "me and my husband", "me and my partner",
+    ]
+    for phrase in family_phrases:
+        if phrase in lower:
+            return "with_family"
+
+    # Alone — explicit statements
+    # NOTE: "single" alone is ambiguous — only match exact "i'm single"
+    # or the word in clear context. "single mother" is caught above.
+    alone_phrases = [
+        "i'm alone", "im alone", "i am alone",
+        "by myself", "on my own", "just me",
+        "no family", "no one with me",
+        "nobody with me",
+    ]
+    for phrase in alone_phrases:
+        if phrase in lower:
+            return "alone"
+
+    return None
+
+
 def extract_slots(message: str) -> dict:
-    service_type, service_detail = _extract_service_type(message)
+    all_types = _extract_all_service_types(message)
+
+    service_type = None
+    service_detail = None
+    additional_services = []
+
+    if all_types:
+        service_type, service_detail = all_types[0]
+        additional_services = all_types[1:]  # remaining (service, detail) tuples
+
     return {
         "service_type": service_type,
         "service_detail": service_detail,
+        "additional_services": additional_services,
         "location": _extract_location(message),
         "urgency": _extract_urgency(message),
         "age": _extract_age(message),
+        "family_status": _extract_family_status(message),
     }
 
 
 def merge_slots(existing: dict, new_values: dict) -> dict:
     merged = dict(existing)
     for key, value in new_values.items():
+        # additional_services is transient extraction metadata —
+        # never persist it in session state.
+        if key == "additional_services":
+            continue
         if value not in (None, "", []):
             # If user provides a real location, replace a previous "near me"
             if key == "location" and value != NEAR_ME_SENTINEL:
@@ -391,5 +495,8 @@ def next_follow_up_question(slots: dict) -> str:
 
     if slots.get("service_type") == "shelter" and not slots.get("age"):
         return "To narrow shelter options, can you share your age?"
+
+    if slots.get("service_type") == "shelter" and not slots.get("family_status"):
+        return "Are you on your own, or do you have family or children with you?"
 
     return "Could you share one more detail to help me narrow options?"

@@ -805,3 +805,364 @@ def test_new_urgency_keywords():
 
 
 # -----------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------
+# "OTHER SERVICES" KEYWORD
+# -----------------------------------------------------------------------
+
+def test_other_services_keyword():
+    """'I need other services' (quick reply value) should extract service_type=other."""
+    slots = extract_slots("I need other services")
+    assert slots["service_type"] == "other", f"Got: {slots['service_type']}"
+
+
+def test_other_service_singular():
+    """'other service' should also extract service_type=other."""
+    slots = extract_slots("I need other service help")
+    assert slots["service_type"] == "other"
+
+
+# -----------------------------------------------------------------------
+# SERVICE DETAIL EXTRACTION
+# -----------------------------------------------------------------------
+
+def test_service_detail_dental():
+    """'dental' should extract service_type=medical with service_detail='dental care'."""
+    slots = extract_slots("I need dental care")
+    assert slots["service_type"] == "medical"
+    assert slots["service_detail"] == "dental care"
+
+
+def test_service_detail_therapy():
+    """'therapy' should extract service_type=mental_health with service_detail='therapy'."""
+    slots = extract_slots("I need therapy")
+    assert slots["service_type"] == "mental_health"
+    assert slots["service_detail"] == "therapy"
+
+
+def test_service_detail_immigration():
+    """'immigration' should extract service_type=legal with service_detail='immigration services'."""
+    slots = extract_slots("I need immigration help")
+    assert slots["service_type"] == "legal"
+    assert slots["service_detail"] == "immigration services"
+
+
+def test_service_detail_shower():
+    """'shower' should extract service_type=personal_care with service_detail='showers'."""
+    slots = extract_slots("I need a shower")
+    assert slots["service_type"] == "personal_care"
+    assert slots["service_detail"] == "showers"
+
+
+def test_service_detail_food_pantry():
+    """'food pantry' should extract service_type=food with service_detail='food pantries'."""
+    slots = extract_slots("where is the nearest food pantry")
+    assert slots["service_type"] == "food"
+    assert slots["service_detail"] == "food pantries"
+
+
+def test_service_detail_none_for_generic():
+    """Generic keywords like 'food' should have no service_detail."""
+    slots = extract_slots("I need food")
+    assert slots["service_type"] == "food"
+    assert slots["service_detail"] is None
+
+
+def test_service_detail_aa_meeting():
+    """'AA meeting' should extract mental_health with detail='AA meetings'."""
+    slots = extract_slots("where can I find an AA meeting")
+    assert slots["service_type"] == "mental_health"
+    assert slots["service_detail"] == "AA meetings"
+
+
+# -----------------------------------------------------------------------
+# MERGE SLOTS — SERVICE DETAIL CLEARING
+# -----------------------------------------------------------------------
+
+def test_merge_slots_clears_stale_detail():
+    """When service_type changes and new extraction has no detail, old detail is cleared."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "medical", "service_detail": "dental care", "location": "Brooklyn"}
+    new = {"service_type": "food", "service_detail": None, "location": None}
+    merged = merge_slots(existing, new)
+    assert merged["service_type"] == "food"
+    assert "service_detail" not in merged or merged.get("service_detail") is None
+
+
+def test_merge_slots_keeps_detail_when_same_service():
+    """When service_type doesn't change, service_detail should persist."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "medical", "service_detail": "dental care"}
+    new = {"service_type": None, "location": "Queens"}
+    merged = merge_slots(existing, new)
+    assert merged["service_detail"] == "dental care"
+
+
+def test_merge_slots_updates_detail_with_new_subtype():
+    """When service_type changes and new extraction has a detail, use the new one."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "food", "service_detail": None, "location": "Brooklyn"}
+    new = {"service_type": "medical", "service_detail": "dental care"}
+    merged = merge_slots(existing, new)
+    assert merged["service_type"] == "medical"
+    assert merged["service_detail"] == "dental care"
+
+
+# -----------------------------------------------------------------------
+# FAMILY STATUS EXTRACTION
+# -----------------------------------------------------------------------
+
+def test_family_status_with_children():
+    """Mentions of children should extract family_status=with_children."""
+    phrases = [
+        "I have two kids with me",
+        "I need shelter for me and my kids",
+        "my daughter is 6",
+        "I'm here with my son",
+        "I have a baby",
+        "I'm pregnant and need shelter",
+        "with my children ages 4 and 7",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "with_children", f"Failed on: {phrase}"
+
+
+def test_family_status_single_parent():
+    """'Single mother/father/parent' should be with_children, not alone."""
+    phrases = [
+        "I'm a single mother",
+        "single mom with two kids",
+        "I'm a single dad",
+        "single parent needing shelter",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "with_children", \
+            f"'{phrase}' should be with_children, got: {slots['family_status']}"
+
+
+def test_family_status_with_family():
+    """Mentions of partner/spouse should extract family_status=with_family."""
+    phrases = [
+        "I'm with my partner",
+        "me and my wife need shelter",
+        "with my husband",
+        "with my family",
+        "with my girlfriend",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "with_family", f"Failed on: {phrase}"
+
+
+def test_family_status_alone():
+    """Explicit alone statements should extract family_status=alone."""
+    phrases = [
+        "I'm alone",
+        "I'm by myself",
+        "it's just me",
+        "I'm on my own",
+        "no one with me",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] == "alone", f"Failed on: {phrase}"
+
+
+def test_family_status_none_when_not_mentioned():
+    """Messages without family info should return None."""
+    phrases = [
+        "I need food in Brooklyn",
+        "shelter in Queens",
+        "where can I find clothing",
+        "I need help",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] is None, f"False positive on: {phrase}"
+
+
+def test_family_status_false_positive_i_have_a():
+    """'I have a question' should NOT extract family_status."""
+    phrases = [
+        "I have a question about shelters",
+        "I have a problem",
+        "I have a feeling this won't work",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["family_status"] is None, \
+            f"False positive on: {phrase} → {slots['family_status']}"
+
+
+def test_family_status_false_positive_me_and_my_friend():
+    """'me and my friend' should NOT extract with_family."""
+    slots = extract_slots("me and my friend need food in Brooklyn")
+    assert slots["family_status"] is None, \
+        f"'me and my friend' should not be with_family, got: {slots['family_status']}"
+
+
+def test_family_status_false_positive_feeling_alone():
+    """Emotional 'feeling alone' should NOT extract family_status."""
+    slots = extract_slots("I'm feeling so alone right now")
+    assert slots["family_status"] is None, \
+        f"Emotional phrase should not extract family_status, got: {slots['family_status']}"
+
+
+def test_family_status_children_with_service():
+    """Family status should extract alongside service type."""
+    slots = extract_slots("I have 2 kids and need shelter in the Bronx")
+    assert slots["service_type"] == "shelter"
+    assert slots["family_status"] == "with_children"
+    assert "bronx" in slots["location"].lower()
+
+
+# -----------------------------------------------------------------------
+# FOLLOW-UP QUESTION — FAMILY STATUS
+# -----------------------------------------------------------------------
+
+def test_followup_asks_family_for_shelter():
+    """Shelter search with age but no family_status should ask about family."""
+    from app.services.slot_extractor import next_follow_up_question
+    slots = {"service_type": "shelter", "location": "Brooklyn", "age": 30}
+    question = next_follow_up_question(slots)
+    assert "family" in question.lower() or "children" in question.lower()
+
+
+def test_followup_skips_family_for_food():
+    """Food search should NOT ask about family status."""
+    from app.services.slot_extractor import next_follow_up_question
+    slots = {"service_type": "food", "location": "Brooklyn"}
+    question = next_follow_up_question(slots)
+    assert "family" not in question.lower()
+
+
+def test_followup_skips_family_when_already_set():
+    """Shelter with family_status already set should not ask again."""
+    from app.services.slot_extractor import next_follow_up_question
+    slots = {"service_type": "shelter", "location": "Brooklyn", "age": 25,
+             "family_status": "with_children"}
+    question = next_follow_up_question(slots)
+    assert "family" not in question.lower() and "children" not in question.lower()
+
+
+# -----------------------------------------------------------------------
+# MULTI-SERVICE EXTRACTION
+# -----------------------------------------------------------------------
+
+def test_extract_all_two_services():
+    """'food and shelter' should extract both service types."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food and shelter in Brooklyn")
+    types = [r[0] for r in results]
+    assert "food" in types
+    assert "shelter" in types
+    assert len(types) == 2
+
+
+def test_extract_all_three_services():
+    """Three services should all be extracted."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food, shelter, and clothing")
+    types = [r[0] for r in results]
+    assert len(types) == 3
+    assert "food" in types
+    assert "shelter" in types
+    assert "clothing" in types
+
+
+def test_extract_all_no_duplicates():
+    """Same category mentioned twice should only appear once."""
+    from app.services.slot_extractor import _extract_all_service_types
+    # "food" and "food pantry" are both category "food"
+    results = _extract_all_service_types("I need food from a food pantry")
+    types = [r[0] for r in results]
+    assert types.count("food") == 1
+
+
+def test_extract_all_mental_health_not_double_match():
+    """'mental health' should match mental_health, not also 'health' as medical."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need mental health support")
+    types = [r[0] for r in results]
+    assert "mental_health" in types
+    assert "medical" not in types, "'mental health' should not also match 'health'"
+
+
+def test_extract_all_preserves_detail():
+    """Sub-type details should be preserved for each service."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need dental care and therapy")
+    details = {r[0]: r[1] for r in results}
+    assert details.get("medical") == "dental care"
+    assert details.get("mental_health") == "therapy"
+
+
+def test_extract_all_single_service():
+    """Single service should return a list of one."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food")
+    assert len(results) == 1
+    assert results[0][0] == "food"
+
+
+def test_extract_all_no_service():
+    """No service keywords should return empty list."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("hello how are you")
+    assert results == []
+
+
+def test_extract_slots_additional_services():
+    """extract_slots should return primary + additional_services."""
+    slots = extract_slots("I need food and shelter in Brooklyn")
+    assert slots["service_type"] == "food"
+    assert len(slots["additional_services"]) == 1
+    assert slots["additional_services"][0][0] == "shelter"
+    assert slots["location"] is not None
+
+
+def test_extract_slots_no_additional():
+    """Single service should have empty additional_services."""
+    slots = extract_slots("I need food in Brooklyn")
+    assert slots["service_type"] == "food"
+    assert slots["additional_services"] == []
+
+
+def test_extract_slots_additional_none_message():
+    """No service should have empty additional_services and None primary."""
+    slots = extract_slots("hello")
+    assert slots["service_type"] is None
+    assert slots["additional_services"] == []
+
+
+def test_merge_slots_skips_additional_services():
+    """merge_slots should not persist additional_services in session."""
+    from app.services.slot_extractor import merge_slots
+    existing = {"service_type": "food", "location": "Brooklyn"}
+    new = {"service_type": "food", "additional_services": [("shelter", None)]}
+    merged = merge_slots(existing, new)
+    assert "additional_services" not in merged
+
+
+def test_extract_all_food_and_legal():
+    """'food and legal help' should extract both."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food and legal help in Manhattan")
+    types = [r[0] for r in results]
+    assert "food" in types
+    assert "legal" in types
+
+
+def test_extract_all_complex_multi_intent():
+    """Complex multi-intent with details should work."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types(
+        "I need a shower, some food, and help with my immigration case"
+    )
+    types = [r[0] for r in results]
+    assert "personal_care" in types
+    assert "food" in types
+    assert "legal" in types

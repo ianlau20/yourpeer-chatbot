@@ -733,3 +733,379 @@ def test_log_turn_redacts_phone_in_bot_response():
     bot_response = events[0]["bot_response"]
     assert "212-555-1234" not in bot_response, "Phone should be redacted from bot response"
     assert "[PHONE]" in bot_response
+
+
+# -----------------------------------------------------------------------
+# GEOLOCATION COORDINATE PRIORITY
+# -----------------------------------------------------------------------
+
+def test_text_location_overrides_stored_coords(fresh_session):
+    """When user provides a text location after using 'near me', the query
+    should use the text location and NOT the stored browser coordinates."""
+    from unittest.mock import patch, call
+    from app.services.chatbot import generate_reply
+    from conftest import MOCK_QUERY_RESULTS
+
+    with patch("app.services.chatbot.claude_reply", return_value="How can I help?"), \
+         patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS) as mock_query, \
+         patch("app.services.chatbot.detect_crisis", return_value=None):
+
+        # Step 1: User says "food near me" with browser coordinates (Harlem)
+        generate_reply("food near me", session_id=fresh_session, latitude=40.8116, longitude=-73.9465)
+        # Step 2: Confirm the near-me search
+        generate_reply("Yes, search", session_id=fresh_session)
+
+        # Step 3: New search with a TEXT location (Midtown East)
+        generate_reply("mental health in Midtown East", session_id=fresh_session)
+        generate_reply("Yes, search", session_id=fresh_session)
+
+        # The LAST call to query_services should use Midtown East,
+        # NOT the Harlem coordinates
+        last_call = mock_query.call_args
+        assert last_call.kwargs.get("latitude") is None or last_call[1].get("latitude") is None, \
+            "Stored coordinates should not override text location"
+        location_arg = last_call.kwargs.get("location") or last_call[1].get("location")
+        assert location_arg is not None, "Text location should be passed"
+        assert "near_me" not in str(location_arg).lower(), "Should not use near-me sentinel"
+
+
+# -----------------------------------------------------------------------
+# PRIVACY QUESTIONS — CLASSIFICATION
+# -----------------------------------------------------------------------
+
+def test_classify_privacy_questions():
+    """Privacy-related questions should classify as bot_question."""
+    privacy_questions = [
+        "is this private",
+        "is this confidential",
+        "is this safe",
+        "are you recording me",
+        "who can see this",
+        "can anyone see my messages",
+        "do you share my information",
+        "do you store my data",
+        "can ICE see this",
+        "can the police see what I said",
+        "will this affect my benefits",
+        "can my case worker see this",
+        "can the shelter see what I wrote",
+        "how do i delete my conversation",
+        "do you know who I am",
+        "do you know my name",
+        "do you save my info",
+        "do you track me",
+        "is this anonymous",
+    ]
+    for phrase in privacy_questions:
+        assert_classified(phrase, "bot_question")
+
+
+def test_privacy_not_confused_with_service():
+    """Privacy questions should not be misclassified as service requests."""
+    # "benefits" is also an "other" service keyword, but in privacy context
+    # "will this affect my benefits" should be bot_question not service
+    assert_classified("will this affect my benefits", "bot_question")
+
+
+# -----------------------------------------------------------------------
+# STATIC BOT ANSWERS — PATTERN MATCHING
+# -----------------------------------------------------------------------
+
+def test_static_bot_answer_geolocation_failure():
+    """Geolocation failure questions get a specific answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Why couldn't you get my location?")
+    assert "permission" in response.lower() or "denied" in response.lower()
+    assert "neighborhood" in response.lower() or "borough" in response.lower()
+
+
+def test_static_bot_answer_geolocation_general():
+    """General geolocation questions get a relevant answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("How does location work?")
+    assert "gps" in response.lower() or "location" in response.lower()
+
+
+def test_static_bot_answer_outside_nyc():
+    """Outside-NYC questions mention 211."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Can you search outside NYC?")
+    assert "211" in response
+    assert "new york" in response.lower() or "nyc" in response.lower()
+
+
+def test_static_bot_answer_services_list():
+    """Service category questions list available categories."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("What services can you search for?")
+    assert "food" in response.lower()
+    assert "shelter" in response.lower()
+    assert "legal" in response.lower()
+
+
+def test_static_bot_answer_privacy_ice():
+    """ICE-related privacy questions give specific reassurance."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Can ICE see my conversation?")
+    assert "ice" in response.lower()
+    assert "government" in response.lower() or "identifying" in response.lower()
+
+
+def test_static_bot_answer_privacy_police():
+    """Police-related questions give specific reassurance."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Do you share with the police?")
+    assert "law enforcement" in response.lower()
+
+
+def test_static_bot_answer_privacy_benefits():
+    """Benefits-impact questions give specific reassurance."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Will this affect my benefits or case?")
+    assert "benefits" in response.lower()
+    assert "case" in response.lower() or "provider" in response.lower()
+
+
+def test_static_bot_answer_privacy_who_can_see():
+    """Visibility questions reassure no one else can see."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Can anyone see what I said?")
+    assert "no one" in response.lower() or "nobody" in response.lower()
+
+
+def test_static_bot_answer_privacy_delete():
+    """Delete/clear questions explain how."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("How do I delete my conversation?")
+    assert "start over" in response.lower()
+
+
+def test_static_bot_answer_privacy_identity():
+    """Identity questions confirm anonymity."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Do you know my name?")
+    assert "don't know" in response.lower() or "do not know" in response.lower()
+
+
+def test_static_bot_answer_privacy_general():
+    """General privacy question gets comprehensive answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Is this confidential?")
+    assert "private" in response.lower() or "anonymous" in response.lower()
+
+
+def test_static_bot_answer_how_it_works():
+    """'How does this work' gets an explanation."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("How does this work?")
+    assert "database" in response.lower() or "search" in response.lower()
+
+
+def test_static_bot_answer_default():
+    """Unknown bot questions get a generic but useful answer."""
+    from app.services.chatbot import _static_bot_answer
+    response = _static_bot_answer("Why is the sky blue?")
+    assert "service" in response.lower()
+
+
+# -----------------------------------------------------------------------
+# SERVICE DETAIL IN CONFIRMATION
+# -----------------------------------------------------------------------
+
+def test_confirmation_uses_service_detail(fresh_session):
+    """Confirmation message should use service_detail when available."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "medical", "service_detail": "dental care", "location": "Brooklyn"}
+    msg = _build_confirmation_message(slots)
+    assert "dental care" in msg.lower()
+    assert "health care" not in msg.lower(), "Should use detail, not generic label"
+
+
+def test_confirmation_falls_back_to_label(fresh_session):
+    """Confirmation message should use generic label when no service_detail."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "food", "location": "Queens"}
+    msg = _build_confirmation_message(slots)
+    assert "food" in msg.lower()
+
+
+def test_change_service_clears_detail(fresh_session):
+    """Changing service type during confirmation should clear service_detail."""
+    from app.services.session_store import get_session_slots
+
+    # Start a dental care search
+    send("I need dental care", session_id=fresh_session)
+    send("Brooklyn", session_id=fresh_session)
+
+    # At confirmation, change service
+    send("Change service", session_id=fresh_session)
+
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_detail") is None, "service_detail should be cleared"
+    assert slots.get("service_type") is None, "service_type should be cleared"
+
+
+# -----------------------------------------------------------------------
+# BOT QUESTION HANDLER — FULL FLOW
+# -----------------------------------------------------------------------
+
+def test_bot_question_privacy_gets_specific_response(fresh_session):
+    """Privacy questions should get a specific answer, not generic overview."""
+    result = send("Is this private? Can anyone see what I type?", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should mention privacy, not just list service categories
+    assert "private" in response or "anonymous" in response or "no one" in response
+
+
+def test_bot_question_geolocation_gets_specific_response(fresh_session):
+    """Geolocation questions should explain why it might fail."""
+    result = send("Why couldn't you get my location?", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "permission" in response or "browser" in response or "neighborhood" in response
+
+
+def test_bot_question_outside_nyc_gets_specific_response(fresh_session):
+    """Outside-NYC questions should mention coverage limitation."""
+    result = send("Can you search outside NYC?", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "new york" in response or "nyc" in response or "five boroughs" in response
+
+
+# -----------------------------------------------------------------------
+# CONTEXT-AWARE YES/NO — EXPANDED
+# -----------------------------------------------------------------------
+
+def test_yes_after_frustration_resets(fresh_session):
+    """'Yes' after frustration should start a new search."""
+    send("I need food", session_id=fresh_session)
+    send("Brooklyn", session_id=fresh_session)
+    send("Yes, search", session_id=fresh_session)
+    send("that wasn't helpful at all", session_id=fresh_session)
+    result = send("yes", session_id=fresh_session)
+    # Should reset — show welcome quick replies
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "🍽️ Food" in labels
+
+
+def test_no_after_frustration_offers_navigator(fresh_session):
+    """'No' after frustration should offer peer navigator."""
+    send("that wasn't helpful", session_id=fresh_session)
+    result = send("no", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "person" in response or "let me know" in response
+
+
+def test_yes_after_confused_escalates(fresh_session):
+    """'Yes' after confused should connect to peer navigator."""
+    send("I don't know what to do", session_id=fresh_session)
+    result = send("yes", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "peer" in response or "navigator" in response or "streetlives" in response
+
+
+def test_no_after_confused_gentle_response(fresh_session):
+    """'No' after confused should give gentle encouragement."""
+    send("I'm so lost", session_id=fresh_session)
+    result = send("no", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "okay" in response or "ready" in response
+    # Should have some way forward
+    qr = result.get("quick_replies", [])
+    assert len(qr) > 0, "Should show quick replies after declining"
+
+
+def test_no_after_emotional_has_quick_replies(fresh_session):
+    """'No' after emotional should show quick reply buttons."""
+    send("I'm having a really rough day", session_id=fresh_session)
+    result = send("no", session_id=fresh_session)
+    qr = result.get("quick_replies", [])
+    assert len(qr) > 0, "Should show quick replies so user has a next step"
+
+
+def test_context_cleared_after_unrelated_message(fresh_session):
+    """_last_action should be cleared after any non-yes/no message."""
+    send("I'm feeling really down", session_id=fresh_session)
+    # Send an unrelated message — should clear _last_action
+    send("I need food in Brooklyn", session_id=fresh_session)
+    # "yes" should now refer to the pending confirmation, not escalation
+    result = send("Yes, search", session_id=fresh_session)
+    assert result["result_count"] >= 1 or result["services"], \
+        "Yes should trigger search, not escalation"
+
+
+# -----------------------------------------------------------------------
+# FRUSTRATION LOOP — NO REPEATED RESPONSE
+# -----------------------------------------------------------------------
+
+def test_repeated_frustration_different_response(fresh_session):
+    """Second frustration message should NOT repeat the same response."""
+    r1 = send("that's not helpful", session_id=fresh_session)
+    r2 = send("I don't like those options either", session_id=fresh_session)
+    assert r1["response"] != r2["response"], \
+        "Repeated frustration should produce a different response"
+
+
+def test_repeated_frustration_pushes_navigator(fresh_session):
+    """Second frustration should push peer navigator more strongly."""
+    send("not helpful at all", session_id=fresh_session)
+    result = send("this is useless", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "peer navigator" in response or "real people" in response
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert any("person" in l.lower() or "talk" in l.lower() for l in labels)
+
+
+def test_repeated_frustration_shorter_response(fresh_session):
+    """Second frustration response should be shorter than the first."""
+    r1 = send("that wasn't helpful", session_id=fresh_session)
+    r2 = send("still not helpful", session_id=fresh_session)
+    assert len(r2["response"]) < len(r1["response"]), \
+        "Repeated frustration response should be shorter, not a wall of text"
+
+
+# -----------------------------------------------------------------------
+# FAMILY STATUS IN CONFIRMATION
+# -----------------------------------------------------------------------
+
+def test_confirmation_with_children():
+    """Confirmation message should mention children when family_status is set."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Brooklyn", "family_status": "with_children"}
+    msg = _build_confirmation_message(slots)
+    assert "children" in msg.lower()
+
+
+def test_confirmation_with_family():
+    """Confirmation message should mention family."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Queens", "family_status": "with_family"}
+    msg = _build_confirmation_message(slots)
+    assert "family" in msg.lower()
+
+
+def test_confirmation_alone():
+    """Confirmation message should mention 'yourself' when alone."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Bronx", "family_status": "alone"}
+    msg = _build_confirmation_message(slots)
+    assert "yourself" in msg.lower()
+
+
+def test_confirmation_no_family_status():
+    """Confirmation without family_status should not mention family."""
+    from app.services.chatbot import _build_confirmation_message
+    slots = {"service_type": "shelter", "location": "Manhattan"}
+    msg = _build_confirmation_message(slots)
+    assert "children" not in msg.lower()
+    assert "family" not in msg.lower()
+    assert "yourself" not in msg.lower()
+
+
+def test_family_status_extracted_in_flow(fresh_session):
+    """Family status should be extracted during multi-turn shelter search."""
+    send("I need shelter", session_id=fresh_session)
+    send("Brooklyn", session_id=fresh_session)
+    result = send("I have two kids with me", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("family_status") == "with_children"

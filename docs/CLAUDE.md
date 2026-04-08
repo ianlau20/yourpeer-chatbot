@@ -108,11 +108,11 @@ information, preventing hallucination.
 - **Stability**: 1,000-char message length limit (frontend + backend), coordinate validation (lat ±90, lng ±180), 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
 - **Observability**: `X-Request-ID` correlation IDs flow from frontend → Next.js proxy → FastAPI backend → audit log, enabling end-to-end request tracing
 - **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
-- **Test suite**: 19 pytest files (620 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, and DB schema/query integration
+- **Test suite**: 19 pytest files (695 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, and DB schema/query integration
 
 ## Known Gaps / In Progress
 
-- **Multi-intent requests** — cannot handle "food AND shelter" in a single message
+- **Multi-intent requests** — extraction of multiple service types from a single message is implemented (`additional_services` in slot extractor), but routing/queue handling is pending (PRs 2–4 in the multi-intent plan)
 - **Real-time location** — browser geolocation supported (opt-in); falls back to text-based location when denied
 - **Multilingual support** — English only
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage

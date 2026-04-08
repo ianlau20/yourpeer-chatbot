@@ -36,6 +36,7 @@ def query_services(
     max_results: int = 10,
     latitude: float = None,
     longitude: float = None,
+    family_status: str = None,
 ) -> dict:
     """
     High-level entry point: go from intake slots to service results.
@@ -50,6 +51,7 @@ def query_services(
         max_results:  Max service cards to return
         latitude:     User's latitude from browser geolocation
         longitude:    User's longitude from browser geolocation
+        family_status: Family composition ('with_children', 'with_family', 'alone')
 
     Returns:
         dict with keys: services, result_count, template_used,
@@ -119,6 +121,37 @@ def query_services(
         user_params["weekday"] = weekday
     if current_time:
         user_params["current_time"] = current_time
+
+    # Shelter taxonomy enrichment based on user profile.
+    # The DB has shelter sub-categories as separate taxonomy names with
+    # parent_name="Shelter": "Families", "Single Adult", "Youth", "Senior",
+    # "LGBTQ Young Adult", "Veterans". Services tagged as e.g. "Families"
+    # are NOT also tagged with the generic "Shelter" taxonomy, so they're
+    # invisible to the base shelter query unless explicitly included.
+    if template_key == "shelter":
+        extra_taxonomies = []
+
+        # Family composition
+        if family_status in ("with_children", "with_family"):
+            extra_taxonomies.append("families")
+        elif family_status == "alone":
+            extra_taxonomies.append("single adult")
+
+        # Age-based sub-categories
+        if age is not None and age < 18:
+            extra_taxonomies.append("youth")
+        if age is not None and age >= 62:
+            extra_taxonomies.append("senior")
+
+        # Always include LGBTQ Young Adult — we can't detect this from
+        # slots, so include it by default so these services are never
+        # invisible to any shelter search.
+        extra_taxonomies.append("lgbtq young adult")
+
+        if extra_taxonomies:
+            enriched = list(TEMPLATES["shelter"]["default_params"]["taxonomy_names"])
+            enriched.extend(extra_taxonomies)
+            user_params["taxonomy_names"] = enriched
 
     return execute_service_query(
         template_key=template_key,

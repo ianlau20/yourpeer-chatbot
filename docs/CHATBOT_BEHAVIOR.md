@@ -19,7 +19,7 @@ Deterministic keyword and phrase matching. Handles button taps, short phrases, a
 | 1 | `crisis` | Regex + LLM crisis detection (see [CRISIS_DETECTION.md](CRISIS_DETECTION.md)) | "I want to hurt myself" |
 | 2 | `reset` | "start over", "new search", "cancel" | "start over" |
 | 3 | `bot_identity` | "are you a robot", "am I talking to a person" | "are you AI?" |
-| 4 | `bot_question` | "why can't you", "how does this work", "what can you search" | "why couldn't you get my location?" |
+| 4 | `bot_question` | "why can't you", "how does this work", "what can you search", "is this private", "can ICE see", "will this affect my benefits", "do you know who I am" | "why couldn't you get my location?", "is this safe?" |
 | 5 | `escalation` | "peer navigator", "talk to a person", "talk to someone" | "connect with peer navigator" |
 | 6 | `confirm_change_service` | "change service", "different service" | "change service" |
 | 7 | `confirm_change_location` | "change location", "different area" | "change location" |
@@ -58,7 +58,11 @@ Responds honestly that the user is talking to an AI assistant, offers to connect
 
 ### Bot Question
 
-Answers questions about the bot's capabilities directly and honestly. Uses an LLM prompt loaded with factual information about the system: searches a verified NYC services database, covers five boroughs only, uses browser geolocation (requires permission), doesn't store personal information. Falls back to a static capabilities summary when the LLM is unavailable.
+Answers questions about the bot's capabilities directly and honestly. Uses an LLM prompt loaded with detailed factual information about the system, including session context (current search state, whether geolocation is active). The prompt includes specific details about service categories, geolocation failure reasons, NYC-only coverage (suggests 211 for elsewhere), and comprehensive privacy facts (no ICE connection, no law enforcement sharing, no impact on benefits).
+
+Privacy questions are specifically classified into this category, including concerns about ICE, police, case workers, benefits impact, anonymity, recording, and data deletion. This ensures the population served — who may avoid seeking help due to surveillance fears — gets direct, reassuring answers.
+
+When the LLM is unavailable, `_static_bot_answer()` provides pattern-matched fallbacks for 7 topic areas: geolocation failures, NYC coverage, service categories, immigration/ICE privacy, law enforcement privacy, benefits/provider privacy, identity/anonymity, data deletion, and general privacy. Unknown questions get a useful generic answer rather than silence.
 
 This category catches messages like "why weren't you able to get my location?" that previously misrouted to the frustration handler.
 
@@ -87,25 +91,44 @@ Returns a brief "you're welcome" message with service buttons in case the user w
 
 ### Frustration
 
-Acknowledges the frustration empathetically without being defensive. Offers three options: try a different search, connect with a peer navigator, or call 311 for live social services help. Does NOT re-show the same results or push the user to retry the same query.
+Acknowledges the frustration empathetically without being defensive. Offers three options: try a different search, connect with a peer navigator, or call 311 for live social services help. Sets `_last_action = "frustration"` so "yes" starts a new search and "no" offers a navigator.
+
+**Repeated frustration detection:** If the user expresses frustration a second time in a row (i.e., `_last_action` is already `"frustration"`), the bot produces a shorter, different response that avoids repeating the same wall of text. The second response acknowledges the bot isn't helping, strongly recommends a peer navigator, and mentions 311 as a backup.
 
 ### Emotional
 
 Acknowledges the user's feelings with warmth before doing anything else. Uses an LLM-generated response when available, with a specialized prompt that focuses on empathy and explicitly prohibits listing services, giving advice, or diagnosing. Falls back to a static response that validates the feeling, offers peer navigator, and gently mentions practical help is available.
 
-Only shows a "Talk to a person" quick reply — no service category buttons. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response.
+Only shows a "Talk to a person" quick reply — no service category buttons. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with service category quick replies so the user has a clear next step.
 
 ### Confused
 
-Shows gentle guidance for users who don't know what they need. Lists common things people look for in plain language (not service category labels). Shows category buttons plus a "Talk to a person" option. This handler is intentionally NOT sent to the LLM, which would misinterpret "I don't know what to do" as a mental health service request.
+Shows gentle guidance for users who don't know what they need. Lists common things people look for in plain language (not service category labels). Shows category buttons plus a "Talk to a person" option. Sets `_last_action = "confused"` so "yes" connects to a peer navigator and "no" gives gentle encouragement with a navigator button. This handler is intentionally NOT sent to the LLM, which would misinterpret "I don't know what to do" as a mental health service request.
 
 ### Help
 
 Returns a static response describing what the bot can do: find free services in NYC, the categories available, and how to get started. Shows service category buttons.
 
+### Context-Aware Yes/No
+
+After emotional, escalation, frustration, or confused responses, "yes" and "no" are interpreted in context rather than as search confirmations:
+
+| After | "Yes" means | "No" means |
+|---|---|---|
+| Emotional | Connect to peer navigator | Gentle response + service menu buttons |
+| Escalation | Connect to peer navigator | "No problem" + service menu buttons |
+| Frustration | Start a new search (reset) | "No worries" + navigator button |
+| Confused | Connect to peer navigator | Gentle encouragement + navigator button |
+
+The `_last_action` tracker is cleared after any non-yes/no message so it doesn't persist indefinitely.
+
 ### Service
 
-Extracts structured slots (service type, location, age, urgency, gender) from the message. If slots are complete, shows a confirmation prompt. If incomplete, asks a follow-up question for the missing slot.
+Extracts structured slots (service type, service detail, location, age, urgency, gender, family status) from the message. If slots are complete, shows a confirmation prompt. If incomplete, asks a follow-up question for the missing slot.
+
+**Family composition:** For shelter searches, the chatbot asks "Are you on your own, or do you have family or children with you?" after collecting age. The `family_status` slot (with_children, with_family, alone) is shown in the confirmation and used to enrich shelter taxonomy queries.
+
+**Multi-service extraction:** The slot extractor detects all service types in a message (e.g., "food and shelter" → both extracted). The primary type drives the current search; additional types are stored in `additional_services` for future queue handling.
 
 ### General
 
@@ -126,7 +149,7 @@ Three LLM-powered features are used in production, each with a specific model as
 | Feature | Model | When It Runs | Output |
 |---|---|---|---|
 | Conversational fallback | Haiku | Message classified as `general` | 1–3 sentence response |
-| Slot extraction | Haiku | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender |
+| Slot extraction | Haiku | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender, family_status |
 | Message classification | Haiku | Messages >3 words that regex can't classify | Single category name |
 | Emotional acknowledgment | Haiku | Messages classified as `emotional` | 2–3 sentence empathetic response |
 | Bot question answer | Haiku | Messages classified as `bot_question` | 2–3 sentence factual answer |
