@@ -359,7 +359,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 106 phrase audit tests in `test_phrase_audit.py`, 56 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 106 phrase audit tests in `test_phrase_audit.py`, 56 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`, and 60 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

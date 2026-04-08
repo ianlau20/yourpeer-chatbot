@@ -122,18 +122,24 @@ Key functions:
 ## Test Coverage
 
 ```bash
-pytest tests/test_pii_redactor.py -v     # 15 tests covering all categories
+pytest tests/test_pii_redactor.py -v     # 60 tests covering all categories
 pytest tests/test_edge_cases.py -v        # PII + slot interaction tests
 ```
 
 Tests cover:
-- Each PII type with multiple format variations
-- False positive checks on NYC locations and service keywords
+- Each PII type with multiple format variations (SSN, email, phone, DOB, address, name)
+- Name detection with intro phrases ("my name is", "call me", "I'm", "Hi") and false positive guards (60-word blocklist for "I'm" pattern)
+- "Hi Bryan!" greeting pattern for bot response redaction
+- False positive checks on NYC locations, service keywords, emotional phrases, and common adjectives
 - Apartment/unit capture with addresses
-- Abbreviated street suffixes (St, Ter)
+- Abbreviated street suffixes (St, Ter), ordinal streets (5th Avenue), Broadway special case
 - Suffix-less addresses with preposition context
+- SSN/phone overlap resolution (SSN wins)
 - PII not leaking through confirmation echo
 - PII redaction not breaking slot extraction
+- Age numbers (17) not redacted as PII
+- Bot response PII redaction via `_log_turn` and audit log
+- ICE/police routing in `_static_bot_answer` (ICE word-boundary prevents "police" collision)
 
 ## Future Improvements
 

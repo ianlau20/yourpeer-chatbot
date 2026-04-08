@@ -1057,7 +1057,10 @@ def _static_bot_answer(message: str) -> str:
         )
 
     # Privacy — immigration / law enforcement fears
-    if any(w in lower for w in ["ice", "immigration", "deport", "undocumented", "immigrant"]):
+    # NOTE: "ice" uses word-boundary regex because it's a substring of "police"
+    _ice_words = ["immigration", "deport", "undocumented", "immigrant"]
+    _ice_re = re.compile(r'\bice\b', re.IGNORECASE)
+    if any(w in lower for w in _ice_words) or _ice_re.search(lower):
         return (
             "I don't collect any identifying information — no name, no "
             "address, no immigration status. I'm not connected to any "
