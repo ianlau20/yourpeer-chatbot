@@ -1133,7 +1133,16 @@ def generate_reply(
         # Service intent wins — help/escalation/emotional/confused become
         # tone modifiers, not separate routes. This replaces the ad-hoc
         # guards that used to re-check slots inside help/escalation handlers.
-        category = "service"
+        #
+        # Exception: escalation requires BOTH service_type AND location to
+        # override. "Connect me with a navigator about food" (food but no
+        # location) should stay as escalation — the user wants human help.
+        # "Navigator, client needs shelter in East Harlem" (both present)
+        # should route to service — the user is making a request.
+        if action == "escalation" and not early_extracted.get("location"):
+            category = "escalation"
+        else:
+            category = "service"
     elif action == "help":
         category = "help"
     elif action == "escalation":

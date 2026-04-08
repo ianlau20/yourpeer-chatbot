@@ -1345,3 +1345,38 @@ def test_urgent_no_service_falls_through(fresh_session):
     result = send("I need help right now", session_id=fresh_session)
     # Should get help response or general, not an error
     assert result.get("response") is not None
+
+
+# -----------------------------------------------------------------------
+# BUG FIX — ESCALATION GUARD REGRESSION
+# -----------------------------------------------------------------------
+
+def test_escalation_without_location_stays_escalation(fresh_session):
+    """'Connect me with a navigator about food' (food but no location)
+    should route to escalation, not service. The user wants human help."""
+    result = send("connect me with a peer navigator about food", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should be escalation response (mentions peer/navigator/streetlives)
+    assert any(w in response for w in ["peer", "navigator", "streetlives", "person"]), \
+        f"Expected escalation response, got: {response[:100]}"
+
+
+def test_escalation_with_service_and_location_routes_to_service(fresh_session):
+    """'Navigator, client needs shelter in East Harlem' (service + location)
+    should route to service, not escalation. This is a request on behalf of someone."""
+    result = send(
+        "I'm a peer navigator. My client needs shelter in East Harlem.",
+        session_id=fresh_session,
+    )
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+
+
+def test_talk_to_someone_about_shelter_stays_escalation(fresh_session):
+    """'I want to talk to someone about shelter' — user wants human,
+    not a chatbot search."""
+    result = send("I want to talk to someone about shelter", session_id=fresh_session)
+    response = result["response"].lower()
+    assert any(w in response for w in ["peer", "navigator", "streetlives", "person"]), \
+        f"Expected escalation response, got: {response[:100]}"

@@ -1166,3 +1166,34 @@ def test_extract_all_complex_multi_intent():
     assert "personal_care" in types
     assert "food" in types
     assert "legal" in types
+
+
+# -----------------------------------------------------------------------
+# BUG FIX TESTS — _extract_all_service_types
+# -----------------------------------------------------------------------
+
+def test_extract_all_find_scans_forward():
+    """find() should scan past overlapping spans to find later occurrences.
+    Bug: 'food stamps and food' — first 'food' at pos 7 is inside 'food stamps',
+    but 'food' at pos 23 is independent and should be found."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food stamps and food")
+    types = [r[0] for r in results]
+    assert "other" in types, "'food stamps' should match 'other' category"
+    assert "food" in types, "'food' after 'food stamps' should also be found"
+
+
+def test_extract_all_text_position_order():
+    """Results should be ordered by text position, not keyword length."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need food and shelter")
+    assert results[0][0] == "food", f"Expected food first, got {results[0][0]}"
+    assert results[1][0] == "shelter", f"Expected shelter second, got {results[1][0]}"
+
+
+def test_extract_all_text_position_order_reversed():
+    """Reversed order in text should produce reversed results."""
+    from app.services.slot_extractor import _extract_all_service_types
+    results = _extract_all_service_types("I need shelter and food")
+    assert results[0][0] == "shelter", f"Expected shelter first, got {results[0][0]}"
+    assert results[1][0] == "food", f"Expected food second, got {results[1][0]}"

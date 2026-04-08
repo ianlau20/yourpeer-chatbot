@@ -201,11 +201,14 @@ def _extract_all_service_types(text: str) -> list[tuple[str, Optional[str]]]:
         "hello" → []
     """
     lower = text.lower()
-    found = []  # list of (service_type, service_detail)
+    # Each entry: (text_position, service_type, service_detail)
+    found = []
     seen_categories = set()
     matched_spans = []  # track matched positions to avoid sub-matches
 
     # Build a flat list of (keyword, service_type) sorted longest-first.
+    # This ensures "mental health" matches before "health",
+    # "food bank" before "food", etc.
     all_keywords = []
     for service, keywords in SERVICE_KEYWORDS.items():
         for kw in keywords:
@@ -213,30 +216,52 @@ def _extract_all_service_types(text: str) -> list[tuple[str, Optional[str]]]:
     all_keywords.sort(key=lambda x: len(x[0]), reverse=True)
 
     for keyword, service in all_keywords:
-        pos = lower.find(keyword)
-        if pos == -1:
-            continue
+        # Scan for ALL occurrences of this keyword, not just the first.
+        # This fixes the bug where find() returns a position inside an
+        # already-matched longer keyword, causing later occurrences to
+        # be missed (e.g., "food stamps and food" — first "food" at pos 7
+        # is inside "food stamps", but "food" at pos 23 is independent).
+        search_start = 0
+        while True:
+            pos = lower.find(keyword, search_start)
+            if pos == -1:
+                break
 
-        # Skip if this position overlaps with an already-matched longer keyword
-        # (e.g., "mental health" already matched, don't also match "health")
-        end = pos + len(keyword)
-        if any(pos < ms_end and end > ms_start for ms_start, ms_end in matched_spans):
-            continue
+            end = pos + len(keyword)
 
-        if service not in seen_categories:
-            detail = _NOTABLE_SUB_TYPES.get(keyword)
-            found.append((service, detail))
-            seen_categories.add(service)
-        matched_spans.append((pos, end))
+            # Skip if this position overlaps with an already-matched span
+            if any(pos < ms_end and end > ms_start
+                   for ms_start, ms_end in matched_spans):
+                search_start = pos + 1
+                continue
+
+            # Record the span (even for already-seen categories, to block
+            # sub-matches at this position)
+            matched_spans.append((pos, end))
+
+            if service not in seen_categories:
+                detail = _NOTABLE_SUB_TYPES.get(keyword)
+                found.append((pos, service, detail))
+                seen_categories.add(service)
+
+            # Move past this match
+            search_start = end
+            break  # found a valid (non-overlapping) position for this keyword
 
     # Fallback: check collision-prone keywords using word boundaries
     for kw, (pattern, service) in _WORD_BOUNDARY_PATTERNS.items():
-        if service not in seen_categories and pattern.search(text):
-            detail = _NOTABLE_SUB_TYPES.get(kw)
-            found.append((service, detail))
-            seen_categories.add(service)
+        if service not in seen_categories:
+            m = pattern.search(text)
+            if m:
+                detail = _NOTABLE_SUB_TYPES.get(kw)
+                found.append((m.start(), service, detail))
+                seen_categories.add(service)
 
-    return found
+    # Sort by text position so the primary service is what the user
+    # mentioned first, not whichever keyword happens to be longest.
+    found.sort(key=lambda x: x[0])
+
+    return [(svc, detail) for _, svc, detail in found]
 
 
 def _extract_service_type(text: str) -> tuple[Optional[str], Optional[str]]:
