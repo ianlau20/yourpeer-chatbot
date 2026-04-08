@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 import { useAdminStore } from "@/lib/admin/store";
 import { QueryLogTable } from "@/components/admin/query-log-table";
+import { TableSkeleton } from "@/components/admin/loading-skeleton";
 
 export default function QueriesPage() {
   const { queries, fetchQueries } = useAdminStore();
@@ -18,7 +19,7 @@ export default function QueriesPage() {
   }, [fetchQueries]);
 
   if (queries.loading && queries.data.length === 0) {
-    return <p className="text-neutral-400 text-sm">Loading…</p>;
+    return <TableSkeleton rows={6} cols={4} />;
   }
 
   return <QueryLogTable queries={queries.data} />;

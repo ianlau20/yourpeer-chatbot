@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 import { useAdminStore } from "@/lib/admin/store";
 import { ConversationTable } from "@/components/admin/conversation-table";
+import { TableSkeleton } from "@/components/admin/loading-skeleton";
 
 export default function ConversationsPage() {
   const { conversations, fetchConversations } = useAdminStore();
@@ -18,7 +19,7 @@ export default function ConversationsPage() {
   }, [fetchConversations]);
 
   if (conversations.loading && conversations.data.length === 0) {
-    return <p className="text-neutral-400 text-sm">Loading…</p>;
+    return <TableSkeleton rows={6} cols={5} />;
   }
 
   return <ConversationTable conversations={conversations.data} />;

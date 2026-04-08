@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { useAdminStore } from "@/lib/admin/store";
 import { MetricsSection } from "@/components/admin/metrics-section";
 import { MetricRow, statusClass, fmtMetric } from "@/components/admin/metric-row";
+import { MetricsSkeleton } from "@/components/admin/loading-skeleton";
 
 export default function MetricsPage() {
   const {
@@ -32,7 +33,7 @@ export default function MetricsPage() {
     || (queriesSlice.data.length === 0 && queriesSlice.loading);
 
   if (loading || !statsSlice.data) {
-    return <p className="text-neutral-400 text-sm">Loading metrics…</p>;
+    return <MetricsSkeleton />;
   }
 
   const stats = statsSlice.data;

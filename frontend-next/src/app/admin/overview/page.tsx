@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { useAdminStore } from "@/lib/admin/store";
 import { StatCard } from "@/components/admin/stat-card";
 import { EventFeed } from "@/components/admin/event-feed";
+import { StatCardSkeleton, TableSkeleton } from "@/components/admin/loading-skeleton";
 
 export default function OverviewPage() {
   const { stats, events, fetchStats, fetchEvents } = useAdminStore();
@@ -29,7 +30,14 @@ export default function OverviewPage() {
   }
 
   if (!stats.data) {
-    return <p className="text-neutral-400 text-sm">Loading…</p>;
+    return (
+      <>
+        <StatCardSkeleton />
+        <div className="mt-6">
+          <TableSkeleton rows={5} cols={3} />
+        </div>
+      </>
+    );
   }
 
   const s = stats.data;

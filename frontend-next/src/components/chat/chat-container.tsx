@@ -11,6 +11,7 @@ import { useChat } from "@/hooks/use-chat";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useChatStore } from "@/lib/chat/store";
 import { ChatMessage } from "./chat-message";
+import { ChatMessageBoundary } from "./chat-message-boundary";
 import { ChatInput } from "./chat-input";
 import { ChatStatus } from "./chat-status";
 
@@ -72,13 +73,14 @@ export function ChatContainer() {
           <p className="text-neutral-400 text-sm">Loading…</p>
         ) : (
           messages.map((msg) => (
-            <ChatMessage
-              key={msg.id}
-              message={msg}
-              onQuickReply={send}
-              onFeedback={submitFeedback}
-              onRetry={retry}
-            />
+            <ChatMessageBoundary key={msg.id}>
+              <ChatMessage
+                message={msg}
+                onQuickReply={send}
+                onFeedback={submitFeedback}
+                onRetry={retry}
+              />
+            </ChatMessageBoundary>
           ))
         )}
       </div>
