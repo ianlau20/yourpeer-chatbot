@@ -40,12 +40,49 @@ _EMAIL_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
-# 3. Phone — 10-11 digits with optional separators
+# 3. Credit Card — 13-19 digits with Luhn checksum validation
+# ---------------------------------------------------------------------------
+_CC_RE = re.compile(
+    r'\b(\d{4})[-\s]?(\d{4})[-\s]?(\d{4})[-\s]?(\d{1,7})\b'
+)
+# Also catch unseparated 13-19 digit runs
+_CC_LONG_RE = re.compile(r'\b(\d{13,19})\b')
+
+
+def _luhn_check(number_str: str) -> bool:
+    """Luhn algorithm checksum — validates credit card numbers.
+    Industry standard (ISO/IEC 7812-1) used by Visa, Mastercard, Amex, etc."""
+    digits = [int(d) for d in number_str]
+    digits.reverse()
+    total = 0
+    for i, d in enumerate(digits):
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+# ---------------------------------------------------------------------------
+# 4. Phone — 10-11 digits with optional separators
 # ---------------------------------------------------------------------------
 _PHONE_RE = re.compile(
+    r'(?<!\d)'                    # not preceded by another digit
     r'(?:\+?1[-.\s]?)?'          # optional country code
     r'(?:\(?\d{3}\)?[-.\s]?)'    # area code
-    r'\d{3}[-.\s]?\d{4}\b'       # subscriber number
+    r'\d{3}[-.\s]?\d{4}'         # subscriber number
+    r'(?!\d)'                     # not followed by another digit
+)
+
+# ---------------------------------------------------------------------------
+# 4b. URL — may contain usernames or identifying paths
+# ---------------------------------------------------------------------------
+_URL_RE = re.compile(
+    r'https?://[^\s<>\"\']+|'                          # full URL
+    r'\b(?:facebook|instagram|twitter|tiktok|linkedin'  # social media bare domains
+    r'|youtube|snapchat)\.com/[^\s<>\"\']+',
+    re.IGNORECASE,
 )
 
 # ---------------------------------------------------------------------------
@@ -117,7 +154,8 @@ _IM_BLOCKLIST = {
 }
 
 _NAME_FULL_RE = re.compile(
-    r"(?:my name is|my name's|name's|call me|this is|i am called)\s+"
+    r"(?:my name is|my name's|name's|call me|this is|i am called"
+    r"|they call me|everyone calls me|you can call me)\s+"
     r"([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)?)",
     re.IGNORECASE,
 )
@@ -125,6 +163,20 @@ _NAME_FULL_RE = re.compile(
 # "Hi Bryan!" pattern — common in bot responses echoing a name
 _NAME_HI_RE = re.compile(
     r"(?:^|[.!?]\s*)(?:hi|hey|hello|dear)\s+([A-Z][a-z]{2,})\b",
+    re.IGNORECASE,
+)
+
+# Sign-off pattern: "Thanks, Sarah" / "— John" / "Sincerely, Maria"
+_NAME_SIGNOFF_RE = re.compile(
+    r"(?:thanks|thank you|sincerely|regards|cheers|best),?\s+"
+    r"([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Bare name in bot response: "Sure Sarah," / "Okay Bryan,"
+_NAME_BARE_RE = re.compile(
+    r"(?:sure|okay|ok|alright|absolutely|of course|no problem|got it)\s+"
+    r"([A-Z][a-z]{2,})\b",
     re.IGNORECASE,
 )
 
@@ -168,11 +220,26 @@ def detect_pii(text):
             detections.append(Detection("email", m.start(), m.end()))
             claimed.append((m.start(), m.end()))
 
-    # 3. Phone
+    # 3. Credit Card (before phone — CC numbers overlap with phone digit ranges)
+    for pattern in [_CC_RE, _CC_LONG_RE]:
+        for m in pattern.finditer(text):
+            digits = re.sub(r'\D', '', m.group())
+            if 13 <= len(digits) <= 19 and _luhn_check(digits):
+                if not _overlaps(m.start(), m.end(), claimed):
+                    detections.append(Detection("credit_card", m.start(), m.end()))
+                    claimed.append((m.start(), m.end()))
+
+    # 4. Phone
     for m in _PHONE_RE.finditer(text):
         digits = re.sub(r'\D', '', m.group())
         if len(digits) in (10, 11) and not _overlaps(m.start(), m.end(), claimed):
             detections.append(Detection("phone", m.start(), m.end()))
+            claimed.append((m.start(), m.end()))
+
+    # 4b. URL
+    for m in _URL_RE.finditer(text):
+        if not _overlaps(m.start(), m.end(), claimed):
+            detections.append(Detection("url", m.start(), m.end()))
             claimed.append((m.start(), m.end()))
 
     # 4. DOB
@@ -227,13 +294,34 @@ def detect_pii(text):
                 detections.append(Detection("name", s, e))
                 claimed.append((s, e))
 
+    # Sign-off: "Thanks, Sarah" / "Sincerely, Maria Rodriguez"
+    for m in _NAME_SIGNOFF_RE.finditer(text):
+        name = m.group(1)
+        first_word = name.split()[0].lower()
+        if first_word not in _NAME_BLOCKLIST:
+            s, e = m.start(1), m.end(1)
+            if not _overlaps(s, e, claimed):
+                detections.append(Detection("name", s, e))
+                claimed.append((s, e))
+
+    # Bare name in bot response: "Sure Sarah," / "Okay Bryan,"
+    for m in _NAME_BARE_RE.finditer(text):
+        word = m.group(1)
+        if word[0].isupper() and word.lower() not in _NAME_BLOCKLIST:
+            s, e = m.start(1), m.end(1)
+            if not _overlaps(s, e, claimed):
+                detections.append(Detection("name", s, e))
+                claimed.append((s, e))
+
     return detections
 
 
 _PLACEHOLDERS = {
     "ssn": "[SSN]",
     "email": "[EMAIL]",
+    "credit_card": "[CREDIT_CARD]",
     "phone": "[PHONE]",
+    "url": "[URL]",
     "dob": "[DOB]",
     "address": "[ADDRESS]",
     "name": "[NAME]",

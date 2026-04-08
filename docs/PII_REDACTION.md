@@ -16,7 +16,7 @@ The confirmation echo ("I'll search for food in Brooklyn") also runs through the
 
 **Overlap resolution.** Detections are checked against all prior matches before being added. If a span was already matched (e.g. a 9-digit number as SSN), it won't also be matched as a phone number. SSN is checked before phone because SSNs are a strict subset of the phone digit range.
 
-**Detection order.** Patterns run in a fixed order — SSN, email, phone, DOB, address, name — with each stage skipping spans already claimed by earlier stages. This prevents double-counting and ensures the most specific match wins.
+**Detection order.** Patterns run in a fixed order — SSN, email, credit card, phone, URL, DOB, address, name — with each stage skipping spans already claimed by earlier stages. This prevents double-counting and ensures the most specific match wins. Credit card runs before phone because 16-digit CC numbers would otherwise partially match as 10-digit phone numbers.
 
 ## Categories
 
@@ -28,6 +28,8 @@ The confirmation echo ("I'll search for food in Brooklyn") also runs through the
 | Date of birth | `[DOB]` | `Born 01/15/1990` | `Born [DOB]` |
 | Street address | `[ADDRESS]` | `I live at 123 Main Street Apt 4B` | `I live at [ADDRESS]` |
 | Name | `[NAME]` | `My name is Sarah` | `My name is [NAME]` |
+| Credit card | `[CREDIT_CARD]` | `4111 1111 1111 1111` | `[CREDIT_CARD]` |
+| URL | `[URL]` | `facebook.com/john.smith` | `[URL]` |
 
 ## Pattern Details and Tradeoffs
 
@@ -54,6 +56,28 @@ The confirmation echo ("I'll search for food in Brooklyn") also runs through the
 **Catches:** `sarah@gmail.com`, `user.name+tag@example.co.uk`
 
 **No significant tradeoffs.** Email format is distinctive enough that false positives are extremely rare in conversational text.
+
+### Credit Cards
+
+**Pattern:** 13-19 digit numbers in groups of 4 (with space, dash, or no separator), validated by the **Luhn algorithm** (ISO/IEC 7812-1). The Luhn checksum is the industry standard used by Visa, Mastercard, Amex, and all major card networks.
+
+**Catches:** `4111 1111 1111 1111`, `4111-1111-1111-1111`, `4111111111111111`
+
+**Why Luhn matters:** Without checksum validation, any 16-digit number would match — reference codes, case numbers, benefit IDs. The Luhn check reduces false positives dramatically: a random 16-digit number has only a 10% chance of passing. This is important for our population, who may share benefit IDs or case numbers that happen to be long digit strings.
+
+**Tradeoff — valid Luhn numbers that aren't credit cards.** Some non-credit-card identifiers also use Luhn checksums (e.g., Canadian SIN numbers, IMEI numbers). These will be redacted as credit cards. This is acceptable — any long numeric identifier that passes Luhn is likely sensitive.
+
+**Detection order:** Credit card runs before phone detection to prevent 16-digit CC numbers from being partially matched as 10-digit phone numbers.
+
+### URLs
+
+**Pattern:** Full URLs (`https://...`) and social media bare domain paths (`facebook.com/username`, `instagram.com/handle`, etc.).
+
+**Catches:** `https://example.com/profile?user=123`, `facebook.com/john.smith`, `instagram.com/realSarah`
+
+**Why URLs are PII:** Social media profile URLs directly identify individuals. Even non-social URLs may contain usernames, email addresses, or account IDs in the path or query string.
+
+**Tradeoff — only known social platforms matched without https.** Bare domain matching (without `https://`) is limited to Facebook, Instagram, Twitter, TikTok, LinkedIn, YouTube, and Snapchat. Other domains require `https://` prefix to match. This prevents false positives on domain-like text ("yourpeer.nyc").
 
 ### Dates of Birth
 
@@ -86,15 +110,21 @@ All four patterns optionally capture a trailing apartment/unit identifier (`Apt 
 
 ### Names
 
-**Pattern:** Heuristic matching based on common intro phrases: "my name is", "name's", "I'm", "call me", "this is" — followed by one or two capitalized words.
+**Pattern:** Heuristic matching based on six pattern groups, each followed by one or two capitalized words:
 
-**Catches:** `My name is John Smith`, `I'm Sarah`, `Call me David`, `This is Maria`
+1. **Intro phrases:** "my name is", "name's", "call me", "this is", "i am called", "they call me", "everyone calls me", "you can call me"
+2. **Greeting prefix:** "Hi", "Hey", "Hello", "Dear" — catches bot responses that echo names
+3. **Sign-off:** "Thanks, [Name]", "Sincerely, [Name]", "Regards, [Name]" — catches user sign-offs
+4. **Bare prefix in bot response:** "Sure [Name]", "Okay [Name]", "Alright [Name]" — catches LLM responses that echo names
+5. **"I'm" pattern:** "I'm [Name]" — most aggressive, requires capitalization check AND 60-word blocklist
 
-**Tradeoff — requires an intro phrase.** A name mentioned without an intro ("Sarah needs food in Brooklyn") will not be detected. This is intentional: without an intro phrase, there is no way to distinguish a name from a place name, service keyword, or any other capitalized word using regex alone.
+**Catches:** `My name is John Smith`, `I'm Sarah`, `Call me David`, `This is Maria`, `Hi Bryan!`, `Thanks, Sarah`, `Sure Bryan, I found results.`, `everyone calls me Rosa`
 
-**Tradeoff — manually maintained blocklist.** The `I'm` pattern is the most aggressive — "I'm Sarah" should match, but "I'm in Brooklyn" and "I'm hungry" should not. A blocklist of ~60 words prevents false positives on NYC boroughs, neighborhoods, service keywords, common adjectives, and prepositions. If a new neighborhood or keyword is added to the system, the blocklist must be updated manually, or users typing "I'm [NewNeighborhood]" will see a false NAME detection.
+**Tradeoff — requires a context phrase.** A name mentioned without any context phrase ("Sarah needs food in Brooklyn") will not be detected. This is intentional: without a context phrase, there is no way to distinguish a name from a place name, service keyword, or any other capitalized word using regex alone.
 
-**Gap — single-word names only for `I'm` pattern.** "I'm Sarah Johnson" will only capture "Sarah", not "Sarah Johnson". The other intro patterns ("my name is", "call me") capture up to two words.
+**Tradeoff — manually maintained blocklist.** The `I'm` and bare-prefix patterns use a shared blocklist of ~60 words to prevent false positives on NYC boroughs, neighborhoods, service keywords, common adjectives, and prepositions. The blocklist must be updated when new neighborhoods or keywords are added.
+
+**Gap — single-word names only for `I'm` pattern.** "I'm Sarah Johnson" will only capture "Sarah", not "Sarah Johnson". The intro and sign-off patterns capture up to two words.
 
 ## Where Redaction Runs
 
@@ -122,7 +152,7 @@ Key functions:
 ## Test Coverage
 
 ```bash
-pytest tests/test_pii_redactor.py -v     # 60 tests covering all categories
+pytest tests/test_pii_redactor.py -v     # 80 tests covering all 8 categories
 pytest tests/test_edge_cases.py -v        # PII + slot interaction tests
 ```
 

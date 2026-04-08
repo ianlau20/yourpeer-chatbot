@@ -306,3 +306,80 @@ class TestICEPoliceRouting:
         # Should get law enforcement response, not ICE response
         assert "law enforcement" in response.lower()
         assert "immigration status" not in response.lower()
+
+
+# -----------------------------------------------------------------------
+# Credit Card Detection (Luhn validated)
+# -----------------------------------------------------------------------
+
+class TestCreditCard:
+    @pytest.mark.parametrize("text", [
+        "my card is 4111 1111 1111 1111",
+        "card number 4111111111111111",
+        "visa 4111-1111-1111-1111",
+        "my EBT card 4000123456789017",  # valid Luhn
+    ])
+    def test_valid_cc_detected(self, text):
+        redacted, dets = redact_pii(text)
+        assert "[CREDIT_CARD]" in redacted
+        assert any(d.pii_type == "credit_card" for d in dets)
+
+    def test_invalid_luhn_not_detected(self):
+        """Random 16-digit numbers that fail Luhn should NOT match."""
+        _, dets = redact_pii("reference number 1234567890123456")
+        assert not any(d.pii_type == "credit_card" for d in dets)
+
+    def test_cc_prevents_phone_false_positive(self):
+        """16-digit CC should not be partially matched as phone."""
+        redacted, dets = redact_pii("card 4111111111111111")
+        assert "[CREDIT_CARD]" in redacted
+        assert "[PHONE]" not in redacted
+
+
+# -----------------------------------------------------------------------
+# URL Detection
+# -----------------------------------------------------------------------
+
+class TestURL:
+    @pytest.mark.parametrize("text", [
+        "my facebook is facebook.com/john.smith",
+        "check https://instagram.com/realSarah",
+        "see https://example.com/profile?user=123",
+    ])
+    def test_url_detected(self, text):
+        redacted, dets = redact_pii(text)
+        assert "[URL]" in redacted
+
+    def test_plain_domain_not_detected(self):
+        """'yourpeer.nyc' without a path should not be redacted."""
+        _, dets = redact_pii("visit yourpeer.nyc for more info")
+        assert not any(d.pii_type == "url" for d in dets)
+
+
+# -----------------------------------------------------------------------
+# Expanded Name Patterns
+# -----------------------------------------------------------------------
+
+class TestExpandedNames:
+    @pytest.mark.parametrize("text", [
+        "Thanks, Sarah",
+        "Sincerely, Maria Rodriguez",
+        "Sure Sarah, let me search.",
+        "Okay Bryan, I found results.",
+        "everyone calls me Rosa",
+        "they call me Big Mike",
+    ])
+    def test_expanded_name_patterns(self, text):
+        redacted, dets = redact_pii(text)
+        assert "[NAME]" in redacted, f"'{text}' should detect a name"
+
+    @pytest.mark.parametrize("text", [
+        "Sure, let me search.",          # no name after "Sure"
+        "Okay, I found results.",        # no name after "Okay"
+        "Thanks, everyone",              # blocklist word
+        "Sure thing, let me help.",      # "thing" not capitalized
+    ])
+    def test_expanded_name_false_positives(self, text):
+        _, dets = redact_pii(text)
+        assert not any(d.pii_type == "name" for d in dets), \
+            f"'{text}' should NOT detect a name"
