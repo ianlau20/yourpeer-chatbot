@@ -98,7 +98,7 @@ _SUICIDE_SELF_HARM_PHRASES = [
     "i give up", "given up on everything", "given up on life",
     "i can't do this anymore", "i cant do this anymore",
     "there's no hope", "theres no hope", "no hope left",
-    "nobody cares", "no one cares if i",
+    "nobody cares if i", "no one cares if i",
     "would be better without me", "better off without me",
     "i'm done fighting", "im done fighting",
     "can't keep going", "cant keep going",

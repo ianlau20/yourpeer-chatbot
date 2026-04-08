@@ -449,11 +449,31 @@ def _classify_action(text: str) -> str | None:
     return None
 
 
-def _classify_tone(text: str) -> str | None:
+_URGENT_PHRASES = [
+    "right now", "tonight", "immediately", "asap", "urgent",
+    "emergency", "before dark", "freezing",
+    "nowhere to go", "have nowhere", "on the street",
+    "please help", "please hurry", "desperate",
+    "kicked out today", "evicted today",
+]
+
+
+_CRISIS_NOT_CHECKED = object()  # sentinel: caller hasn't run detect_crisis yet
+
+
+def _classify_tone(text: str, crisis_result=_CRISIS_NOT_CHECKED) -> str | None:
     """Classify a message's emotional tone (how the user FEELS).
 
     No service-word gating — always runs. The caller decides how to
     combine tone with service intent.
+
+    Args:
+        text: The user's message.
+        crisis_result: Pre-computed result from detect_crisis().
+            Pass the return value directly (a tuple for crisis, None for
+            no crisis). When omitted, _classify_tone calls detect_crisis
+            itself. This avoids a redundant Sonnet LLM call when the
+            caller has already checked.
 
     Returns one of: "crisis", "emotional", "frustrated", "confused",
     "urgent", or None.
@@ -473,7 +493,9 @@ def _classify_tone(text: str) -> str | None:
     normalized = _normalize_contractions(cleaned)
 
     # Crisis — highest priority (uses original text, NOT normalized)
-    crisis_result = detect_crisis(text)
+    # Use pre-computed result if available to avoid a redundant LLM call.
+    if crisis_result is _CRISIS_NOT_CHECKED:
+        crisis_result = detect_crisis(text)
     if crisis_result is not None:
         return "crisis"
 
@@ -495,13 +517,6 @@ def _classify_tone(text: str) -> str | None:
     # Urgent — time pressure or panic without a stronger emotional tone.
     # Bridges from the urgency slot extractor's "high" phrases, plus
     # panic-specific phrases not covered by emotional/crisis.
-    _URGENT_PHRASES = [
-        "right now", "tonight", "immediately", "asap", "urgent",
-        "emergency", "before dark", "freezing",
-        "nowhere to go", "have nowhere", "on the street",
-        "please help", "please hurry", "desperate",
-        "kicked out today", "evicted today",
-    ]
     for phrase in _URGENT_PHRASES:
         if phrase in cleaned:
             return "urgent"
@@ -532,8 +547,11 @@ def _classify_message(text: str) -> str:
         return action
 
     # Frustration (before slot check — "not helpful" is never a service request)
+    # Check both original and normalized to catch all contraction variants,
+    # consistent with how _classify_tone handles frustration.
+    normalized = _normalize_contractions(cleaned)
     for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned:
+        if phrase in cleaned or phrase in normalized:
             return "frustration"
 
     # Check slots — if service intent found, it wins over emotional/confused
@@ -712,7 +730,14 @@ def _build_confirmation_message(slots: dict) -> str:
         # (e.g. street addresses extracted as location)
         location, _ = redact_pii(location)
 
-    parts = [f"I'll search for {service_label} {location}"]
+    # "near your location" reads naturally without "in", but borough/
+    # neighborhood names need "in" ("in Brooklyn", "in Harlem").
+    if location.startswith("near "):
+        location_phrase = location
+    else:
+        location_phrase = f"in {location}"
+
+    parts = [f"I'll search for {service_label} {location_phrase}"]
     if age:
         parts[0] += f" (age {age})"
 
@@ -1242,7 +1267,12 @@ def generate_reply(
 
     # --- CLASSIFY ACTION + TONE SEPARATELY ---
     action = _classify_action(message)
-    tone = _classify_tone(message)
+    # Run crisis detection ONCE here — the result is passed to
+    # _classify_tone (which would otherwise call detect_crisis again)
+    # and reused by the crisis handler below. This avoids a redundant
+    # Sonnet LLM call (~2s + API cost) on every crisis-classified message.
+    _crisis_result = detect_crisis(message)
+    tone = _classify_tone(message, crisis_result=_crisis_result)
 
     # --- COMBINE INTO ROUTING CATEGORY ---
     # Priority: crisis > reset > confirmations > service intent > actions > tone > LLM > general
@@ -1301,14 +1331,15 @@ def generate_reply(
     # Highest priority. Crisis resources are shown immediately.
     # The session is NOT cleared — the user may continue afterward.
     if category == "crisis":
-        crisis_result = detect_crisis(message)
-        if crisis_result is None:
+        # Reuse the crisis result computed once above (before _classify_tone).
+        # No need to call detect_crisis again.
+        if _crisis_result is None:
             # Classification said crisis but detect_crisis disagrees
             # (e.g. LLM fail-open during classification but not during
             # the dedicated check). Treat as general conversation.
             category = "general"
         else:
-            crisis_category, crisis_response = crisis_result
+            crisis_category, crisis_response = _crisis_result
             logger.warning(
                 f"Session {session_id}: crisis detected, "
                 f"category='{crisis_category}'"

@@ -152,7 +152,7 @@ def fresh_session():
 #   from conftest import send, send_multi, assert_classified
 #
 
-def send(message, session_id=None, mock_query_return=None, latitude=None, longitude=None):
+def send(message, session_id=None, mock_query_return=None, latitude=None, longitude=None, mock_crisis_return=None):
     """Send a single message through generate_reply with mocked externals.
 
     Patches claude_reply and query_services so tests don't need real
@@ -165,11 +165,18 @@ def send(message, session_id=None, mock_query_return=None, latitude=None, longit
             Defaults to MOCK_QUERY_RESULTS.
         latitude: Optional browser geolocation latitude.
         longitude: Optional browser geolocation longitude.
+        mock_crisis_return: What detect_crisis should return.
+            Defaults to None (no crisis). Pass a (category, response)
+            tuple to simulate crisis detection.
 
     Usage:
         from conftest import send, MOCK_QUERY_RESULTS
         result = send("I need food in Brooklyn")
         assert result["slots"]["service_type"] == "food"
+
+        # Simulate crisis:
+        result = send("I want to hurt myself",
+                      mock_crisis_return=("suicide_self_harm", "Call 988."))
     """
     from unittest.mock import patch
     from app.services.chatbot import generate_reply
@@ -185,11 +192,11 @@ def send(message, session_id=None, mock_query_return=None, latitude=None, longit
 
     with patch("app.services.chatbot.claude_reply", return_value="How can I help?"), \
          patch("app.services.chatbot.query_services", return_value=mock_query_return), \
-         patch("app.services.chatbot.detect_crisis", return_value=None):
+         patch("app.services.chatbot.detect_crisis", return_value=mock_crisis_return):
         return generate_reply(message, session_id=session_id, latitude=latitude, longitude=longitude)
 
 
-def send_multi(messages, session_id=None, mock_query_return=None, latitude=None, longitude=None):
+def send_multi(messages, session_id=None, mock_query_return=None, latitude=None, longitude=None, mock_crisis_return=None):
     """Send multiple messages in sequence within the same session.
 
     Returns a list of response dicts, one per message.
@@ -200,6 +207,8 @@ def send_multi(messages, session_id=None, mock_query_return=None, latitude=None,
         mock_query_return: What query_services should return.
         latitude: Optional browser geolocation latitude (applied to all messages).
         longitude: Optional browser geolocation longitude (applied to all messages).
+        mock_crisis_return: What detect_crisis should return.
+            Defaults to None (no crisis).
 
     Usage:
         from conftest import send_multi
@@ -221,7 +230,7 @@ def send_multi(messages, session_id=None, mock_query_return=None, latitude=None,
     results = []
     with patch("app.services.chatbot.claude_reply", return_value="How can I help?"), \
          patch("app.services.chatbot.query_services", return_value=mock_query_return), \
-         patch("app.services.chatbot.detect_crisis", return_value=None):
+         patch("app.services.chatbot.detect_crisis", return_value=mock_crisis_return):
         for msg in messages:
             results.append(generate_reply(msg, session_id=session_id, latitude=latitude, longitude=longitude))
     return results

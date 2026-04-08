@@ -387,9 +387,10 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
 
         merged = llm_result
     else:
-        # Step 4: LLM returned nothing — fall back to regex
+        # Step 4: LLM returned nothing — fall back to regex.
+        # regex_result already has correct additional_services — return as-is.
         logger.warning("LLM returned empty — falling back to regex")
-        merged = regex_result
+        return regex_result
 
     # -----------------------------------------------------------------
     # Merge additional services from regex and LLM (PR 4)

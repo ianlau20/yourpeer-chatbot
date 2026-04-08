@@ -14,6 +14,9 @@ def log_crisis_detected(*args, **kwargs):
 def log_session_reset(*args, **kwargs):
     _events.append({"type": "reset", **kwargs})
 
+def log_feedback(**kwargs):
+    _events.append({"type": "feedback", **kwargs})
+
 def get_recent_events(n=10):
     """Return the most recent n events."""
     return list(reversed(_events[-n:]))
