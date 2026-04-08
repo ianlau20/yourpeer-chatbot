@@ -75,13 +75,17 @@ _THANKS_EXACT = [
 ]
 
 _HELP_PHRASES = [
-    "help", "what can you do", "how does this work",
+    "what can you do", "how does this work",
     "what is this", "who are you", "what do you do",
     "how do i use this", "instructions",
     "what services", "what other services", "what else",
     "what do you offer", "what can i search for",
     "list services", "show services", "available services",
 ]
+
+# "help" needs word-boundary matching to avoid colliding with
+# "helpful", "unhelpful", "not helpful" (which are frustration phrases).
+_HELP_WORD_RE = re.compile(r"\bhelp\b", re.IGNORECASE)
 
 _ESCALATION_PHRASES = [
     "peer navigator", "talk to a person", "talk to someone",
@@ -92,7 +96,9 @@ _ESCALATION_PHRASES = [
 
 _FRUSTRATION_PHRASES = [
     "not helpful", "isn't helpful", "isnt helpful",
+    "wasn't helpful", "wasnt helpful", "wasn't useful", "wasnt useful",
     "doesn't help", "doesnt help", "didn't help", "didnt help",
+    "still not helpful", "still not useful", "still not working",
     "already tried", "tried that", "tried those",
     "none of those", "none of them", "doesn't work",
     "doesnt work", "didn't work", "didnt work",
@@ -171,8 +177,8 @@ _CONFUSED_PHRASES = [
     "dont know what i need", "what should i do",
     "don't know where to start", "dont know where to start",
     "i'm confused", "im confused",
-    "i'm lost", "im lost",
-    "i'm overwhelmed", "im overwhelmed",
+    "i'm lost", "im lost", "so lost",
+    "i'm overwhelmed", "im overwhelmed", "so overwhelmed",
     "i'm not sure", "im not sure",
     "where do i start", "where do i begin",
     "what are my options", "what can i do",
@@ -322,7 +328,16 @@ def _classify_action(text: str) -> str | None:
             if cleaned == phrase:
                 return "thanks"
 
-    # Help
+    # Help — word-boundary check for "help" to avoid "helpful"/"unhelpful"
+    if _HELP_WORD_RE.search(cleaned):
+        # Exclude frustration phrases that contain "help" as a word
+        # e.g., "doesn't help", "didn't help", "not helpful"
+        # These should fall through to frustration handling, not help.
+        _help_negators = ["not help", "didn't help", "didnt help",
+                          "doesn't help", "doesnt help", "won't help",
+                          "wont help", "never help", "can't help"]
+        if not any(neg in cleaned for neg in _help_negators):
+            return "help"
     for phrase in _HELP_PHRASES:
         if phrase in cleaned:
             return "help"
@@ -1479,7 +1494,11 @@ def generate_reply(
             "That's okay. I'm here whenever you're ready. "
             "If there's anything practical I can help you find, just let me know.",
             existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
+            # Don't push the full service menu after someone expressed distress
+            # and declined support — keep it gentle (AVR pattern).
+            quick_replies=[
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+            ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result

@@ -61,7 +61,7 @@ SERVICE_KEYWORDS = {
     # --- Mental Health (taxonomy: Mental Health) ---
     "mental_health": [
         "mental health", "counseling", "counselor", "therapist", "therapy",
-        "depression", "anxiety", "stress", "trauma", "ptsd",
+        "depression", "anxiety", "trauma", "ptsd",
         "substance abuse", "addiction", "rehab", "recovery",
         "aa meeting", "na meeting", "narcotics anonymous", "alcoholics anonymous",
         "support group", "emotional support", "psychiatric",
@@ -119,6 +119,8 @@ _WORD_BOUNDARY_KEYWORDS = {
     "id": "other",             # was colliding with "side", "ridge", "midtown"
     "eat": "food",             # was colliding with "beat", "seat", "theater"
     "hat": "clothing",         # was colliding with "what", "that", "chat"
+    "stress": "mental_health", # was colliding with "stressed out", "so stressed"
+                               # (emotional expressions, not service requests)
 }
 
 # Pre-compile word-boundary patterns for collision-prone keywords
