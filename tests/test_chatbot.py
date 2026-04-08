@@ -1109,3 +1109,190 @@ def test_family_status_extracted_in_flow(fresh_session):
     from app.services.session_store import get_session_slots
     slots = get_session_slots(fresh_session)
     assert slots.get("family_status") == "with_children"
+
+
+# -----------------------------------------------------------------------
+# SPLIT CLASSIFIER — _classify_action
+# -----------------------------------------------------------------------
+
+def test_classify_action_reset():
+    """Reset phrases should return 'reset' action."""
+    from app.services.chatbot import _classify_action
+    for phrase in ["start over", "reset", "new search", "cancel"]:
+        assert _classify_action(phrase) == "reset", f"Failed on: {phrase}"
+
+
+def test_classify_action_greeting():
+    """Short greetings should return 'greeting' action."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("hello") == "greeting"
+    assert _classify_action("hi") == "greeting"
+
+
+def test_classify_action_greeting_long_message():
+    """Long messages starting with 'hi' should NOT classify as greeting."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("hi I need food in Brooklyn") is None
+
+
+def test_classify_action_confirm_yes():
+    """Confirmation phrases should return 'confirm_yes'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("yes") == "confirm_yes"
+    assert _classify_action("go ahead") == "confirm_yes"
+
+
+def test_classify_action_confirm_deny():
+    """Denial phrases should return 'confirm_deny'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("no") == "confirm_deny"
+    assert _classify_action("not yet") == "confirm_deny"
+
+
+def test_classify_action_bot_question():
+    """Bot capability questions should return 'bot_question'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("how does this work") == "bot_question"
+    assert _classify_action("is this private") == "bot_question"
+
+
+def test_classify_action_escalation():
+    """Escalation phrases should return 'escalation'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("connect me with a peer navigator") == "escalation"
+
+
+def test_classify_action_help():
+    """Help phrases should return 'help'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("help") == "help"
+
+
+def test_classify_action_none_for_service():
+    """Service requests should return None (not an action)."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("I need food in Brooklyn") is None
+
+
+def test_classify_action_none_for_emotional():
+    """Emotional phrases should return None (not an action)."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("I'm feeling really down") is None
+
+
+# -----------------------------------------------------------------------
+# SPLIT CLASSIFIER — _classify_tone
+# -----------------------------------------------------------------------
+
+def test_classify_tone_emotional():
+    """Emotional phrases should return 'emotional'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I'm feeling really down") == "emotional"
+    assert _classify_tone("having a rough day") == "emotional"
+
+
+def test_classify_tone_frustrated():
+    """Frustration phrases should return 'frustrated'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("that's not helpful") == "frustrated"
+    assert _classify_tone("this is useless") == "frustrated"
+
+
+def test_classify_tone_confused():
+    """Confused phrases should return 'confused'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I don't know what to do") == "confused"
+    assert _classify_tone("I'm overwhelmed") == "confused"
+
+
+def test_classify_tone_none_for_neutral():
+    """Neutral messages should return None."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I need food in Brooklyn") is None
+    assert _classify_tone("hello") is None
+
+
+def test_classify_tone_no_service_word_gate():
+    """Tone classifier should detect emotion EVEN with service words.
+    This is the key difference from the old _classify_message."""
+    from app.services.chatbot import _classify_tone
+    # Old classifier would skip "emotional" because "need" is a service word
+    assert _classify_tone("I'm struggling and need food") == "emotional"
+    assert _classify_tone("I'm feeling down and need shelter") == "emotional"
+
+
+# -----------------------------------------------------------------------
+# COMBINED ROUTING — SERVICE INTENT + TONE
+# -----------------------------------------------------------------------
+
+def test_emotional_plus_service_routes_to_service(fresh_session):
+    """'I'm struggling and need food in Brooklyn' should go to service flow
+    with empathetic framing, not the pure emotional handler."""
+    result = send("I'm struggling and need food in Brooklyn", session_id=fresh_session)
+    # Should reach confirmation (service flow) not emotional response
+    assert result.get("follow_up_needed") or "search" in result["response"].lower()
+    # Should have empathetic prefix
+    assert "hear you" in result["response"].lower() or "help" in result["response"].lower()
+
+
+def test_help_plus_service_routes_to_service(fresh_session):
+    """'I need help with immigration in the Bronx' should go to service flow,
+    not the help handler."""
+    result = send("I need help with immigration in the Bronx", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "legal"
+
+
+def test_escalation_plus_service_routes_to_service(fresh_session):
+    """'I'm a peer navigator, my client needs shelter in East Harlem'
+    should go to service flow, not escalation."""
+    result = send(
+        "I'm a peer navigator. I have a client who needs shelter in East Harlem.",
+        session_id=fresh_session,
+    )
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+
+
+def test_pure_emotional_still_works(fresh_session):
+    """'I'm feeling really down' with no service intent should still
+    trigger the emotional handler."""
+    result = send("I'm feeling really down", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should be empathetic, not a service confirmation
+    assert "search" not in response or "food" not in response
+    qr = result.get("quick_replies", [])
+    labels = [q["label"] for q in qr]
+    assert any("person" in l.lower() or "talk" in l.lower() for l in labels)
+
+
+def test_pure_help_still_works(fresh_session):
+    """'help' with no service intent should trigger help handler."""
+    result = send("help", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "food" in response or "shelter" in response  # lists categories
+
+
+def test_pure_escalation_still_works(fresh_session):
+    """'connect me with a peer navigator' should trigger escalation."""
+    result = send("connect me with a peer navigator", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "peer" in response or "navigator" in response or "streetlives" in response
+
+
+def test_confused_plus_service_routes_to_service(fresh_session):
+    """'I don't know, maybe shelter in Brooklyn?' should go to service."""
+    result = send("I don't know, maybe shelter in Brooklyn?", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+
+
+def test_frustrated_plus_service_routes_to_service(fresh_session):
+    """'That wasn't helpful, find me clothing in Queens' should search."""
+    result = send("That wasn't helpful, find me clothing in Queens", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "clothing"
