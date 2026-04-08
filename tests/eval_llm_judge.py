@@ -141,9 +141,10 @@ SCENARIOS = [
         "name": "Food first, then location",
         "category": "multi_turn",
         "description": "User says they need food but doesn't give location. Bot asks, user provides.",
-        "user_turns": ["I'm hungry"],
+        "user_turns": ["I'm hungry", "Manhattan", "Yes, search"],
         "expected": {
             "service_type": "food",
+            "location_contains": "manhattan",
             "should_ask_location": True,
             "should_reach_confirmation": True,
         },
@@ -153,8 +154,10 @@ SCENARIOS = [
         "name": "Location first, then service",
         "category": "multi_turn",
         "description": "User says where they are but not what they need.",
-        "user_turns": ["I'm in Williamsburg"],
+        "user_turns": ["I'm in Williamsburg", "I need food", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "williamsburg",
             "should_ask_service_type": True,
             "should_reach_confirmation": True,
         },
@@ -164,8 +167,10 @@ SCENARIOS = [
         "name": "Vague request refined through dialog",
         "category": "multi_turn",
         "description": "User starts vague, bot helps narrow down.",
-        "user_turns": ["I need help"],
+        "user_turns": ["I need help", "I need food", "Manhattan", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "manhattan",
             "should_ask_service_type": True,
         },
     },
@@ -291,8 +296,10 @@ SCENARIOS = [
         "name": "Near me without location",
         "category": "edge_case",
         "description": "User says 'near me' — bot should ask for a specific location.",
-        "user_turns": ["food near me"],
+        "user_turns": ["food near me", "Manhattan", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "manhattan",
             "should_ask_location": True,
         },
     },
@@ -466,6 +473,7 @@ SCENARIOS = [
             "I need food",
             "Manhattan",
             "Actually forget the food, I really need a place to sleep tonight",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -477,7 +485,7 @@ SCENARIOS = [
         "name": "Multiple service needs",
         "category": "multi_turn",
         "description": "User asks for two services at once. Bot should handle the primary need first.",
-        "user_turns": ["I need food and shelter in Brooklyn"],
+        "user_turns": ["I need food and shelter in Brooklyn", "Yes, search"],
         "expected": {
             "should_handle_at_least_one": True,
             "location_contains": "brooklyn",
@@ -640,10 +648,13 @@ SCENARIOS = [
         "description": "Someone just arrived in NYC. From YourPeer Advisor scenario (Dani on a bus).",
         "user_turns": [
             "I just got to New York at Port Authority. I don't know the city at all. "
-            "Where can I sleep tonight?"
+            "Where can I sleep tonight?",
+            "Manhattan",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
+            "location_contains": "manhattan",
             "should_help_with_location": True,
         },
     },
@@ -665,8 +676,10 @@ SCENARIOS = [
         "name": "Low literacy / simple language",
         "category": "accessibility",
         "description": "User types with simple language, typos, and fragments.",
-        "user_turns": ["were food broklyn free"],
+        "user_turns": ["were food broklyn free", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "brooklyn",
             "should_understand_intent": True,
             "should_respond_simply": True,
         },
@@ -826,9 +839,10 @@ SCENARIOS = [
         "category": "borough_filter",
         "description": "Tests that Manhattan, Brooklyn, Queens, Bronx, and Staten Island "
                        "are all recognized as valid boroughs for slot extraction.",
-        "user_turns": ["Are there shelters in all five boroughs of New York City?"],
+        "user_turns": ["Are there shelters in all five boroughs of New York City?", "Manhattan", "Yes, search"],
         "expected": {
             "service_type": "shelter",
+            "location_contains": "manhattan",
             "should_ask_location": True,
         },
     },
@@ -1451,9 +1465,11 @@ SCENARIOS = [
         "user_turns": [
             "I'm sleeping on the street tonight. I don't have anywhere to go "
             "and nobody is helping me.",
+            "Manhattan",
         ],
         "expected": {
             "service_type": "shelter",
+            "location_contains": "manhattan",
             "should_offer_escalation": True,
             "should_remain_empathetic": True,
             "should_treat_as_urgent": True,
@@ -1670,7 +1686,7 @@ SCENARIOS = [
                        "User needs two services in the same borough. First service "
                        "should search, then offer the second. Tests the complete "
                        "queue-offer-accept flow.",
-        "user_turns": ["I need food and a place to sleep in Brooklyn"],
+        "user_turns": ["I need food and a place to sleep in Brooklyn", "Yes, search"],
         "expected": {
             "service_type": "food",
             "location_contains": "brooklyn",
@@ -1705,7 +1721,7 @@ SCENARIOS = [
                        "centers (DHS offers chairs, showers, and basic services at "
                        "drop-ins for unsheltered individuals). Both should be "
                        "searchable sequentially.",
-        "user_turns": ["Where can I get a shower and something to eat in Manhattan?"],
+        "user_turns": ["Where can I get a shower and something to eat in Manhattan?", "Yes, search"],
         "expected": {
             "service_type": "personal_care",
             "location_contains": "manhattan",
@@ -1721,7 +1737,7 @@ SCENARIOS = [
         "description": "Clothing + food is common at YourPeer partner organizations "
                        "like Holy Apostles Soup Kitchen and Rethink Food, which often "
                        "co-locate with clothing distribution.",
-        "user_turns": ["I need some clean clothes and a meal in Harlem"],
+        "user_turns": ["I need some clean clothes and a meal in Harlem", "Yes, search"],
         "expected": {
             "service_type": "clothing",
             "location_contains": "harlem",
@@ -1745,7 +1761,8 @@ SCENARIOS = [
                        "First service searched, remaining two queued sequentially.",
         "user_turns": [
             "I need to eat, take a shower, and get some clothes. "
-            "I'm near Times Square."
+            "I'm near Times Square.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "food",
@@ -1764,7 +1781,8 @@ SCENARIOS = [
                        "this pattern firsthand.",
         "user_turns": [
             "I need help with my asylum case, food stamps, and somewhere "
-            "to get food. I'm in Jackson Heights."
+            "to get food. I'm in Jackson Heights.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "legal",
@@ -1865,7 +1883,8 @@ SCENARIOS = [
                        "the primary service. The user can correct via 'change location' "
                        "when the second service is offered.",
         "user_turns": [
-            "I need food in Brooklyn and shelter in Manhattan"
+            "I need food in Brooklyn and shelter in Manhattan",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "food",
@@ -1883,7 +1902,8 @@ SCENARIOS = [
                        "Extractor picks first-mentioned location. Tests that multi-intent "
                        "still works even when locations conflict.",
         "user_turns": [
-            "I want to shower in the Lower East Side and grab food in Chinatown"
+            "I want to shower in the Lower East Side and grab food in Chinatown",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "personal_care",
@@ -1906,7 +1926,8 @@ SCENARIOS = [
                        "should remain warm and supportive, not clinical.",
         "user_turns": [
             "I'm so scared, I got kicked out last night and I haven't eaten "
-            "since yesterday. I need food and shelter in Brooklyn."
+            "since yesterday. I need food and shelter in Brooklyn.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "food",
@@ -1944,7 +1965,8 @@ SCENARIOS = [
                        "approaching a drop-in center or Safe Haven.",
         "user_turns": [
             "I need somewhere to sleep right now and a hot meal tonight. "
-            "I'm near Penn Station."
+            "I'm near Penn Station.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -1964,7 +1986,8 @@ SCENARIOS = [
                        "navigated the system before — a core YourPeer user.",
         "user_turns": [
             "I don't even know where to begin. I need a place to stay and "
-            "I think I need a lawyer too. I'm in Jamaica, Queens."
+            "I think I need a lawyer too. I'm in Jamaica, Queens.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -1984,7 +2007,8 @@ SCENARIOS = [
                        "standalone frustration handler.",
         "user_turns": [
             "I've been to three places already and none of them had anything. "
-            "I just need food and some warm clothes in the Bronx."
+            "I just need food and some warm clothes in the Bronx.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "food",
@@ -2011,7 +2035,8 @@ SCENARIOS = [
                        "'I'm sorry you're going through this.'",
         "user_turns": [
             "I never thought I'd be asking for this but I need food and "
-            "maybe some clothes. I'm embarrassed to even ask. I'm in Midtown."
+            "maybe some clothes. I'm embarrassed to even ask. I'm in Midtown.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "food",
@@ -2033,7 +2058,8 @@ SCENARIOS = [
                        "shame is about social stigma, not data privacy.",
         "user_turns": [
             "I don't want anyone to know I'm in this situation but I need "
-            "shelter and food. I'm ashamed to be asking. East Village."
+            "shelter and food. I'm ashamed to be asking. East Village.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -2052,7 +2078,8 @@ SCENARIOS = [
                        "multi-service extraction. Response should normalize.",
         "user_turns": [
             "This is really hard for me to say but I can't afford to eat. "
-            "I'm in the Bronx."
+            "I'm in the Bronx.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "food",
@@ -2076,7 +2103,8 @@ SCENARIOS = [
                        "youth identify as LGBTQ+.",
         "user_turns": [
             "I'm 19 and I'm gay and my family kicked me out. I need somewhere "
-            "safe to stay and food. I'm in Chelsea."
+            "safe to stay and food. I'm in Chelsea.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -2098,7 +2126,8 @@ SCENARIOS = [
                        "Streetlives' co-design sessions.",
         "user_turns": [
             "I'm 17 and I ran away. I need somewhere to stay tonight and I "
-            "don't have any clean clothes. I'm in Bushwick."
+            "don't have any clean clothes. I'm in Bushwick.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -2120,7 +2149,8 @@ SCENARIOS = [
                        "in FY2026 for 100 additional RHY beds.",
         "user_turns": [
             "I just aged out of foster care and I'm 21. I don't have "
-            "anywhere to go and I need a job. I'm in Bed-Stuy."
+            "anywhere to go and I need a job. I'm in Bed-Stuy.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -2142,7 +2172,8 @@ SCENARIOS = [
                        "communities.",
         "user_turns": [
             "I came here recently from Venezuela and I need food for my "
-            "family and help with my asylum case. We are in Jackson Heights."
+            "family and help with my asylum case. We are in Jackson Heights.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "food",
@@ -2164,7 +2195,8 @@ SCENARIOS = [
                        "incarceration.",
         "user_turns": [
             "I just got out of Rikers yesterday. I need somewhere to stay "
-            "and help finding work. I'm in the South Bronx."
+            "and help finding work. I'm in the South Bronx.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -2185,7 +2217,8 @@ SCENARIOS = [
                        "detect family_status = children.",
         "user_turns": [
             "I have two kids and we need somewhere to sleep tonight and "
-            "food. We're in Harlem."
+            "food. We're in Harlem.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -2250,7 +2283,8 @@ SCENARIOS = [
         "user_turns": [
             "I've been drinking a lot and I can't keep staying on the street. "
             "I need help with my drinking and a safe place to stay. "
-            "I'm in the Lower East Side."
+            "I'm in the Lower East Side.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "mental_health",
@@ -2271,7 +2305,8 @@ SCENARIOS = [
         "user_turns": [
             "I'm an outreach worker. I have a client who's 19, sleeping "
             "rough near the Port Authority. He needs shelter, food, and "
-            "mental health services."
+            "mental health services.",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -2351,6 +2386,7 @@ def simulate_conversation(
 
     transcript = []
     turns = 0
+    llm_simulator_turns = []
 
     # Queue of pre-defined user messages
     user_queue = list(scenario.get("user_turns", []))
@@ -2362,7 +2398,8 @@ def simulate_conversation(
         else:
             # Generate a natural follow-up using Claude
             user_msg = _generate_user_response(
-                client, scenario, transcript
+                client, scenario, transcript,
+                llm_simulator_turns=llm_simulator_turns,
             )
             if user_msg is None:
                 break  # conversation is complete
@@ -2430,6 +2467,7 @@ def simulate_conversation(
         "scenario": scenario,
         "transcript": transcript,
         "turn_count": turns,
+        "llm_simulator_turns": llm_simulator_turns,
     }
 
 
@@ -2437,6 +2475,7 @@ def _generate_user_response(
     client: anthropic.Anthropic,
     scenario: dict,
     transcript: list,
+    llm_simulator_turns: list | None = None,
 ) -> str | None:
     """Use Claude to generate a natural user follow-up response."""
     if not transcript:
@@ -2494,13 +2533,24 @@ def _generate_user_response(
         # Default to Manhattan if no match
         return "Manhattan"
 
-    # Build conversation context for the user simulator
+    # LLM fallback — ideally all scenarios have sufficient scripted turns
+    # or are handled by deterministic button matching above. Log a warning
+    # when this fallback fires so we can identify scenarios that still need
+    # scripted turns for full determinism.
+    scenario_id = scenario.get("id", "unknown")
+    turn_num = len([t for t in transcript if t["role"] == "user"]) + 1
+    logging.warning(
+        f"LLM user simulator invoked for scenario '{scenario_id}' turn {turn_num} "
+        f"(no scripted turn or button match). This adds non-determinism."
+    )
+    if llm_simulator_turns is not None:
+        llm_simulator_turns.append(turn_num)
+
     conv_text = "\n".join(
         f"{'User' if t['role'] == 'user' else 'Bot'}: {t['text']}"
         for t in transcript
     )
 
-    # Include available quick-reply options in the prompt
     qr_hint = ""
     if qr_labels:
         qr_hint = (
@@ -2529,6 +2579,7 @@ def _generate_user_response(
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=50,
+            temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text.strip().strip('"')
@@ -2633,6 +2684,7 @@ def judge_conversation(
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
+            temperature=0,
             system=JUDGE_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -2687,11 +2739,13 @@ def generate_report(results: list) -> dict:
         scores = judgment.get("scores", {})
         scenario_avg = []
 
+        llm_turns = r["conversation"].get("llm_simulator_turns", [])
         scenario_result = {
             "id": scenario["id"],
             "name": scenario["name"],
             "category": scenario["category"],
             "turn_count": r["conversation"]["turn_count"],
+            "llm_simulator_turns": llm_turns,
             "scores": {},
         }
 
@@ -2728,6 +2782,12 @@ def generate_report(results: list) -> dict:
 
         per_scenario.append(scenario_result)
 
+    # Count scenarios that used the LLM simulator (non-deterministic)
+    non_deterministic = [
+        s for s in per_scenario
+        if s.get("llm_simulator_turns")
+    ]
+
     # Build summary
     summary = {
         "overall_average": 0,
@@ -2738,6 +2798,7 @@ def generate_report(results: list) -> dict:
         "scenarios_with_errors": sum(
             1 for r in results if "error" in r["judgment"]
         ),
+        "non_deterministic_scenarios": len(non_deterministic),
     }
 
     all_scores = []
@@ -2779,6 +2840,8 @@ def print_report(report: dict):
     print(f"  Scenarios evaluated: {summary['scenarios_evaluated']}")
     print(f"  Scenarios with errors: {summary['scenarios_with_errors']}")
     print(f"  Critical failures: {summary['critical_failure_count']}")
+    nd = summary.get('non_deterministic_scenarios', 0)
+    print(f"  Non-deterministic scenarios: {nd}")
     print(f"\n  OVERALL SCORE: {summary['overall_average']:.2f} / 5.00")
 
     # Dimension breakdown
@@ -2818,6 +2881,16 @@ def print_report(report: dict):
         print("-" * 70)
         for cf in report["critical_failures"]:
             print(f"  [{cf['scenario']}] {cf['failure']}")
+
+    # Non-deterministic scenarios
+    nd_scenarios = [s for s in report["scenarios"] if s.get("llm_simulator_turns")]
+    if nd_scenarios:
+        print("\n" + "-" * 70)
+        print("  ⚠️  NON-DETERMINISTIC SCENARIOS (used LLM user simulator)")
+        print("-" * 70)
+        for s in nd_scenarios:
+            turns = s["llm_simulator_turns"]
+            print(f"  [{s['id']}] LLM simulator used on turn(s): {turns}")
 
     # Per-scenario details
     print("\n" + "-" * 70)
