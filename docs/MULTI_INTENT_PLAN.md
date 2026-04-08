@@ -11,7 +11,7 @@ The chatbot originally assumed one service type per message. Classification gate
 | PR 1 | ✅ Done | Extract all service types from a message |
 | PR 2 | ✅ Done | Split classifier, extract-first routing, tone prefixes, bug fixes |
 | PR 3 | ✅ Done | Service queue — offer queued services after results |
-| PR 4 | Planned | LLM extractor — update schema for multi-service |
+| PR 4 | ✅ Done | LLM extractor — update schema for multi-service |
 
 ---
 
@@ -290,6 +290,22 @@ Pro: Backward compatible. Con: Two fields for the same concept.
 ### Priority
 
 Low — regex already handles the common multi-intent cases ("food and shelter", "clothing and legal help"). The LLM adds value only for indirect multi-service requests, which are rare. PR 3 (queue handling) is more impactful and should ship first.
+
+## Completed: PR 4 — LLM Extractor Multi-Service (Option B)
+
+Added `additional_service_types` array field to the LLM tool schema.
+The LLM returns `service_type` (primary) + `additional_service_types`
+(extras). `extract_slots_smart()` merges LLM-detected additional
+services with regex-detected ones, deduplicating by category. Regex
+results take precedence when both detect the same service (regex
+preserves detail info like "food stamps").
+
+**What this adds over regex:** The LLM can detect services from indirect
+phrasing that regex misses — e.g., "a place to crash" → shelter,
+"someone to talk to" → mental_health, "somewhere to eat" → food.
+
+**Tests:** 7 new tests covering LLM additional extraction, smart merge,
+deduplication, primary exclusion, detail preservation, and key cleanup.
 
 ---
 

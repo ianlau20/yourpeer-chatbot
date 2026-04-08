@@ -17,6 +17,14 @@ This ensures the LLM handles nuanced inputs that regex gets wrong:
     - "my son is 12 and needs a coat" → age=12
     - "somewhere safe for tonight, I'm a woman" → shelter + urgency
     - "I was just released from Rikers" → shelter
+
+Multi-service support (PR 4):
+    - "I need food and a place to crash" → service_type=food,
+      additional_service_types=["shelter"]
+    - The LLM detects indirect phrasing that regex misses (e.g.,
+      "a place to crash" → shelter, "someone to talk to" → mental_health)
+    - extract_slots_smart() merges LLM additional services with regex
+      additional_services, deduplicating by category.
 """
 
 import os
@@ -29,6 +37,16 @@ logger = logging.getLogger(__name__)
 
 # Use the shared Anthropic client and model constants
 from app.llm.claude_client import get_client, SLOT_EXTRACTION_MODEL
+
+
+# ---------------------------------------------------------------------------
+# SERVICE TYPE ENUM (shared between tool schema and validation)
+# ---------------------------------------------------------------------------
+
+_SERVICE_TYPE_ENUM = [
+    "food", "shelter", "clothing", "personal_care",
+    "medical", "mental_health", "legal", "employment", "other",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -47,12 +65,11 @@ _EXTRACT_SLOTS_TOOL = {
         "properties": {
             "service_type": {
                 "type": "string",
-                "enum": [
-                    "food", "shelter", "clothing", "personal_care",
-                    "medical", "mental_health", "legal", "employment", "other",
-                ],
+                "enum": _SERVICE_TYPE_ENUM,
                 "description": (
-                    "The type of service the user is looking for. "
+                    "The primary type of service the user is looking for. "
+                    "If the user mentions multiple needs, put the most urgent "
+                    "or first-mentioned here. "
                     "food = meals, pantries, groceries. "
                     "shelter = housing, place to sleep, drop-in centers, "
                     "somewhere safe, transitional housing. "
@@ -63,6 +80,22 @@ _EXTRACT_SLOTS_TOOL = {
                     "legal = lawyers, immigration, eviction, legal aid. "
                     "employment = jobs, resume help, training. "
                     "other = benefits, SNAP, IDs, birth certificates, free phones."
+                ),
+            },
+            "additional_service_types": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": _SERVICE_TYPE_ENUM,
+                },
+                "description": (
+                    "Any additional service types the user needs beyond the "
+                    "primary one. For example, if the user says 'I need food "
+                    "and a place to crash,' service_type is 'food' and "
+                    "additional_service_types is ['shelter']. Only include "
+                    "services the user explicitly or clearly implicitly "
+                    "requests. Do not infer services that weren't mentioned. "
+                    "Do not repeat the primary service_type here."
                 ),
             },
             "location": {
@@ -122,6 +155,11 @@ _SYSTEM_PROMPT = (
     "extract_intake_slots tool. Only extract what is explicitly stated or "
     "strongly implied. Do not guess or assume. If the message doesn't contain "
     "any service-related information, call the tool with an empty object {}.\n\n"
+    "If the user mentions multiple service needs, put the most urgent or "
+    "first-mentioned in service_type and any others in additional_service_types. "
+    "For example: 'I need food and somewhere to sleep' → service_type: 'food', "
+    "additional_service_types: ['shelter']. Do not repeat the primary service in "
+    "additional_service_types.\n\n"
     "You may receive prior conversation turns for context. Use them to resolve "
     "references like 'there', 'that area', 'try Queens instead', or 'what about "
     "Brooklyn?' — but only extract slots from the LATEST user message."
@@ -143,8 +181,10 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
             Provides context for follow-up messages like
             "What about in Brooklyn?" or "Try Queens instead".
 
-    Returns a dict with keys: service_type, location, age, urgency, gender.
-    Values are None for slots that couldn't be extracted.
+    Returns a dict with keys: service_type, additional_service_types,
+    location, age, urgency, gender, family_status.
+    Values are None for slots that couldn't be extracted;
+    additional_service_types defaults to [].
     """
     try:
         client = get_client()
@@ -192,10 +232,12 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
                 raw = block.input
                 return {
                     "service_type": raw.get("service_type"),
+                    "additional_service_types": raw.get("additional_service_types") or [],
                     "location": raw.get("location"),
                     "age": raw.get("age"),
                     "urgency": raw.get("urgency"),
                     "gender": raw.get("gender"),
+                    "family_status": raw.get("family_status"),
                 }
 
         logger.warning("Claude did not return a tool call")
@@ -209,10 +251,12 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
 def _empty_slots() -> dict:
     return {
         "service_type": None,
+        "additional_service_types": [],
         "location": None,
         "age": None,
         "urgency": None,
         "gender": None,
+        "family_status": None,
     }
 
 
@@ -283,12 +327,20 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
        (authoritative, no merge)
     4. If LLM fails → fall back to regex
 
+    Multi-service merge (PR 4):
+        After determining the primary result, additional services from
+        both regex and LLM are merged. Regex additional_services take
+        precedence (they have detail info like "food stamps"). LLM adds
+        services that regex missed (e.g., "a place to crash" → shelter).
+        The primary service_type is excluded from additional_services.
+
     Args:
         message: The current user message.
         conversation_history: Optional list of prior turns for LLM context.
             Each item is a dict with 'role' and 'text' keys.
 
-    Returns the same dict shape as extract_slots().
+    Returns the same dict shape as extract_slots(), with additional_services
+    merged from both regex and LLM sources.
     """
     from app.services.slot_extractor import extract_slots as extract_slots_regex
 
@@ -304,12 +356,18 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
     logger.info("Complex message — calling LLM for slot extraction")
     llm_result = extract_slots_llm(message, conversation_history=conversation_history)
 
-    # If LLM returned something useful, use it
-    llm_has_data = any(v is not None for v in llm_result.values())
+    # If LLM returned something useful, use it as the base
+    llm_has_data = any(
+        v is not None and v != []
+        for v in llm_result.values()
+    )
     if llm_has_data:
         # Supplement with regex for any slots LLM missed
         # (e.g., LLM got service+location but missed urgency)
         for key in regex_result:
+            # Skip additional_services — handled separately below
+            if key == "additional_services":
+                continue
             if llm_result.get(key) is None and regex_result.get(key) is not None:
                 llm_result[key] = regex_result[key]
 
@@ -327,8 +385,49 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
             )
             llm_result["service_type"] = regex_result["service_type"]
 
-        return llm_result
+        merged = llm_result
+    else:
+        # Step 4: LLM returned nothing — fall back to regex
+        logger.warning("LLM returned empty — falling back to regex")
+        merged = regex_result
 
-    # Step 4: LLM returned nothing — fall back to regex
-    logger.warning("LLM returned empty — falling back to regex")
-    return regex_result
+    # -----------------------------------------------------------------
+    # Merge additional services from regex and LLM (PR 4)
+    # -----------------------------------------------------------------
+    # Regex additional_services: list of (service_type, detail) tuples
+    regex_additional = regex_result.get("additional_services", [])
+
+    # LLM additional_service_types: list of service_type strings
+    llm_additional = merged.pop("additional_service_types", []) or []
+
+    # Build combined list, deduplicating by service category.
+    # Primary service_type is excluded (no duplication with main slot).
+    seen = set()
+    primary = merged.get("service_type")
+    if primary:
+        seen.add(primary)
+
+    combined_additional = []
+
+    # Regex additional first — they have detail info (e.g., "food stamps")
+    for svc, detail in regex_additional:
+        if svc not in seen:
+            combined_additional.append((svc, detail))
+            seen.add(svc)
+
+    # LLM additional — only services regex didn't already find.
+    # This is where the LLM adds value: indirect phrasing like
+    # "a place to crash" → shelter, "someone to talk to" → mental_health
+    for svc in llm_additional:
+        if svc not in seen:
+            combined_additional.append((svc, None))
+            seen.add(svc)
+            logger.info(
+                f"LLM detected additional service '{svc}' "
+                f"that regex missed"
+            )
+
+    if combined_additional:
+        merged["additional_services"] = combined_additional
+
+    return merged
