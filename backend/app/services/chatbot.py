@@ -1521,6 +1521,20 @@ def generate_reply(
         _log_turn(session_id, redacted_message, result, category, request_id=request_id)
         return result
 
+    # "No thanks" after a queue offer (no pending confirmation, but queue exists).
+    # The user declined the offered queued service — clear the queue.
+    if not pending and category == "confirm_deny" and existing.get("_queued_services"):
+        existing.pop("_queued_services", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "No problem! Let me know if you need anything else.",
+            existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "queue_decline", request_id=request_id)
+        return result
+
     # If pending confirmation but user typed something new (not a
     # confirmation action), check if it contains new slot data.
     # If not, gently re-show the confirmation rather than falling
@@ -1600,6 +1614,21 @@ def generate_reply(
     if "transcript" not in merged:
         merged["transcript"] = []
     merged["transcript"].append({"role": "user", "text": redacted_message})
+
+    # Queue additional services for offering after the primary search.
+    # Only set when new additional services are extracted — don't overwrite
+    # an existing queue from a prior multi-intent message.
+    additional = extracted.get("additional_services", [])
+    if additional and "_queued_services" not in merged:
+        merged["_queued_services"] = additional
+
+    # If the user changed their service type, clear a stale queue
+    # (e.g., they said "food and shelter" but then changed to "medical")
+    if (extracted.get("service_type")
+            and existing.get("service_type")
+            and extracted["service_type"] != existing.get("service_type")
+            and not additional):
+        merged.pop("_queued_services", None)
 
     save_session_slots(session_id, merged)
 
@@ -1791,6 +1820,31 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
         {"label": "🔍 New search", "value": "Start over"},
         {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
     ]
+
+    # Check for queued services from multi-intent extraction.
+    # If the user said "I need food and shelter", food was searched first.
+    # Now offer shelter.
+    queued = slots.get("_queued_services", [])
+    if queued and services_list:
+        next_service, next_detail = queued[0]
+        remaining = queued[1:]
+
+        # Update session: pop the offered service, keep remaining
+        if remaining:
+            slots["_queued_services"] = remaining
+        else:
+            slots.pop("_queued_services", None)
+        save_session_slots(session_id, slots)
+
+        label = next_detail or _SERVICE_LABELS.get(next_service, next_service)
+        bot_response += (
+            f"\n\nYou also mentioned {label} — would you like me to "
+            f"search for that too?"
+        )
+        after_results_qr = [
+            {"label": f"✅ Yes, search for {label}", "value": f"I need {next_service}"},
+            {"label": "❌ No thanks", "value": "No thanks"},
+        ]
 
     return {
         "session_id": session_id,

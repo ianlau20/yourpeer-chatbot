@@ -1446,3 +1446,154 @@ def test_classify_action_none_for_urgent():
     from app.services.chatbot import _classify_action
     assert _classify_action("I need help right now") is None
     assert _classify_action("tonight") is None
+
+
+# -----------------------------------------------------------------------
+# SERVICE QUEUE (multi-intent PR 3)
+# -----------------------------------------------------------------------
+
+def test_multi_intent_queues_additional_services(fresh_session):
+    """'I need food and shelter in Brooklyn' should queue shelter."""
+    result = send("I need food and shelter in Brooklyn", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "food"
+    assert "_queued_services" in slots
+    assert any(s[0] == "shelter" for s in slots["_queued_services"])
+
+
+def test_multi_intent_offers_queued_after_results(fresh_session):
+    """After food results, bot should offer to search for shelter."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+        "_pending_confirmation": True,
+    })
+    result = send("yes", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "shelter" in response, f"Should mention queued shelter, got: {response[:120]}"
+    assert "also mentioned" in response or "search for that" in response
+    qr_labels = [q["label"] for q in result.get("quick_replies", [])]
+    assert any("shelter" in l.lower() for l in qr_labels), f"Expected shelter button, got {qr_labels}"
+
+
+def test_multi_intent_yes_to_queued_service(fresh_session):
+    """Tapping 'Yes, search for shelter' should start a shelter search."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+    })
+    result = send("I need shelter", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+    assert slots.get("location") == "Brooklyn"
+
+
+def test_multi_intent_no_thanks_clears_queue(fresh_session):
+    """'No thanks' should clear the queue and show wrap-up."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("No thanks", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "no problem" in response or "let me know" in response
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_three_services_queued(fresh_session):
+    """Three services should queue the second and third."""
+    result = send("I need food, clothing, and legal help in Manhattan", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "food"
+    queued = slots.get("_queued_services", [])
+    queued_types = [s[0] for s in queued]
+    assert "clothing" in queued_types
+    assert "legal" in queued_types
+
+
+def test_multi_intent_queue_not_overwritten(fresh_session):
+    """If a queue already exists, a new message shouldn't overwrite it."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("actually make that Queens", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" in slots
+
+
+def test_multi_intent_queue_cleared_on_service_change(fresh_session):
+    """Changing service type without multi-intent should clear stale queue."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("I need medical care", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "medical"
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_reset_clears_queue(fresh_session):
+    """'Start over' should clear everything including the queue."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("start over", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_no_queue_when_single_service(fresh_session):
+    """Single service message should not create a queue."""
+    result = send("I need food in Brooklyn", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_queue_offer_uses_detail_label(fresh_session):
+    """Queue offer should use service_detail label when available."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("medical", "dental care")],
+        "_pending_confirmation": True,
+    })
+    result = send("yes", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should use "dental care" not "health care"
+    if result.get("result_count", 0) > 0:
+        assert "dental care" in response, f"Should use detail label, got: {response[:120]}"
+
+
+def test_multi_intent_queue_preserved_through_confirmation(fresh_session):
+    """Queue should survive the confirmation flow."""
+    result = send("I need food and shelter in Brooklyn", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    # Should have pending confirmation AND queue
+    assert slots.get("_pending_confirmation") is True
+    assert "_queued_services" in slots
+    assert any(s[0] == "shelter" for s in slots["_queued_services"])
