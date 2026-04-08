@@ -32,7 +32,7 @@ Two independent classifiers run in parallel:
 | `confirm_deny` | "no", "nah", "nope", "not yet" | "no" |
 | `greeting` | "hi", "hello", "hey" (only if ≤3 words) | "hello" |
 | `thanks` | "thank you", "thanks" (no continuation) | "thanks" |
-| `help` | "help", "list services" | "help" |
+| `help` | "what can you do", "list services"; "help" (word-boundary, excludes "helpful"/"not helpful") | "help" |
 
 **`_classify_tone(text)`** — how the user FEELS:
 
@@ -94,6 +94,10 @@ If the LLM is unavailable or returns an unrecognized category, the system falls 
 
 Crisis resources are shown immediately. The session is NOT cleared — the user can continue their service search afterward. See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for full details on the two-stage detection pipeline, six crisis categories, and fail-open policy.
 
+**Crisis step-down:** When crisis fires on a non-acute category (`safety_concern` or `domestic_violence`) AND the user has explicit service intent (regex found a service keyword like "shelter"), the bot shows crisis resources AND preserves the extracted service slots in session. The response appends: "I can also help you find [service] in [location] — would you like me to search?" with quick replies for "Yes, search" and "Peer navigator." This handles cases like "I was kicked out and need shelter in Brooklyn" where both safety resources and practical help are appropriate. Acute crisis categories (suicide, medical, trafficking, violence) always show crisis resources only.
+
+**Emotional phrase guard:** Before invoking the LLM for crisis detection (Stage 2), the system checks whether the message matches a known sub-crisis emotional phrase (e.g., "feeling scared", "I'm struggling", "rough day"). If so, the LLM stage is skipped entirely — these are handled by the emotional tone handler, not the crisis handler. This prevents the LLM's "when in doubt, err toward crisis=true" instruction from over-escalating clearly emotional-but-not-crisis messages.
+
 ### Reset
 
 Clears all session state (slots, transcript, pending confirmation). Shows a fresh welcome message with service category buttons. Triggered by "start over", "new search", "begin again", or "cancel".
@@ -137,15 +141,15 @@ Returns a brief "you're welcome" message with service buttons in case the user w
 
 ### Frustration
 
-Acknowledges the frustration empathetically without being defensive. Offers three options: try a different search, connect with a peer navigator, or call 311 for live social services help. Sets `_last_action = "frustration"` so "yes" starts a new search and "no" offers a navigator.
+Acknowledges the frustration empathetically without being defensive. Offers three options: try a different search, connect with a peer navigator, or call 311 for live social services help. Sets `_last_action = "frustration"` so "yes" connects to a peer navigator (the handler's messaging pushes toward navigator: "I think a peer navigator would be more helpful") and the "Try different search" button sends "Start over" directly via quick reply.
 
 **Repeated frustration detection:** If the user expresses frustration a second time in a row (i.e., `_last_action` is already `"frustration"`), the bot produces a shorter, different response that avoids repeating the same wall of text. The second response acknowledges the bot isn't helping, strongly recommends a peer navigator, and mentions 311 as a backup.
 
 ### Emotional
 
-Acknowledges the user's feelings with warmth before doing anything else. Uses an LLM-generated response when available, with a specialized prompt that focuses on empathy and explicitly prohibits listing services, giving advice, or diagnosing. Falls back to a static response that validates the feeling, offers peer navigator, and gently mentions practical help is available.
+Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the clinical chatbot literature (see [Emotional Handling Design](#emotional-handling-design) below). Acknowledges the user's feelings with warmth before doing anything else. Uses an LLM-generated response when available, with a specialized prompt that focuses on empathy and explicitly prohibits listing services, giving advice, or diagnosing. Falls back to a static response that validates the feeling, offers peer navigator, and gently mentions practical help is available.
 
-Only shows a "Talk to a person" quick reply — no service category buttons. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with service category quick replies so the user has a clear next step.
+Only shows a "Talk to a person" quick reply — no service category buttons. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with only a navigator button (not the full service menu — per the AVR principle of not pushing task-oriented responses after emotional distress).
 
 ### Confused
 
@@ -161,10 +165,11 @@ After emotional, escalation, frustration, or confused responses, "yes" and "no" 
 
 | After | "Yes" means | "No" means |
 |---|---|---|
-| Emotional | Connect to peer navigator | Gentle response + service menu buttons |
+| Emotional | Connect to peer navigator | Gentle response + navigator button only (no service menu) |
 | Escalation | Connect to peer navigator | "No problem" + service menu buttons |
-| Frustration | Start a new search (reset) | "No worries" + navigator button |
+| Frustration | Connect to peer navigator | "No worries" + navigator button |
 | Confused | Connect to peer navigator | Gentle encouragement + navigator button |
+| Crisis (step-down) | Execute service search with preserved slots | Acknowledge + navigator button |
 
 The `_last_action` tracker is cleared after any non-yes/no message so it doesn't persist indefinitely.
 
@@ -253,14 +258,61 @@ The transition between modes is automatic: any message containing a service keyw
 
 ---
 
+## Emotional Handling Design
+
+### The Acknowledge-Validate-Redirect (AVR) Pattern
+
+The chatbot's emotional handling follows the **Acknowledge-Validate-Redirect** pattern, the dominant design approach across clinically validated mental health chatbots. This pattern has three steps:
+
+1. **Acknowledge** the emotion immediately ("I hear you")
+2. **Validate** it ("You don't have to have everything figured out")
+3. **Redirect** gently — to a human (peer navigator) or practical help, but only after steps 1-2
+
+This pattern is informed by research across several domains relevant to our population:
+
+**Clinical chatbot research.** Woebot (CBT-based, RCT-validated) and Wysa (CBT/DBT, hybrid human+AI) both prioritize empathetic acknowledgment before any task-oriented response. A 2025 JMIR study analyzing 13,700 utterances across 8 commercial chatbots found that social chatbots excelling at empathy (SimSimi, Replika) detected emotional tone before processing intent, and that users expected chatbots to provide "a safe space to express emotions" before receiving information or advice (Chin et al., *JMIR Formative Research*, 2025).
+
+**Social services chatbot research.** The DAPHNE chatbot (Dialog-Based Assistant Platform for Healthcare and Needs Ecosystem), designed for social need screening with low-income families, found that "fostering user confidence" was a crucial design factor and that users valued empathetic conversational design over task efficiency (Sezgin et al., *JMIR Human Factors*, 2024).
+
+**Emotional distress in vulnerable populations.** A PMC study on chatbot use across 8 countries found that 75% of depression-related chatbot interactions involved expressing feelings rather than seeking strategies, suggesting users find relief in being heard before being helped (Chin et al., *PMC*, 2023). A Frontiers study on empathic chatbots demonstrated that empathetic responses significantly improved mood after social exclusion compared to merely acknowledging responses (Ischen et al., *Frontiers in Psychology*, 2019).
+
+### Design Principles Applied
+
+Based on this research, the following principles govern emotional handling in the YourPeer chatbot:
+
+1. **Emotion detection runs before intent classification.** The split classifier (`_classify_tone`) runs independently of slot extraction. This ensures emotional phrases like "I'm feeling scared" are recognized even when service keywords are also present.
+
+2. **Don't push services on emotional users.** When someone expresses distress ("I'm feeling really down"), the response shows empathy and offers a peer navigator — no service category buttons. The emotional deny handler ("no" after emotional response) also avoids the full service menu, showing only a navigator button.
+
+3. **Emotional phrases are not service keywords.** Words like "struggling", "having a hard time", and "stressed" were removed from the `mental_health` service keyword list. "stress" uses word-boundary matching (`\bstress\b`) so "I need help with stress" matches but "I'm stressed out" does not. This prevents emotional expressions from being misrouted to service search.
+
+4. **Sub-crisis emotional phrases skip LLM crisis detection.** The LLM crisis detector is instructed to "err toward crisis=true" for ambiguous messages — appropriate for genuine safety ambiguity, but over-escalatory for clearly emotional phrases. A guard in `crisis_detector.py` checks for known sub-crisis emotional phrases before invoking the LLM, routing them to the emotional handler instead.
+
+5. **Graduated response levels.** The system has three tiers of emotional response:
+   - **Pure emotional** (no service intent): Full AVR response with navigator offer, no service buttons
+   - **Emotional + service intent**: Empathetic tone prefix ("I hear you, and I want to help.") followed by service confirmation
+   - **Crisis + service intent**: Crisis resources shown with step-down offer to search for the mentioned service
+
+6. **Always offer human escalation.** Every emotional response includes a path to a peer navigator. This aligns with Wysa's hybrid model and the APA's guidance that AI chatbots should "complement—not replace—human-led" support.
+
+### References
+
+- Chin, H., Song, H., et al. (2025). Chatbots' Empathetic Conversations and Responses: A Qualitative Study of Help-Seeking Queries on Depressive Moods Across 8 Commercial Conversational Agents. *JMIR Formative Research*, 9(1), e71538. https://formative.jmir.org/2025/1/e71538
+- Chin, H., Peng, H., et al. (2023). The Potential of Chatbots for Emotional Support and Promoting Mental Well-Being in Different Cultures. *Journal of Medical Internet Research*, 25, e48592. https://pmc.ncbi.nlm.nih.gov/articles/PMC10625083/
+- Sezgin, E., et al. (2024). Chatbot for Social Need Screening and Resource Sharing With Vulnerable Families: Iterative Design and Evaluation Study. *JMIR Human Factors*, 11, e57114. https://humanfactors.jmir.org/2024/1/e57114
+- Ischen, C., et al. (2019). Effectiveness of an Empathic Chatbot in Combating Adverse Effects of Social Exclusion on Mood. *Frontiers in Psychology*, 10, 3061. https://www.frontiersin.org/articles/10.3389/fpsyg.2019.03061
+- American Psychological Association. (2025). Health Advisory: Use of Generative AI Chatbots and Wellness Applications for Mental Health. https://www.apa.org/topics/artificial-intelligence-machine-learning/health-advisory-chatbots-wellness-apps
+
+---
+
 ## Known Limitations
 
 ### Conversational
 
-- **Single-intent only.** The bot cannot handle "I need food AND shelter" in one message. It picks the first service type detected and ignores the second.
 - **English only.** Multi-language support (Spanish minimum) is planned but not implemented.
 - **No memory across sessions.** Each session is independent. The bot cannot reference previous visits.
-- **Emotional detection uses the same two-stage pattern as crisis detection.** Common emotional phrases are caught by regex (<1ms). Indirect or culturally specific expressions (e.g., "I've been having the worst week and I just don't see things getting better") fall through to the LLM classifier, which can return `emotional` as a category. Without an API key (regex-only mode), only the explicit phrase list is active. A service-continuation guard ensures messages with both emotional phrases and service-intent words (e.g., "I'm struggling with addiction and need treatment") route to service, not emotional.
+- **Emotional detection phrase coverage.** Common emotional phrases ("feeling down", "I'm scared", "rough day") are caught by regex. Indirect or culturally specific expressions fall through to the LLM classifier. Without an API key (regex-only mode), only the explicit phrase list is active. The emotional phrase guard in `crisis_detector.py` prevents known sub-crisis emotional phrases from being over-escalated to crisis by the LLM. Keywords that could collide between emotional expressions and service requests (e.g., "stress" matching "stressed out") use word-boundary matching to prevent false positives.
+- **Shame tone not yet implemented.** Research identified shame/embarrassment as a distinct emotional state in this population ("I'm embarrassed to ask", "I never thought I'd need a food bank"). Currently mapped to `emotional` tone. A dedicated shame handler with normalizing responses is planned.
 
 ### Search & Results
 
@@ -303,7 +355,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 63 tests in `test_chatbot.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

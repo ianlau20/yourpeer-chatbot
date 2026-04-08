@@ -56,11 +56,14 @@ User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Conf
           ↑                      ↓                     ↓               ↓                                   ↓
    Quick-reply            Crisis Detection        PII Redaction    User confirms                      Service Cards
    buttons                (regex + Sonnet)            ↓          or changes slots                         ↓
-                          Greeting / Reset        Session Store                                       YourPeer links
-                          Thanks / Help                ↓
-                          Escalation             Claude Haiku (fallback
-                          Frustration            for general conversation
-                          Bot identity           and DB failures only)
+                          → Step-down when       Session Store                                       YourPeer links
+                            service intent           ↓
+                          Greeting / Reset       Claude Haiku (fallback
+                          Thanks / Help          for general conversation
+                          Escalation             and DB failures only)
+                          Frustration (AVR)
+                          Emotional (AVR)
+                          Bot identity
                           Confused/overwhelmed
                           Confirmation
                           handling
@@ -73,7 +76,7 @@ Staff → Admin Console (/admin) → Audit Log API → Anonymized transcripts, q
 
 The system follows a **Safer, Limited RAG** pattern with four phases:
 
-1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Quick-reply buttons let users tap instead of type. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude Haiku for complex or ambiguous inputs. Crisis detection runs on every message before anything else, using regex pre-check followed by Claude Sonnet LLM classification when regex misses (Sonnet is used here for its stronger nuance on indirect crisis language). The message classifier routes greetings, resets, escalation, frustration, bot-identity questions, confusion, and help before slot extraction runs. PII is redacted from stored transcripts.
+1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Multi-service extraction detects all services in a message ("I need food and shelter") and queues them for sequential search. Quick-reply buttons let users tap instead of type. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude Haiku for complex or ambiguous inputs. Crisis detection runs on every message before anything else, using regex pre-check followed by Claude Sonnet LLM classification when regex misses — with an emotional phrase guard that prevents sub-crisis expressions ("feeling scared", "I'm struggling") from being over-escalated to crisis. When crisis fires alongside service intent, a step-down flow shows crisis resources while preserving the service context. The message classifier routes greetings, resets, escalation, frustration, bot-identity questions, confusion, and help before slot extraction runs. Emotional handling follows the Acknowledge-Validate-Redirect (AVR) pattern from clinical chatbot research. PII is redacted from stored transcripts.
 2. **Confirmation** — When service type and location are filled, the bot summarizes the search ("I'll search for food in Brooklyn") and presents quick-reply options: confirm, change location, change service, or start over. The database is only queried after explicit user confirmation.
 3. **Query** — Pre-defined, parameterized SQL templates run against the Streetlives PostgreSQL database. Borough-level queries use the `pa.borough` column directly — more reliable than expanding city name lists. Neighborhood queries use PostGIS proximity search (`ST_DWithin`) with coordinates for 59 NYC neighborhoods. If the strict query returns no results, filters are automatically relaxed while keeping location boundaries. Data-informed nearby borough suggestions are offered when results are thin.
 4. **Rendering** — Results are returned as structured service cards, never as LLM-generated text. Cards include address, hours, phone, fees, a "Referral may be required" badge for membership-gated services, and direct links to YourPeer.
@@ -147,14 +150,14 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | Document | Description |
 |---|---|
 | [FEATURES.md](docs/FEATURES.md) | Full feature reference — conversation & intake, crisis detection, search & results, service cards, privacy & safety, staff tools |
-| [CHATBOT_BEHAVIOR.md](docs/CHATBOT_BEHAVIOR.md) | Chatbot behavior — routing pipeline, 16 message categories, LLM usage, guardrails, conversation modes, limitations, how to extend |
-| [CRISIS_DETECTION.md](docs/CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, phrase list design, LLM prompt, and how to extend |
+| [CHATBOT_BEHAVIOR.md](docs/CHATBOT_BEHAVIOR.md) | Chatbot behavior — routing pipeline, message categories, emotional handling design (AVR pattern), crisis step-down, LLM usage, guardrails, conversation modes, limitations, how to extend |
+| [CRISIS_DETECTION.md](docs/CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, emotional phrase guard, crisis step-down, phrase list design, LLM prompt, and how to extend |
 | [PII_REDACTION.md](docs/PII_REDACTION.md) | PII redaction — six detection categories, pattern details, tradeoffs, known gaps, and future improvements |
 | [METRICS.md](docs/METRICS.md) | Success metrics — 24+ metrics across 6 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
-| [EVAL_RESULTS.md](docs/EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 7 runs |
+| [EVAL_RESULTS.md](docs/EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 17 runs |
 | [SETUP.md](docs/SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](docs/DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, starter tier notes |
-| [TESTING.md](docs/TESTING.md) | Test suite guide — 607 tests across 19 files + 102-scenario LLM-as-judge evaluation framework |
+| [TESTING.md](docs/TESTING.md) | Test suite guide — 747 tests across 20 files + 142-scenario LLM-as-judge evaluation framework |
 | [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories
