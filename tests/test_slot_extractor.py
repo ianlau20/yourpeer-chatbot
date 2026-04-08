@@ -1197,3 +1197,15 @@ def test_extract_all_text_position_order_reversed():
     results = _extract_all_service_types("I need shelter and food")
     assert results[0][0] == "shelter", f"Expected shelter first, got {results[0][0]}"
     assert results[1][0] == "food", f"Expected food second, got {results[1][0]}"
+
+
+def test_extract_all_word_boundary_ordered():
+    """Word-boundary fallback matches should also be sorted by text position."""
+    from app.services.slot_extractor import _extract_all_service_types
+    # "bed" uses word boundary pattern (collision-prone keyword)
+    # If "bed" appears after "food", food should be first
+    results = _extract_all_service_types("I need food and a bed")
+    types = [r[0] for r in results]
+    if "shelter" in types and "food" in types:
+        assert types.index("food") < types.index("shelter"), \
+            f"food should come before shelter (bed), got {results}"

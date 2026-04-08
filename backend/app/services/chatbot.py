@@ -418,12 +418,16 @@ def _classify_message(text: str) -> str:
     if has_slot:
         return "service"
 
-    # Emotional / confused (only when no service intent)
+    # Emotional / confused / urgent (only when no service intent)
     tone = _classify_tone(text)
     if tone == "emotional":
         return "emotional"
     if tone == "confused":
         return "confused"
+    # Urgent without service intent is not actionable on its own —
+    # it only matters as a prefix modifier in the service flow.
+    # Map to "general" so LLM can try to interpret the message.
+    # (Don't return "urgent" — no handler exists for that category.)
 
     # LLM fallback for longer messages
     if _USE_LLM and len(cleaned.split()) > 3:
@@ -1537,12 +1541,23 @@ def generate_reply(
 
         if not pending_has_new:
             # No new slots — user is probably trying to confirm or is confused.
-            # Re-show the confirmation with a nudge.
+            # Re-show the confirmation with a nudge, but acknowledge tone
+            # if the user expressed emotion.
             existing["_pending_confirmation"] = True
             save_session_slots(session_id, existing)
 
+            nudge_prefix = "Just to make sure — "
+            if _response_tone == "emotional":
+                nudge_prefix = "I hear you. Just to make sure — "
+            elif _response_tone == "frustrated":
+                nudge_prefix = "I understand. Let me just confirm — "
+            elif _response_tone == "confused":
+                nudge_prefix = "No worries — let me just confirm: "
+            elif _response_tone == "urgent":
+                nudge_prefix = "Got it — just to confirm: "
+
             confirm_msg = (
-                "Just to make sure — " + _build_confirmation_message(existing)
+                nudge_prefix + _build_confirmation_message(existing)
                 + ' Tap "Yes, search" to go, or you can change the details.'
             )
             confirm_qr = _confirmation_quick_replies(existing)
@@ -1601,15 +1616,19 @@ def generate_reply(
     )
 
     # Build tone-based prefix for empathetic framing when the user
-    # expressed emotion alongside a service request.
+    # expressed emotion alongside a service request. Uses category ==
+    # "service" rather than has_service_intent so that LLM-detected
+    # service intent (e.g., "I just got out of the hospital, I'm scared")
+    # also gets the empathetic prefix.
+    _is_service_flow = category == "service"
     _tone_prefix = ""
-    if _response_tone == "emotional" and has_service_intent:
+    if _response_tone == "emotional" and _is_service_flow:
         _tone_prefix = "I hear you, and I want to help. "
-    elif _response_tone == "frustrated" and has_service_intent:
+    elif _response_tone == "frustrated" and _is_service_flow:
         _tone_prefix = "I understand this has been frustrating. Let me try something different. "
-    elif _response_tone == "confused" and has_service_intent:
+    elif _response_tone == "confused" and _is_service_flow:
         _tone_prefix = "No worries — let me help you with that. "
-    elif _response_tone == "urgent" and has_service_intent:
+    elif _response_tone == "urgent" and _is_service_flow:
         _tone_prefix = "I can see this is urgent — let me find something right away. "
 
     # If enough detail exists AND this message contributed new info,
