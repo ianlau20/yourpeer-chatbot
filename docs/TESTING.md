@@ -407,16 +407,28 @@ ANTHROPIC_API_KEY=sk-ant-... python tests/eval_llm_judge.py --scenario-id shelte
 
 ### Scenario coverage
 
-114 scenarios across 20 categories: happy_path, multi_turn, crisis, confirmation, privacy, edge_case, natural_language, adversarial, accessibility, taxonomy_regression, borough_filter, no_result, staten_island, neighborhood_routing, schedule, referral, data_quality, emotional, bot_question, and guard (emotional+service overlap).
+114 scenarios across 21 categories: happy_path, multi_turn, crisis, confirmation, privacy, edge_case, natural_language, adversarial, accessibility, taxonomy_regression, borough_filter, no_result, staten_island, neighborhood_routing, schedule, referral, data_quality, emotional, bot_question, and guard (emotional+service overlap), multi_intent.
 
 Notable additions: 2 frustration escalation scenarios (repeated frustration loop, frustration-to-resolution arc), and 10 scenarios informed by the WA Homelessness Portal covering rough sleepers, unsafe housing, family with children, substance use + shelter, dual needs, negative preferences, non-English speakers, youth runaways, privacy around data sharing, and multi-need storytelling.
+
+**Multi-intent queue flow (30 scenarios)** — core queue (food+shelter sequential,
+shower+food drop-in pattern, clothing+food), three-service combos (DYCD drop-in
+trio, asylum seeker trio), queue decline (2 phrasings), location change mid-queue
+(typed and button), cross-service slot conflicts (cross-borough, cross-neighborhood),
+emotional+multi-service empathetic framing (4 tone variants + second-service warmth),
+shame/embarrassment tone (3 — food bank stigma, shelter stigma, single-service
+normalizing), YourPeer personas (LGBTQ youth/Ali Forney, DYCD RHY runaway,
+foster care aging-out, asylum seeker, re-entry from Rikers, family with children
+via PATH), queue edge cases (ignore queue with new request, start over clears
+queue), and complex natural language (substance use narrative, outreach worker
+referral).
 
 ## Known Limitations
 
 These are documented behaviors, not bugs:
 
 - **Bare numbers (regex only):** Replying with just "17" (no context like "I am" or "age") does not extract age with the regex extractor. LLM extraction handles this correctly when enabled.
-- **Multi-intent routing:** "I need food and shelter" correctly extracts both service types into `additional_services`, and the split classifier routes the first to the service flow with tone-aware framing. Sequential queue handling (offering the second service after results) is planned in PR 3.
+- **Multi-intent:** "I need food and shelter" extracts all service types, searches the first, then offers remaining services sequentially via the queue. Known limitation: only one location is extracted per message — "food in Brooklyn and shelter in Manhattan" uses Brooklyn for both. User can correct via "change location" when the second service is offered. 30 eval scenarios cover this flow.
 - **Name detection:** Heuristic-based (intro phrases like "my name is"). Won't catch names without an intro phrase. Acceptable tradeoff to avoid false positives on location names.
 - **Borough typos (regex only):** Misspellings like "brookyln" are not corrected by regex. LLM extraction handles these.
 - **Two boroughs in one message (regex only):** "I'm in Queens but looking for food in Brooklyn" extracts "Queens" (first preposition match), not Brooklyn. LLM extraction picks the intended location.

@@ -10,7 +10,7 @@ The chatbot originally assumed one service type per message. Classification gate
 |---|---|---|
 | PR 1 | ✅ Done | Extract all service types from a message |
 | PR 2 | ✅ Done | Split classifier, extract-first routing, tone prefixes, bug fixes |
-| PR 3 | Planned | Service queue — offer queued services after results |
+| PR 3 | ✅ Done | Service queue — offer queued services after results |
 | PR 4 | Planned | LLM extractor — update schema for multi-service |
 
 ---
@@ -333,14 +333,24 @@ User: "I'm struggling and need food and shelter in Brooklyn"
 ## Future Improvements (not blocking)
 
 ### Eval scenarios for multi-intent
-Add LLM-as-judge scenarios testing the full multi-intent flow once PR 3 ships:
-- Two services extracted and both searched sequentially
-- User declines queued service
-- User changes location mid-queue
-- Emotional + multi-service gets empathetic framing on both
+30 LLM-as-judge scenarios added in `multi_intent_eval_scenarios.py` (appended to SCENARIOS in eval_llm_judge.py):
+- ✅ Two services extracted and both searched sequentially (4 core queue scenarios)
+- ✅ User declines queued service (2 — formal and informal phrasing)
+- ✅ User changes location mid-queue (2 — typed and button)
+- ✅ Emotional + multi-service gets empathetic framing on both (5 — emotional, urgent, confused, frustrated, second-service warmth)
+- ✅ Shame tone — normalizing response for embarrassment/stigma (3)
+- ✅ Cross-service slot conflicts — different locations per service (2)
+- ✅ YourPeer persona scenarios (6 — LGBTQ/Ali Forney, DYCD RHY, foster aging-out, asylum seeker, re-entry, family/PATH)
+- ✅ Queue edge cases (2 — ignore with new request, start over)
+- ✅ Three-service combos (2 — drop-in trio, asylum seeker trio)
+- ✅ Complex natural language (2 — substance use narrative, outreach worker referral)
 
 ### Shame tone
 Research identified shame/embarrassment as a distinct emotional state in this population ("I'm embarrassed to ask", "I never thought I'd need a food bank"). Current `emotional` tone covers it but the response should normalize rather than just empathize. Easy to add: new phrase list in `_classify_tone()`, new handler with normalizing response.
 
+**Eval coverage:** 3 scenarios test shame/embarrassment detection and normalizing responses: `multi_shame_food_bank_first_time`, `multi_shame_shelter_stigma`, `multi_shame_single_service`.
+
 ### Cross-service slot conflicts
 "I need food in Brooklyn and shelter in Manhattan" — only one location is extracted. Future improvement: extract per-service locations. Would require significant slot extractor changes and is rare enough to not block the queue feature.
+
+**Eval coverage:** 2 scenarios test this known limitation: `multi_cross_borough_food_brooklyn_shelter_manhattan` (Brooklyn vs Manhattan), `multi_cross_neighborhood_shower_les_food_chinatown` (LES vs Chinatown). Both verify the system still functions correctly despite extracting only the first-mentioned location.
