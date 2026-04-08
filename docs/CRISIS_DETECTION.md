@@ -154,6 +154,8 @@ If the message matches any of these phrases, the LLM stage is **skipped entirely
 
 The guard phrase list mirrors `_EMOTIONAL_PHRASES` from `chatbot.py` and is defined inline in `detect_crisis()` as `_SUB_CRISIS_EMOTIONAL`.
 
+**Note on "nobody cares":** This phrase was originally in both `_SUICIDE_SELF_HARM_PHRASES` (crisis regex) and `_EMOTIONAL_PHRASES`. The crisis regex fired first, over-escalating emotional loneliness to suicide crisis. Fixed by changing the crisis regex entry from bare `"nobody cares"` to the specific `"nobody cares if i"` — the "if i" suffix is the suicidal marker. Bare "nobody cares" now falls through to the emotional handler. The `_SUB_CRISIS_EMOTIONAL` guard still lists it to prevent the LLM stage from re-escalating.
+
 ## Crisis Step-Down
 
 When crisis detection fires AND the user has explicit service intent (regex found a service keyword), the system applies a **step-down** that shows crisis resources while preserving the service context:
