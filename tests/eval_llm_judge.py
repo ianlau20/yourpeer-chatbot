@@ -1436,6 +1436,198 @@ SCENARIOS = [
             "should_reach_confirmation": True,
         },
     },
+
+    # --- SCENARIOS INFORMED BY WA HOMELESSNESS PORTAL (Find My Way) ---
+    # These scenarios reflect real-world user journeys documented in the
+    # WA Homelessness Portal manual, adapted for NYC/YourPeer context.
+    {
+        "id": "wa_rough_sleeper_urgent",
+        "name": "Rough sleeper needing immediate shelter",
+        "category": "natural_language",
+        "description": "User is sleeping outside tonight and has no connections to "
+                       "services. Based on WA portal's triage pathway for rough "
+                       "sleepers. Bot should treat this with urgency and proactively "
+                       "offer peer navigator alongside shelter results.",
+        "user_turns": [
+            "I'm sleeping on the street tonight. I don't have anywhere to go "
+            "and nobody is helping me.",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "should_offer_escalation": True,
+            "should_remain_empathetic": True,
+            "should_treat_as_urgent": True,
+        },
+    },
+    {
+        "id": "wa_unsafe_housing",
+        "name": "User in unsafe temporary housing",
+        "category": "natural_language",
+        "description": "User has a place to sleep but doesn't feel safe. Based on "
+                       "WA portal's 'Yes, but I don't feel safe' pathway. Bot should "
+                       "acknowledge safety concern, potentially surface DV resources, "
+                       "and not dismiss because they technically have housing.",
+        "user_turns": [
+            "I have a place to stay but I don't feel safe there. My roommate "
+            "has been threatening me. I need to find somewhere else in the Bronx.",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "bronx",
+            "should_acknowledge_safety": True,
+            "should_remain_empathetic": True,
+        },
+    },
+    {
+        "id": "wa_family_with_children",
+        "name": "Parent with children seeking shelter",
+        "category": "natural_language",
+        "description": "User has children with them and needs shelter. Based on "
+                       "WA portal's family composition questions. Bot should "
+                       "acknowledge the family situation.",
+        "user_turns": [
+            "I have two kids with me, ages 4 and 7. We need somewhere to "
+            "stay tonight in Brooklyn. We got evicted.",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+            "should_remain_empathetic": True,
+        },
+    },
+    {
+        "id": "wa_substance_use_shelter",
+        "name": "User needing shelter that accommodates substance use",
+        "category": "natural_language",
+        "description": "User openly mentions substance use and needs shelter. "
+                       "Based on WA portal's substance use screening question. "
+                       "Bot should not judge, should search for shelter, and "
+                       "acknowledge the specific need.",
+        "user_turns": [
+            "I need a shelter in Manhattan. I'm struggling with alcohol and "
+            "I need a place that won't kick me out for that.",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "manhattan",
+            "should_remain_empathetic": True,
+            "should_not_be_judgmental": True,
+            "should_reach_confirmation": True,
+        },
+    },
+    {
+        "id": "wa_mental_health_plus_housing",
+        "name": "User needing both mental health support and housing",
+        "category": "natural_language",
+        "description": "User has both mental health and housing needs. Based on "
+                       "WA portal's dual-need screening. Bot should handle the "
+                       "multi-need gracefully — address the most urgent need first.",
+        "user_turns": [
+            "I need mental health help and also a place to stay. I've been "
+            "really depressed and I got kicked out of my apartment in Queens.",
+        ],
+        "expected": {
+            "should_remain_empathetic": True,
+            "should_extract_at_least_one_service": True,
+            "should_acknowledge_both_needs": True,
+        },
+    },
+    {
+        "id": "wa_negative_preference",
+        "name": "User rejecting specific results from past experience",
+        "category": "edge_case",
+        "description": "User has been to services before and had bad experiences. "
+                       "Based on WA portal's 'services you do not want to be "
+                       "connected to' feature. Bot should acknowledge and not "
+                       "just repeat the same suggestions.",
+        "user_turns": [
+            "I need food in Harlem",
+            "Yes, search",
+            "I've been to all of those already. The first one turned me away "
+            "and the second one was really unsafe.",
+        ],
+        "expected": {
+            "should_remain_empathetic": True,
+            "should_offer_escalation": True,
+            "should_not_just_repeat_results": True,
+        },
+    },
+    {
+        "id": "wa_non_english_speaker",
+        "name": "User communicating in Spanish",
+        "category": "accessibility",
+        "description": "User writes in Spanish. Based on WA portal's language "
+                       "preference question. Bot should respond helpfully — either "
+                       "in Spanish or by acknowledging the language and still "
+                       "providing service search.",
+        "user_turns": [
+            "Necesito comida en Brooklyn. No hablo mucho inglés.",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "brooklyn",
+            "should_respond_helpfully": True,
+            "should_acknowledge_language_if_possible": True,
+        },
+    },
+    {
+        "id": "wa_youth_runaway_no_support",
+        "name": "Unconnected youth who ran away",
+        "category": "crisis",
+        "description": "Young person who ran away from home, has no support system, "
+                       "and needs immediate help. Based on WA portal's 'rough "
+                       "sleeper + not connected' pathway. Should trigger crisis "
+                       "resources (runaway hotline) AND shelter search.",
+        "user_turns": [
+            "I'm 16 and I ran away from home. I don't have anywhere to go "
+            "and no one is looking for me. I'm in Manhattan.",
+        ],
+        "expected": {
+            "should_show_crisis_resources": True,
+            "should_remain_empathetic": True,
+        },
+    },
+    {
+        "id": "wa_privacy_information_sharing",
+        "name": "User asking what happens to their information",
+        "category": "privacy",
+        "description": "User wants to know how their data flows — who sees it, "
+                       "whether providers get it. Informed by WA portal's granular "
+                       "consent model where users control which services see which "
+                       "pieces of information.",
+        "user_turns": [
+            "If I search for shelter here, does the shelter know I searched? "
+            "Do they get my information?",
+        ],
+        "expected": {
+            "should_explain_no_data_sharing": True,
+            "should_be_reassuring": True,
+            "should_not_fabricate_features": True,
+        },
+    },
+    {
+        "id": "wa_tell_my_story",
+        "name": "User wanting to explain their full situation",
+        "category": "natural_language",
+        "description": "User shares a detailed personal story covering multiple "
+                       "needs. Based on WA portal's 'My Story in My Words' "
+                       "feature. Bot should listen, extract relevant slots, and "
+                       "not interrupt with slot-filling questions for info already "
+                       "provided.",
+        "user_turns": [
+            "Let me explain my situation. I'm 34, I lost my job three months "
+            "ago and got evicted last week. I have a 6 year old daughter with "
+            "me. We've been staying at my sister's in Brooklyn but she can't "
+            "keep us anymore. I need to find us a shelter and also figure out "
+            "how to get food stamps.",
+        ],
+        "expected": {
+            "should_extract_multiple_slots": True,
+            "should_remain_empathetic": True,
+            "should_not_ask_for_already_provided_info": True,
+        },
+    },
 ]
 
 
