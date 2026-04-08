@@ -64,6 +64,7 @@ def log_conversation_turn(
     quick_replies: list = None,
     follow_up_needed: bool = False,
     request_id: Optional[str] = None,
+    tone: Optional[str] = None,
 ):
     """Record a single conversation turn (user message + bot response)."""
     # Strip internal keys from slots for display
@@ -80,6 +81,7 @@ def log_conversation_turn(
         "user_message": user_message_redacted,
         "bot_response": bot_response,
         "category": category,
+        "tone": tone,
         "slots": clean_slots,
         "services_count": services_count,
         "quick_replies": [qr.get("label", qr) if isinstance(qr, dict) else qr
@@ -437,6 +439,89 @@ def get_stats() -> dict:
         and session_categories[sid] & _CONVERSATIONAL_CATEGORIES
     )
 
+    # --- Routing distribution ---
+    # Shows what % of turns are routed to each category.
+    # "general" is highest risk — LLM fully generates the response.
+    total_categorized = sum(categories.values()) if categories else 0
+
+    # Group into routing buckets for the dashboard
+    _SAFE_CATEGORIES = {
+        "service", "confirmation", "confirmation_nudge",
+        "confirm_yes", "confirm_change_service",
+        "confirm_change_location", "confirm_deny",
+    }
+    _CONVERSATIONAL_SAFE = {
+        "greeting", "thanks", "help", "bot_identity", "bot_question",
+        "reset",
+    }
+    _EMOTIONAL_CATEGORIES = {
+        "emotional", "frustration", "confused",
+    }
+    _SAFETY_CATEGORIES = {"crisis", "escalation"}
+
+    safe_turns = sum(categories.get(c, 0) for c in _SAFE_CATEGORIES)
+    conversational_safe_turns = sum(
+        categories.get(c, 0) for c in _CONVERSATIONAL_SAFE
+    )
+    emotional_turns = sum(
+        categories.get(c, 0) for c in _EMOTIONAL_CATEGORIES
+    )
+    safety_turns = sum(categories.get(c, 0) for c in _SAFETY_CATEGORIES)
+    general_turns = categories.get("general", 0)
+    queue_decline_turns = categories.get("queue_decline", 0)
+
+    # General flow rate — the key risk metric
+    general_rate = (
+        round(general_turns / total_categorized, 3)
+        if total_categorized > 0 else None
+    )
+
+    # --- Tone distribution ---
+    tones = {}
+    for e in events:
+        if e["type"] == "conversation_turn":
+            t = e.get("tone")
+            if t:
+                tones[t] = tones.get(t, 0) + 1
+
+    total_with_tone = sum(tones.values())
+    turns_without_tone = total_turns - total_with_tone
+
+    # --- Multi-intent metrics ---
+    # Sessions that had a queue offer (bot mentioned "You also mentioned")
+    sessions_with_queue_offer = sum(
+        1 for cats in session_categories.values()
+        if "queue_decline" in cats or any(
+            "also mentioned" in (e.get("bot_response", "").lower())
+            for e in events
+            if e.get("session_id") == next(
+                (sid for sid, c in session_categories.items() if c == cats),
+                None
+            ) and e["type"] == "conversation_turn"
+        )
+    )
+
+    # Simpler approach: count from category_distribution
+    # Queue-related categories logged by chatbot.py
+    queue_offers = 0
+    queue_accepts = 0
+    queue_declines = categories.get("queue_decline", 0)
+
+    # Count queue offers from bot responses containing the offer text
+    for e in events:
+        if (e["type"] == "conversation_turn"
+                and "also mentioned" in (e.get("bot_response") or "").lower()):
+            queue_offers += 1
+
+    # Count multi-service sessions (sessions where additional_services
+    # was present in slots at any point)
+    multi_service_sessions = 0
+    for e in events:
+        if (e["type"] == "conversation_turn"
+                and e.get("slots", {}).get("service_type")
+                and "also mentioned" in (e.get("bot_response") or "").lower()):
+            multi_service_sessions += 1
+
     return {
         "total_events": len(events),
         "total_turns": total_turns,
@@ -520,6 +605,41 @@ def get_stats() -> dict:
                 round(sessions_abandoned_at_confirm / sessions_at_confirmation, 2)
                 if sessions_at_confirmation > 0 else None
             ),
+        },
+        # NEW: Routing distribution
+        "routing": {
+            "category_distribution": categories,
+            "total_categorized": total_categorized,
+            "general_turns": general_turns,
+            "general_rate": general_rate,
+            "safe_service_turns": safe_turns,
+            "conversational_safe_turns": conversational_safe_turns,
+            "emotional_turns": emotional_turns,
+            "safety_turns": safety_turns,
+            "buckets": {
+                "service_flow": safe_turns,
+                "conversational": conversational_safe_turns,
+                "emotional": emotional_turns,
+                "safety": safety_turns,
+                "general_llm": general_turns,
+                "other": total_categorized - safe_turns
+                         - conversational_safe_turns - emotional_turns
+                         - safety_turns - general_turns,
+            },
+        },
+
+        # NEW: Tone distribution
+        "tone_distribution": {
+            "tones": tones,
+            "total_with_tone": total_with_tone,
+            "turns_without_tone": turns_without_tone,
+        },
+
+        # NEW: Multi-intent metrics
+        "multi_intent": {
+            "queue_offers": queue_offers,
+            "queue_declines": queue_declines,
+            "multi_service_sessions": multi_service_sessions,
         },
     }
 

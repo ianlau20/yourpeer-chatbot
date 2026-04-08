@@ -1192,7 +1192,7 @@ def generate_reply(
                 existing.pop("_pending_confirmation", None)
                 save_session_slots(session_id, existing)
             result = _empty_reply(session_id, crisis_response, existing)
-            _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+            _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
             return result
 
     # --- Reset ---
@@ -1203,7 +1203,7 @@ def generate_reply(
             session_id, _RESET_RESPONSE, {},
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Greeting ---
@@ -1220,7 +1220,7 @@ def generate_reply(
                 session_id, _GREETING_RESPONSE, existing,
                 quick_replies=list(_WELCOME_QUICK_REPLIES),
             )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Thanks ---
@@ -1229,7 +1229,7 @@ def generate_reply(
             session_id, _THANKS_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Help ---
@@ -1240,7 +1240,7 @@ def generate_reply(
             session_id, _HELP_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Bot Identity ---
@@ -1249,7 +1249,7 @@ def generate_reply(
             session_id, _BOT_IDENTITY_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Bot capability questions ---
@@ -1266,7 +1266,7 @@ def generate_reply(
         else:
             response = _static_bot_answer(message)
         result = _empty_reply(session_id, response, existing)
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Confused / Overwhelmed ---
@@ -1282,7 +1282,7 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Emotional expression ---
@@ -1311,7 +1311,7 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Frustration ---
@@ -1343,7 +1343,7 @@ def generate_reply(
                     {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
                 ],
             )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Escalation ---
@@ -1356,7 +1356,7 @@ def generate_reply(
         existing["_last_action"] = "escalation"
         save_session_slots(session_id, existing)
         result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Context-aware "yes" / "no" handling ---
@@ -1369,7 +1369,7 @@ def generate_reply(
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
-        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
     if last_action == "confused" and category == "confirm_yes":
@@ -1378,7 +1378,7 @@ def generate_reply(
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
-        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
     if last_action == "frustration" and category == "confirm_yes":
@@ -1391,7 +1391,7 @@ def generate_reply(
             session_id, _RESET_RESPONSE, {},
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, "reset", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "reset", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action == "escalation":
@@ -1404,7 +1404,7 @@ def generate_reply(
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action == "emotional":
@@ -1417,7 +1417,7 @@ def generate_reply(
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action in ("frustrated", "frustration"):
@@ -1432,7 +1432,7 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action == "confused":
@@ -1447,7 +1447,7 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     # Clear the last_action tracker now that we've checked it
@@ -1463,7 +1463,7 @@ def generate_reply(
         existing.pop("_pending_confirmation", None)
         save_session_slots(session_id, existing)
         result = _execute_and_respond(session_id, message, existing, request_id=request_id)
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     if pending and category == "confirm_change_service":
@@ -1478,7 +1478,7 @@ def generate_reply(
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     if pending and category == "confirm_change_location":
@@ -1498,7 +1498,7 @@ def generate_reply(
                 {"label": "Staten Island", "value": "Staten Island"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     if pending and category == "confirm_deny":
@@ -1518,7 +1518,7 @@ def generate_reply(
                 {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # "No thanks" after a queue offer (no pending confirmation, but queue exists).
@@ -1532,7 +1532,7 @@ def generate_reply(
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, "queue_decline", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "queue_decline", request_id=request_id, tone=tone)
         return result
 
     # If pending confirmation but user typed something new (not a
@@ -1586,7 +1586,7 @@ def generate_reply(
                 "relaxed_search": False,
                 "quick_replies": confirm_qr,
             }
-            _log_turn(session_id, redacted_message, result, "confirmation_nudge", request_id=request_id)
+            _log_turn(session_id, redacted_message, result, "confirmation_nudge", request_id=request_id, tone=tone)
             return result
 
         # Has new slot data — merge and re-process below
@@ -1680,7 +1680,7 @@ def generate_reply(
             "relaxed_search": False,
             "quick_replies": confirm_qr,
         }
-        _log_turn(session_id, redacted_message, result, "confirmation", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "confirmation", request_id=request_id, tone=tone)
         return result
 
     # Not enough slots yet — but is this a service request or just conversation?
@@ -1698,7 +1698,7 @@ def generate_reply(
             "relaxed_search": False,
             "quick_replies": follow_up_qr,
         }
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- General conversation ---
@@ -1720,7 +1720,7 @@ def generate_reply(
             merged,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, "unrecognized_service", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "unrecognized_service", request_id=request_id, tone=tone)
         return result
 
     # Use Claude Haiku for a natural conversational response.
@@ -1740,7 +1740,7 @@ def generate_reply(
             else []
         ),
     )
-    _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+    _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
     return result
 
 
@@ -1862,7 +1862,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
 # AUDIT LOG HELPER
 # ---------------------------------------------------------------------------
 
-def _log_turn(session_id: str, user_msg: str, result: dict, category: str, request_id: str | None = None):
+def _log_turn(session_id: str, user_msg: str, result: dict, category: str, request_id: str | None = None, tone=None):
     """Log a conversation turn to the audit log."""
     try:
         bot_response_redacted, _ = redact_pii(result.get("response", ""))
@@ -1876,6 +1876,7 @@ def _log_turn(session_id: str, user_msg: str, result: dict, category: str, reque
             quick_replies=result.get("quick_replies", []),
             follow_up_needed=result.get("follow_up_needed", False),
             request_id=request_id,
+            tone=tone,
         )
     except Exception as e:
         logger.error(f"Failed to log conversation turn: {e}")

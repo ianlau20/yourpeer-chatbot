@@ -73,6 +73,24 @@ export default function MetricsPage() {
   const cb = stats.confirmation_breakdown;
   const cbTotal = cb?.total_actions || 0;
 
+  // Routing distribution
+  const routing = stats.routing;
+  const totalCategorized = routing?.total_categorized || 0;
+
+  // Tone distribution
+  const toneDist = stats.tone_distribution;
+  const tones: Record<string, number> = toneDist?.tones || {};
+  const toneEntries = Object.entries(tones).sort(([, a], [, b]) => b - a);
+  const totalTurnsForToneRate =
+    (toneDist?.total_with_tone || 0) + (toneDist?.turns_without_tone || 0);
+
+  // Multi-intent
+  const mi = stats.multi_intent;
+  const queueOffers = mi?.queue_offers || 0;
+  const queueDeclines = mi?.queue_declines || 0;
+  const queueAcceptRate =
+    queueOffers > 0 ? (queueOffers - queueDeclines) / queueOffers : null;
+
   return (
     <>
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-3.5 py-2.5 text-sm text-neutral-500 mb-6">
@@ -241,6 +259,125 @@ export default function MetricsPage() {
           subtitle={`% of query sessions that included a conversational turn (${stats.conversation_quality?.conversational_discovery || 0} sessions)`}
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.conversational_discovery_rate ?? null, true)}
+          status="no-data"
+        />
+      </MetricsSection>
+
+      {/* 4b · Routing Distribution */}
+      <MetricsSection
+        title="4b · Routing Distribution"
+        description={`How user messages are routed across ${totalCategorized} categorized turns. "General (LLM)" is the highest-risk category — the LLM fully generates the response with no template grounding.`}
+      >
+        <MetricRow
+          name="Service Flow"
+          subtitle="Turns routed to service search, confirmation, or slot-filling"
+          target="Largest bucket"
+          value={`${routing?.buckets?.service_flow || 0} turns`}
+          status="no-data"
+        />
+        <MetricRow
+          name="Conversational (Safe)"
+          subtitle="Greetings, thanks, help, bot identity, reset — deterministic handlers"
+          target="—"
+          value={`${routing?.buckets?.conversational || 0} turns`}
+          status="no-data"
+        />
+        <MetricRow
+          name="Emotional / Frustrated / Confused"
+          subtitle="Tone-aware responses with empathetic framing"
+          target="—"
+          value={`${routing?.buckets?.emotional || 0} turns`}
+          status="no-data"
+        />
+        <MetricRow
+          name="Safety (Crisis + Escalation)"
+          subtitle="Crisis resources shown or peer navigator offered"
+          target="—"
+          value={`${routing?.buckets?.safety || 0} turns`}
+          status="no-data"
+        />
+        <MetricRow
+          name="⚠ General (LLM-Generated)"
+          subtitle="Turns where the LLM fully generates the response — no template grounding"
+          target="≤ 15% of turns"
+          value={fmtMetric(routing?.general_rate ?? null, true)}
+          status={statusClass(routing?.general_rate ?? null, 0.15, "lte", 0.25)}
+        />
+        {routing?.category_distribution && Object.keys(routing.category_distribution).length > 0 && (
+          <MetricRow
+            name="Full Category Breakdown"
+            subtitle={Object.entries(routing.category_distribution as Record<string, number>)
+              .sort(([, a], [, b]) => (b as number) - (a as number))
+              .map(([cat, count]) => `${cat}: ${count}`)
+              .join(" · ")}
+            target="—"
+            value={`${Object.keys(routing.category_distribution).length} categories`}
+            status="no-data"
+          />
+        )}
+      </MetricsSection>
+
+      {/* 4c · Tone Distribution */}
+      <MetricsSection
+        title="4c · Tone Distribution"
+        description="Detected emotional tones across all turns. Tones are independent of routing — a turn can have both a service intent and an emotional tone."
+      >
+        {toneEntries.length > 0 ? (
+          toneEntries.map(([tone, count]) => (
+            <MetricRow
+              key={tone}
+              name={tone.charAt(0).toUpperCase() + tone.slice(1)}
+              subtitle={`${count} turn${count !== 1 ? "s" : ""} detected`}
+              target="Baseline tracking"
+              value={fmtMetric(
+                totalTurnsForToneRate > 0 ? count / totalTurnsForToneRate : null,
+                true,
+              )}
+              status="no-data"
+            />
+          ))
+        ) : (
+          <MetricRow
+            name="No tones detected yet"
+            subtitle="Tone data populates after the split classifier processes messages"
+            target="—"
+            value={null}
+            status="no-data"
+          />
+        )}
+        <MetricRow
+          name="Turns Without Tone"
+          subtitle="Neutral turns — no emotional tone detected"
+          target="—"
+          value={`${toneDist?.turns_without_tone || 0} turns`}
+          status="no-data"
+        />
+      </MetricsSection>
+
+      {/* 4d · Multi-Intent Queue */}
+      <MetricsSection
+        title="4d · Multi-Intent Queue"
+        description="Tracks how often users request multiple services and whether they accept or decline the queued follow-up offers."
+      >
+        <MetricRow
+          name="Queue Offers"
+          subtitle="Times the bot offered a second service after delivering results"
+          target="Baseline tracking"
+          value={String(queueOffers)}
+          status="no-data"
+        />
+        <MetricRow
+          name="Queue Declines"
+          subtitle="Times the user declined a queued service offer"
+          target="Baseline tracking"
+          value={String(queueDeclines)}
+          status="no-data"
+        />
+        <MetricRow
+          name="Queue Accept Rate"
+          subtitle="% of queue offers that were accepted (user searched the next service)"
+          target="Baseline tracking"
+          value={fmtMetric(queueAcceptRate, true)}
           status="no-data"
         />
       </MetricsSection>
