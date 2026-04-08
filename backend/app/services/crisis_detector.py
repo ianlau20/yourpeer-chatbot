@@ -73,6 +73,15 @@ _SUICIDE_SELF_HARM_PHRASES = [
     "end it all", "take my life", "don't want to live",
     "dont want to live", "no reason to live", "nothing to live for",
     "can't go on", "cant go on", "not worth living",
+    # C-SSRS Level 1 — wish to be dead / not alive (P0 audit)
+    "wish i was never born", "wish i wasn't alive", "wish i wasnt alive",
+    "don't want to wake up", "dont want to wake up",
+    "go to sleep and never wake up", "fall asleep and never wake up",
+    # C-SSRS Level 2 — non-specific active thoughts (P0 audit)
+    "thinking about ending it", "thinking about killing myself",
+    "thoughts of suicide", "thinking about suicide",
+    # C-SSRS Level 3 — method without plan (P0 audit)
+    "thought about pills", "thought about jumping",
     # Self-harm
     "hurt myself", "cutting myself", "harming myself", "self harm",
     "self-harm", "hurting myself",
@@ -94,6 +103,18 @@ _SUICIDE_SELF_HARM_PHRASES = [
     "i'm done fighting", "im done fighting",
     "can't keep going", "cant keep going",
     "so tired of living", "tired of living like this",
+    # Joiner IPT — perceived burdensomeness (P0 audit)
+    # Strong predictor of suicidal desire per Joiner (2005)
+    "i'm a burden", "im a burden", "i'm just a burden",
+    "everyone would be fine without me",
+    "the world would be better without me",
+    # Indirect pain/threshold phrases (P0 audit)
+    "i can't take it anymore", "i cant take it anymore",
+    "just want the pain to stop", "want the pain to stop",
+    "life isn't worth it", "life isnt worth it",
+    "no point in going on",
+    "make it all stop", "wish it would all stop",
+    "im done with everything",
 ]
 
 _VIOLENCE_PHRASES = [
@@ -132,6 +153,10 @@ _DOMESTIC_VIOLENCE_PHRASES = [
     "said he would kill me", "said she would kill me",
     "need to leave before", "have to leave before",
     "kicked me out", "threw me out", "locked me out",
+    # Partner control / coercive control (P1 audit)
+    "he controls everything", "she controls everything",
+    "controls my money", "takes my money",
+    "won't let me leave the house", "wont let me leave the house",
 ]
 
 # General safety concerns — not clearly DV or suicidal, but the person
@@ -160,6 +185,15 @@ _SAFETY_CONCERN_PHRASES = [
     "unsafe at home", "not safe at home", "home isn't safe", "home is not safe",
     "can't go home", "cant go home", "not safe to go home",
     "afraid to go home",
+    # Youth/family violence (P1 audit)
+    "my parents hurt me", "my family hurts me",
+    "being hit at home",
+    "no safe place to go", "nowhere safe",
+    # Fleeing without DV language (P1 audit)
+    "hiding from someone",
+    "someone looking for me", "someone is looking for me",
+    "he's looking for me", "she's looking for me",
+    "had to leave home fast", "left home suddenly",
 ]
 
 _TRAFFICKING_PHRASES = [

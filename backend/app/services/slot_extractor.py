@@ -16,6 +16,8 @@ SERVICE_KEYWORDS = {
         "breakfast", "snack", "free food", "hot meal", "brown bag",
         "farmers market", "mobile pantry",
         "something to eat", "grab a bite", "canned food",
+        # NYC-specific (P3 audit)
+        "baby formula", "formula", "wic", "diapers",
     ],
 
     # --- Shelter & Housing (taxonomy: Shelter) ---
@@ -27,6 +29,8 @@ SERVICE_KEYWORDS = {
         "place to live", "somewhere to live", "intake",
         "evicted", "kicked out", "kicked me out", "on the street",
         "sleeping outside", "somewhere safe", "safe place",
+        # NYC-specific (P3 audit)
+        "path center", "dhs intake", "domestic violence shelter",
     ],
 
     # --- Clothing (taxonomy: Clothing) ---
@@ -56,6 +60,9 @@ SERVICE_KEYWORDS = {
         "physical", "vaccination", "vaccine", "std testing", "hiv testing",
         "sick", "nurse", "wound", "injury", "infection",
         "medication", "blood pressure", "sti testing",
+        # Harm reduction / community health (P3 audit)
+        "methadone", "suboxone", "narcan", "naloxone",
+        "walk-in clinic", "walk in clinic",
     ],
 
     # --- Mental Health (taxonomy: Mental Health) ---
@@ -103,6 +110,9 @@ SERVICE_KEYWORDS = {
         "mailing address", "storage", "locker",
         "welfare", "cash assistance", "state id", "nyc id",
         "metro card", "transit", "charger", "charging station",
+        # NYC-specific (P3 audit)
+        "voter registration", "replacement id",
+        "tax prep", "tax preparation", "free tax",
     ],
 }
 

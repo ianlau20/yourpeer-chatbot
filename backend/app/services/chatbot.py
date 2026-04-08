@@ -19,6 +19,70 @@ from app.services.slot_extractor import (
 from app.rag import query_services
 from app.privacy.pii_redactor import redact_pii
 from app.services.crisis_detector import detect_crisis
+
+
+# ---------------------------------------------------------------------------
+# CONTRACTION NORMALIZATION (P4 audit)
+# ---------------------------------------------------------------------------
+# Expands common contractions to their full forms so phrase lists only need
+# the expanded version (e.g., "not helpful") to match all contraction
+# variants ("isn't helpful", "isnt helpful", "wasn't helpful", etc.).
+#
+# Applied to frustration, emotional, and confused matching in _classify_tone.
+# NOT applied to crisis detection — crisis uses explicit enumeration for safety.
+
+_CONTRACTION_MAP = {
+    # Negative contractions → "not" form
+    "isn't": "is not", "isnt": "is not",
+    "wasn't": "was not", "wasnt": "was not",
+    "aren't": "are not", "arent": "are not",
+    "weren't": "were not", "werent": "were not",
+    "doesn't": "does not", "doesnt": "does not",
+    "didn't": "did not", "didnt": "did not",
+    "don't": "do not", "dont": "do not",
+    "can't": "can not", "cant": "can not",
+    "won't": "will not", "wont": "will not",
+    "hasn't": "has not", "hasnt": "has not",
+    "haven't": "have not", "havent": "have not",
+    "wouldn't": "would not", "wouldnt": "would not",
+    "couldn't": "could not", "couldnt": "could not",
+    "shouldn't": "should not", "shouldnt": "should not",
+    # Pronoun contractions
+    "i'm": "i am", "im": "i am",
+    "i've": "i have", "ive": "i have",
+    "i'll": "i will",
+    "i'd": "i would",
+    "it's": "it is",
+    "that's": "that is",
+    "there's": "there is",
+    "what's": "what is",
+    "you're": "you are", "youre": "you are",
+    "they're": "they are", "theyre": "they are",
+    "we're": "we are",
+}
+
+# Sort by length descending so longer contractions match first
+# ("wouldn't" before "won't" to avoid partial replacement)
+_CONTRACTION_PAIRS = sorted(_CONTRACTION_MAP.items(), key=lambda x: -len(x[0]))
+
+
+def _normalize_contractions(text: str) -> str:
+    """Expand contractions for consistent phrase matching.
+
+    Applied to frustration/emotional/confused matching so phrase lists
+    only need the 'not' form to catch all contraction variants.
+
+    NOT applied to crisis detection (explicit enumeration is safer).
+
+    Example:
+        "that wasn't helpful" → "that was not helpful"
+        "I'm struggling"     → "I am struggling"
+        "doesnt work"        → "does not work"
+    """
+    result = text.lower()
+    for contraction, expansion in _CONTRACTION_PAIRS:
+        result = result.replace(contraction, expansion)
+    return result
 from app.services.audit_log import (
     log_conversation_turn,
     log_query_execution,
@@ -108,6 +172,20 @@ _FRUSTRATION_PHRASES = [
     "wrong results", "results are bad", "results are wrong",
     "thats not right", "that's not right", "thats wrong", "that's wrong",
     "not useful", "this sucks", "so unhelpful",
+    # Missing contraction variants (P2 audit)
+    "hasn't helped", "hasnt helped",
+    "isn't working", "isnt working",
+    "isn't useful", "isnt useful",
+    "can't help me", "cant help me",
+    "won't work", "wont work",
+    # Stronger frustration / directed at bot (P2 audit)
+    "this is ridiculous", "this is stupid",
+    "you're not listening", "youre not listening",
+    "you don't understand", "you dont understand",
+    "same thing every time",
+    "i keep getting the same results",
+    # Resignation (P2 audit — route to frustration handler, not reset)
+    "forget it", "this is pointless",
 ]
 
 # Emotional expressions — sub-crisis distress that deserves warm
@@ -133,6 +211,23 @@ _EMOTIONAL_PHRASES = [
     "tired of everything", "exhausted",
     "i just need someone to talk to", "just need to talk",
     "nobody cares", "no one cares",
+    # Shame / stigma (P1 audit — #1 barrier to help-seeking in this population)
+    "embarrassed to ask", "ashamed to ask", "ashamed of myself",
+    "embarrassed to be here", "feel like a failure",
+    "never thought i'd need help", "never thought id need help",
+    "never thought i'd need a food bank",
+    "i'm pathetic", "im pathetic", "ashamed",
+    # Grief / loss (P2 audit — common trigger for homelessness)
+    "lost someone", "someone died", "my friend died",
+    "grieving", "in mourning",
+    # Isolation (P2 audit — major factor in homeless population)
+    "nobody understands", "no one understands",
+    "completely alone", "i have no one",
+    "no friends", "no family",
+    # Despair without suicidality (P2 audit)
+    "everything is falling apart", "my life is falling apart",
+    "nothing ever works out", "things keep getting worse",
+    "i can't catch a break", "i cant catch a break",
 ]
 
 _BOT_IDENTITY_PHRASES = [
@@ -182,6 +277,12 @@ _CONFUSED_PHRASES = [
     "i'm not sure", "im not sure",
     "where do i start", "where do i begin",
     "what are my options", "what can i do",
+    # Expanded confusion/overwhelm (P3 audit)
+    "where do i even go", "who do i talk to",
+    "this is confusing", "too many options",
+    "everything is too much", "it's all too much",
+    "i can't think straight", "i cant think straight",
+    "so much going on",
 ]
 
 # ---------------------------------------------------------------------------
@@ -333,10 +434,13 @@ def _classify_action(text: str) -> str | None:
         # Exclude frustration phrases that contain "help" as a word
         # e.g., "doesn't help", "didn't help", "not helpful"
         # These should fall through to frustration handling, not help.
-        _help_negators = ["not help", "didn't help", "didnt help",
-                          "doesn't help", "doesnt help", "won't help",
-                          "wont help", "never help", "can't help"]
-        if not any(neg in cleaned for neg in _help_negators):
+        # Check both original and normalized to catch all contraction forms.
+        _help_negators = ["not help", "did not help", "does not help",
+                          "will not help", "never help", "can not help",
+                          "was not help", "has not help"]
+        normalized = _normalize_contractions(cleaned)
+        if not any(neg in cleaned for neg in _help_negators) and \
+           not any(neg in normalized for neg in _help_negators):
             return "help"
     for phrase in _HELP_PHRASES:
         if phrase in cleaned:
@@ -362,24 +466,30 @@ def _classify_tone(text: str) -> str | None:
     lower = text.lower().strip()
     cleaned = re.sub(r"[^\w\s']", "", lower).strip()
 
-    # Crisis — highest priority
+    # Normalized form expands contractions so phrase lists only need
+    # the "not" form (e.g., "not helpful") to match "isn't helpful",
+    # "wasnt helpful", etc. Applied to frustration/emotional/confused only.
+    # Crisis detection uses its own explicit enumeration for safety.
+    normalized = _normalize_contractions(cleaned)
+
+    # Crisis — highest priority (uses original text, NOT normalized)
     crisis_result = detect_crisis(text)
     if crisis_result is not None:
         return "crisis"
 
-    # Frustration
+    # Frustration — check both original and normalized
     for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned:
+        if phrase in cleaned or phrase in normalized:
             return "frustrated"
 
-    # Emotional
+    # Emotional — check both original and normalized
     for phrase in _EMOTIONAL_PHRASES:
-        if phrase in cleaned:
+        if phrase in cleaned or phrase in normalized:
             return "emotional"
 
-    # Confused
+    # Confused — check both original and normalized
     for phrase in _CONFUSED_PHRASES:
-        if phrase in cleaned:
+        if phrase in cleaned or phrase in normalized:
             return "confused"
 
     # Urgent — time pressure or panic without a stronger emotional tone.

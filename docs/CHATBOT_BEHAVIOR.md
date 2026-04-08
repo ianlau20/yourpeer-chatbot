@@ -312,7 +312,7 @@ Based on this research, the following principles govern emotional handling in th
 - **English only.** Multi-language support (Spanish minimum) is planned but not implemented.
 - **No memory across sessions.** Each session is independent. The bot cannot reference previous visits.
 - **Emotional detection phrase coverage.** Common emotional phrases ("feeling down", "I'm scared", "rough day") are caught by regex. Indirect or culturally specific expressions fall through to the LLM classifier. Without an API key (regex-only mode), only the explicit phrase list is active. The emotional phrase guard in `crisis_detector.py` prevents known sub-crisis emotional phrases from being over-escalated to crisis by the LLM. Keywords that could collide between emotional expressions and service requests (e.g., "stress" matching "stressed out") use word-boundary matching to prevent false positives.
-- **Shame tone not yet implemented.** Research identified shame/embarrassment as a distinct emotional state in this population ("I'm embarrassed to ask", "I never thought I'd need a food bank"). Currently mapped to `emotional` tone. A dedicated shame handler with normalizing responses is planned.
+- **Shame tone not yet a distinct handler.** Shame/stigma phrases ("embarrassed to ask", "never thought I'd need help") are now detected and routed to the emotional handler with AVR acknowledgment. A dedicated shame handler with normalizing responses (e.g., "Lots of people use these services — there's nothing to be ashamed of") is planned for a future iteration.
 
 ### Search & Results
 
@@ -342,7 +342,11 @@ Based on this research, the following principles govern emotional handling in th
 
 ### Adding new emotional phrases
 
-Add to `_EMOTIONAL_PHRASES` in `chatbot.py`. Avoid phrases that overlap with service keywords ("feeling hungry" should route to food service, not emotional acknowledgment). Add a test case to `test_emotional_classification`.
+Add to `_EMOTIONAL_PHRASES` in `chatbot.py`. Avoid phrases that overlap with service keywords ("feeling hungry" should route to food service, not emotional acknowledgment). Add a test case to `test_emotional_classification`. Thanks to contraction normalization, you only need the expanded form — e.g., adding "not okay" will automatically match "isn't okay", "wasnt okay", "aren't okay", etc.
+
+### Contraction normalization
+
+`_normalize_contractions()` in `chatbot.py` expands 37 common contractions (e.g., "isn't" → "is not", "i'm" → "i am") before phrase matching in `_classify_tone()` and the help negators in `_classify_action()`. This means phrase lists only need the expanded "not" form to match all contraction variants. Normalization is NOT applied to crisis detection — crisis uses explicit enumeration for safety. To add a new contraction, add it to `_CONTRACTION_MAP` in `chatbot.py` and add a test in `test_contraction_normalization.py`.
 
 ### Modifying guardrails
 
@@ -355,7 +359,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 106 phrase audit tests in `test_phrase_audit.py`, 56 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests
