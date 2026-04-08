@@ -8,35 +8,77 @@ For crisis detection details, see [CRISIS_DETECTION.md](CRISIS_DETECTION.md). Fo
 
 ## Message Routing Pipeline
 
-Every incoming message passes through a two-stage classifier that determines how it should be handled. The classifier runs before any response is generated.
+Every incoming message passes through three stages: slot extraction, classification, and combined routing. Slots are always extracted first so service intent is known before routing decisions.
 
-### Stage 1 — Regex (< 1ms, always runs)
+### Stage 1 — Slot Extraction (always runs first)
 
-Deterministic keyword and phrase matching. Handles button taps, short phrases, and unambiguous patterns where the LLM would add latency without improving accuracy. The checks run in this order — first match wins:
+Regex-based slot extraction runs on every message before classification. This extracts service type(s), location, age, urgency, family status, and service detail. The result determines `has_service_intent` — whether the message contains a service request.
 
-| Priority | Category | Trigger | Example |
-|---|---|---|---|
-| 1 | `crisis` | Regex + LLM crisis detection (see [CRISIS_DETECTION.md](CRISIS_DETECTION.md)) | "I want to hurt myself" |
-| 2 | `reset` | "start over", "new search", "cancel" | "start over" |
-| 3 | `bot_identity` | "are you a robot", "am I talking to a person" | "are you AI?" |
-| 4 | `bot_question` | "why can't you", "how does this work", "what can you search", "is this private", "can ICE see", "will this affect my benefits", "do you know who I am" | "why couldn't you get my location?", "is this safe?" |
-| 5 | `escalation` | "peer navigator", "talk to a person", "talk to someone" | "connect with peer navigator" |
-| 6 | `confirm_change_service` | "change service", "different service" | "change service" |
-| 7 | `confirm_change_location` | "change location", "different area" | "change location" |
-| 8 | `confirm_yes` | "yes", "sure", "go ahead", "search", "yes search" | "yes, search" |
-| 9 | `confirm_deny` | "no", "nah", "nope", "not yet", "maybe later" | "no" |
-| 10 | `greeting` | "hi", "hello", "hey" (only if ≤3 words) | "hello" |
-| 11 | `thanks` | "thank you", "thanks" (only if no continuation like "but") | "thanks" |
-| 12 | `frustration` | "not helpful", "waste of time", "didn't work", "already tried" | "that wasn't helpful" |
-| 13 | `emotional` | "feeling down", "having a rough day", "I'm scared", "nobody cares" (only if no service-intent words like "need", "find", "treatment") | "I'm feeling really down" |
-| 14 | `confused` | "I don't know what to do", "I'm overwhelmed", "where do I start" (only if no service-intent words) | "I'm lost" |
-| 15 | `help` | "help", "list services", "what is this" | "help" |
-| 16 | `service` | Slot extraction finds a service keyword (food, shelter, etc.) | "I need food in Brooklyn" |
-| 17 | `emotional` / `confused` (second pass) | Emotional/confused phrases that were skipped at step 13–14 because of service words, but slot extraction found no actual slots | "I need to feel better" |
+### Stage 2 — Split Classification
 
-### Stage 2 — LLM (only when Stage 1 returns "general")
+Two independent classifiers run in parallel:
 
-If no regex pattern matches and the message is longer than 3 words, Claude Haiku classifies the message into one of the same categories. This catches indirect service needs ("I just got out of the hospital"), ambiguous messages, and edge cases that keyword lists can't cover.
+**`_classify_action(text)`** — what the user wants to DO:
+
+| Action | Trigger | Example |
+|---|---|---|
+| `reset` | "start over", "new search", "cancel" | "start over" |
+| `bot_identity` | "are you a robot", "am I talking to a person" | "are you AI?" |
+| `bot_question` | "why can't you", "how does this work", "is this private", "can ICE see" | "is this safe?" |
+| `escalation` | "peer navigator", "talk to a person" | "connect with peer navigator" |
+| `confirm_change_service` | "change service", "different service" | "change service" |
+| `confirm_change_location` | "change location", "different area" | "change location" |
+| `confirm_yes` | "yes", "sure", "go ahead", "yes search" | "yes, search" |
+| `confirm_deny` | "no", "nah", "nope", "not yet" | "no" |
+| `greeting` | "hi", "hello", "hey" (only if ≤3 words) | "hello" |
+| `thanks` | "thank you", "thanks" (no continuation) | "thanks" |
+| `help` | "help", "list services" | "help" |
+
+**`_classify_tone(text)`** — how the user FEELS:
+
+| Tone | Trigger | Example |
+|---|---|---|
+| `crisis` | Regex + LLM crisis detection (see [CRISIS_DETECTION.md](CRISIS_DETECTION.md)) | "I want to hurt myself" |
+| `frustrated` | "not helpful", "waste of time", "already tried" | "that wasn't helpful" |
+| `emotional` | "feeling down", "rough day", "I'm scared", "nobody cares" | "I'm feeling really down" |
+| `confused` | "I don't know what to do", "I'm overwhelmed" | "I'm lost" |
+
+**Key difference from the old architecture:** Tone detection has **no service-word gating**. "I'm struggling and need food" detects both emotional tone AND food service intent. The old `_has_service_words` guard that suppressed emotional detection when service words were present has been eliminated.
+
+**`_classify_message(text)`** — backward-compatible wrapper that combines both classifiers into a single category string. Used by existing tests and the LLM fallback stage.
+
+### Stage 3 — Combined Routing
+
+The routing priority is:
+
+| Priority | Condition | Route |
+|---|---|---|
+| 1 | `tone == crisis` | Crisis handler (always wins) |
+| 2 | `action == reset` | Reset handler |
+| 3 | `action` is confirmation/bot/greeting/thanks | Action handler |
+| 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused) |
+| 5 | `action == help` | Help handler |
+| 6 | `action == escalation` | Escalation handler |
+| 7 | `tone == frustrated` | Frustration handler |
+| 8 | `tone == emotional` | Emotional handler |
+| 9 | `tone == confused` | Confused handler |
+| 10 | LLM classification (>3 words) | LLM-determined category |
+| 11 | None of the above | General conversation |
+
+The key insight is **row 4**: when service intent is present, it wins over help/escalation/emotional/confused. Those become tone modifiers on the service flow, not separate routes. This eliminates the ad-hoc guards that previously re-checked slots inside the help and escalation handlers.
+
+**Tone prefixes applied in the service flow:**
+
+| Tone | Prefix on confirmation/follow-up |
+|---|---|
+| `emotional` | "I hear you, and I want to help." |
+| `frustrated` | "I understand this has been frustrating. Let me try something different." |
+| `confused` | "No worries — let me help you with that." |
+| None | (no prefix) |
+
+### LLM Fallback (only when nothing else matches)
+
+If no regex pattern matches and the message is longer than 3 words, Claude Haiku classifies the message into one of the standard categories. This catches indirect service needs ("I just got out of the hospital"), ambiguous messages, and edge cases that keyword lists can't cover.
 
 If the LLM is unavailable or returns an unrecognized category, the system falls back to `general`.
 
