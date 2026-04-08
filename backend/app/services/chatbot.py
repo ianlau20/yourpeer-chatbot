@@ -1190,8 +1190,55 @@ def generate_reply(
             # return to a search confirmation on their next message.
             if existing.get("_pending_confirmation"):
                 existing.pop("_pending_confirmation", None)
+
+            # Step-down: when the user has service intent AND the crisis
+            # category is non-acute (safety_concern, domestic_violence),
+            # show crisis resources but also preserve the service context
+            # and offer to search. This handles cases like "I was kicked
+            # out and need shelter in Brooklyn" where the crisis handler
+            # fires on "kicked out" but the user also has a clear service
+            # request that shouldn't be lost.
+            _step_down_categories = ("safety_concern", "domestic_violence")
+            if (has_service_intent
+                    and crisis_category in _step_down_categories):
+                # Merge early-extracted slots into session so they're
+                # available when the user says "yes, search"
+                merged_crisis = merge_slots(existing, early_extracted)
+                # Store queued services if multi-intent
+                additional = early_extracted.get("additional_services", [])
+                if additional and "_queued_services" not in merged_crisis:
+                    merged_crisis["_queued_services"] = additional
+                merged_crisis["_last_action"] = "crisis"
+                save_session_slots(session_id, merged_crisis)
+
+                # Build the step-down offer
+                svc_label = _SERVICE_LABELS.get(
+                    early_extracted.get("service_type", ""),
+                    early_extracted.get("service_type", "services"),
+                )
+                loc_label = early_extracted.get("location", "your area")
+                step_down_msg = (
+                    f"\n\nI can also help you find {svc_label} in "
+                    f"{loc_label} — would you like me to search?"
+                )
+                result = _empty_reply(
+                    session_id,
+                    crisis_response + step_down_msg,
+                    merged_crisis,
+                    quick_replies=[
+                        {"label": f"✅ Yes, search for {svc_label}",
+                         "value": "Yes, search"},
+                        {"label": "🤝 Peer navigator",
+                         "value": "Connect with peer navigator"},
+                    ],
+                )
+            else:
+                # Acute crisis (suicide, medical, trafficking, violence)
+                # or no service intent — show crisis resources only.
+                existing["_last_action"] = "crisis"
                 save_session_slots(session_id, existing)
-            result = _empty_reply(session_id, crisis_response, existing)
+                result = _empty_reply(session_id, crisis_response, existing)
+
             _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
             return result
 
@@ -1372,6 +1419,24 @@ def generate_reply(
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
+    if last_action == "crisis" and category == "confirm_yes":
+        # "Yes" after crisis step-down = "yes, search for services"
+        # The step-down handler preserved the extracted slots in session.
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        if is_enough_to_answer(existing):
+            result = _execute_and_respond(session_id, message, existing, request_id=request_id)
+        else:
+            # Need more info — ask follow-up
+            follow_up = next_follow_up_question(existing)
+            result = _empty_reply(
+                session_id, follow_up, existing,
+                quick_replies=_follow_up_quick_replies(existing),
+            )
+            result["follow_up_needed"] = True
+        _log_turn(session_id, redacted_message, result, "service", request_id=request_id, tone=tone)
+        return result
+
     if last_action == "confused" and category == "confirm_yes":
         # "Yes" after confused = "yes, connect me with a person"
         # (the confused handler shows a "Talk to a person" button)
@@ -1382,16 +1447,15 @@ def generate_reply(
         return result
 
     if last_action == "frustration" and category == "confirm_yes":
-        # "Yes" after frustration = "yes, start a new search"
-        # (the frustration handler shows "Try different search" button)
+        # "Yes" after frustration = "yes, connect me with a navigator"
+        # The frustration handler's messaging pushes toward navigator
+        # ("I think a peer navigator would be more helpful"). The "Try
+        # different search" button sends "Start over" directly, so it
+        # doesn't need this "yes" shortcut for resetting.
         existing.pop("_last_action", None)
-        clear_session(session_id)
-        log_session_reset(session_id)
-        result = _empty_reply(
-            session_id, _RESET_RESPONSE, {},
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
-        )
-        _log_turn(session_id, redacted_message, result, "reset", request_id=request_id, tone=tone)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action == "escalation":
@@ -1450,16 +1514,82 @@ def generate_reply(
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
+    if category == "confirm_deny" and last_action == "crisis":
+        # "No" after crisis step-down = user doesn't want to search,
+        # just needs the crisis resources that were already shown.
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "That's okay. The resources above are available anytime. "
+            "If you'd like to search for services later, I'm here.",
+            existing,
+            quick_replies=[
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+                {"label": "🔍 Search for services", "value": "I need help"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
+        return result
+
     # Clear the last_action tracker now that we've checked it
     if last_action:
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
 
+    # --- Handle "change location" / "change service" outside pending ---
+    # These buttons appear in after-results quick replies and in various
+    # contexts. Previously they only worked during pending confirmation,
+    # causing a full restart when tapped after results were delivered.
+    if not existing.get("_pending_confirmation"):
+        if category == "confirm_change_location":
+            existing["location"] = None
+            save_session_slots(session_id, existing)
+            result = _empty_reply(
+                session_id,
+                "Sure! What neighborhood or borough should I search in?",
+                existing,
+                quick_replies=[
+                    {"label": "📍 Use my location", "value": "__use_geolocation__"},
+                    {"label": "Manhattan", "value": "Manhattan"},
+                    {"label": "Brooklyn", "value": "Brooklyn"},
+                    {"label": "Queens", "value": "Queens"},
+                    {"label": "Bronx", "value": "Bronx"},
+                    {"label": "Staten Island", "value": "Staten Island"},
+                ],
+            )
+            _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+            return result
+
+        if category == "confirm_change_service":
+            existing["service_type"] = None
+            existing.pop("service_detail", None)
+            save_session_slots(session_id, existing)
+            result = _empty_reply(
+                session_id,
+                "No problem! What kind of help do you need?",
+                existing,
+                quick_replies=list(_WELCOME_QUICK_REPLIES),
+            )
+            _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+            return result
+
     # --- Handle confirmation responses ---
     pending = existing.get("_pending_confirmation")
 
     if pending and category == "confirm_yes":
-        # User confirmed — clear the flag and execute the query
+        # User confirmed — clear the flag and execute the query.
+        # But first check if the confirmation message itself contains a
+        # DIFFERENT service type (e.g., "search for shelter" when pending
+        # was for food). If so, update the slots before executing.
+        confirm_extracted = extract_slots(message)
+        if (confirm_extracted.get("service_type") is not None
+                and confirm_extracted["service_type"] != existing.get("service_type")):
+            logger.info(
+                f"Service type changed in confirmation: "
+                f"'{existing.get('service_type')}' → '{confirm_extracted['service_type']}'"
+            )
+            existing = merge_slots(existing, confirm_extracted)
         existing.pop("_pending_confirmation", None)
         save_session_slots(session_id, existing)
         result = _execute_and_respond(session_id, message, existing, request_id=request_id)

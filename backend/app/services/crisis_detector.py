@@ -400,6 +400,34 @@ def detect_crisis(text: str) -> Optional[Tuple[str, str]]:
                 return (category, response)
 
     # --- Stage 2: LLM classification (only if regex missed) ---
+    # Guard: skip LLM for messages that match known sub-crisis emotional
+    # phrases. The LLM prompt says "when in doubt, err toward crisis=true"
+    # which is correct for genuinely ambiguous safety situations, but over-
+    # escalates clearly emotional-but-not-crisis messages like "I'm feeling
+    # scared" or "I'm struggling". These are handled by the emotional tone
+    # handler in chatbot.py, which offers peer navigator support.
+    _SUB_CRISIS_EMOTIONAL = [
+        "feeling down", "feeling really down", "feeling sad",
+        "feeling bad", "feeling depressed", "so depressed",
+        "feeling scared", "feeling really scared", "im scared", "i'm scared",
+        "feeling anxious", "so anxious", "feeling lonely", "so lonely",
+        "feeling hopeless", "feeling lost", "feeling stuck",
+        "not doing well", "not doing good", "not doing ok",
+        "im not okay", "i'm not okay", "i'm not ok", "im not ok",
+        "having a hard time", "having a rough time", "having a tough time",
+        "rough day", "bad day", "tough day", "hard day",
+        "stressed out", "so stressed", "really stressed",
+        "i'm struggling", "im struggling",
+        "tired of everything", "exhausted",
+        "nobody cares", "no one cares",
+    ]
+    if any(phrase in lower for phrase in _SUB_CRISIS_EMOTIONAL):
+        logger.info(
+            "Skipping LLM crisis check — message matches sub-crisis "
+            "emotional phrase (handled by emotional tone handler)"
+        )
+        return None
+
     if _USE_LLM_DETECTION:
         return _detect_crisis_llm(text)
 

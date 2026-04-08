@@ -66,8 +66,11 @@ SERVICE_KEYWORDS = {
         "aa meeting", "na meeting", "narcotics anonymous", "alcoholics anonymous",
         "support group", "emotional support", "psychiatric",
         "psychiatrist", "crisis counseling",
-        "struggling", "having a hard time", "grief", "grieving",
-        "someone to talk to", "peer support",
+        "grief", "grieving",
+        # NOTE: "struggling", "having a hard time", "someone to talk to",
+        # and "peer support" removed — they are emotional expressions or
+        # escalation signals, not mental health service requests. Keeping
+        # them here caused "I'm struggling and need shelter" to misclassify.
     ],
 
     # --- Legal Services (taxonomy: Legal Services, Advocates / Legal Aid) ---

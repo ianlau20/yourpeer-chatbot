@@ -753,16 +753,33 @@ def test_new_medical_keywords():
 
 
 def test_new_mental_health_keywords():
-    """Newly added mental health keywords should match."""
+    """Mental health keywords should match. Note: 'struggling', 'having a
+    hard time', and 'someone to talk to' were intentionally removed — they
+    are emotional expressions / escalation signals, not mental health service
+    requests. See STRUCTURAL_FIXES_CHANGELOG.md Fix 1."""
     phrases = [
-        "I've been struggling lately",
-        "I'm having a hard time",
         "I'm dealing with grief",
-        "I just need someone to talk to",
+        "I need counseling",
+        "I need therapy",
     ]
     for phrase in phrases:
         slots = extract_slots(phrase)
         assert slots["service_type"] == "mental_health", f"Failed on: {phrase} → {slots['service_type']}"
+
+
+def test_emotional_phrases_not_mental_health():
+    """Emotional expressions should NOT extract as mental_health service.
+    These are handled by the emotional tone handler in chatbot.py, not
+    the service slot extractor."""
+    phrases = [
+        "I've been struggling lately",
+        "I'm having a hard time",
+        "I just need someone to talk to",
+    ]
+    for phrase in phrases:
+        slots = extract_slots(phrase)
+        assert slots["service_type"] != "mental_health", \
+            f"'{phrase}' should not extract as mental_health — got {slots['service_type']}"
 
 
 def test_new_legal_keywords():

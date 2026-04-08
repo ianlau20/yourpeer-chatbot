@@ -975,16 +975,21 @@ def test_bot_question_outside_nyc_gets_specific_response(fresh_session):
 # CONTEXT-AWARE YES/NO — EXPANDED
 # -----------------------------------------------------------------------
 
-def test_yes_after_frustration_resets(fresh_session):
-    """'Yes' after frustration should start a new search."""
+def test_yes_after_frustration_connects_navigator(fresh_session):
+    """'Yes' after frustration should connect to peer navigator.
+
+    The frustration handler's messaging pushes toward navigator ('I think
+    a peer navigator would be more helpful'). The 'Try different search'
+    button sends 'Start over' directly, so 'yes' means 'yes, connect me.'
+    See STRUCTURAL_FIXES_CHANGELOG.md Fix 5."""
     send("I need food", session_id=fresh_session)
     send("Brooklyn", session_id=fresh_session)
     send("Yes, search", session_id=fresh_session)
-    send("that wasn't helpful at all", session_id=fresh_session)
+    send("this is useless", session_id=fresh_session)
     result = send("yes", session_id=fresh_session)
-    # Should reset — show welcome quick replies
-    labels = [qr["label"] for qr in result.get("quick_replies", [])]
-    assert "🍽️ Food" in labels
+    # Should route to navigator — not reset
+    response = result["response"].lower()
+    assert "peer" in response or "navigator" in response or "streetlives" in response
 
 
 def test_no_after_frustration_offers_navigator(fresh_session):
