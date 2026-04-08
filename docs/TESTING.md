@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 700 tests across 19 test files, plus an LLM-as-judge evaluation framework with 114 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 719 tests across 19 test files, plus an LLM-as-judge evaluation framework with 114 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -51,8 +51,9 @@ All 16 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 161+ | Full |
-| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 143+ | Full |
+| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 168+ | Full |
+| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 147+ | Full |
+| `rag/__init__.py` | `test_query_templates.py`, `test_geolocation.py`, `test_db_integration.py` | 90+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
 | `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 58+ | Full |
@@ -72,15 +73,16 @@ All 16 backend modules and all public functions are covered:
 
 ## Test Suites
 
-### `test_chatbot.py` — 133 tests
+### `test_chatbot.py` — 140 tests
 
-Validates the main chatbot module — message classification (split classifier), slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, combined action+tone routing, and LLM fallback. External dependencies are mocked.
+Validates the main chatbot module — message classification (split classifier), slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, combined action+tone routing, tone prefix assertions, escalation guard, and LLM fallback. External dependencies are mocked.
 
 | Category | Tests | What's covered |
 |---|---|---|
-| `_classify_action` | 10 | Reset, greeting (short/long), confirm_yes, confirm_deny, bot_question, escalation, help, returns None for service, returns None for emotional |
-| `_classify_tone` | 5 | Emotional, frustrated, confused, None for neutral, no service-word gate (detects emotion even with "need"/"food" present) |
-| Combined routing | 7 | Emotional+service → service with prefix, help+service → service, escalation+service → service, confused+service → service, frustrated+service → service, pure emotional/help/escalation still work |
+| `_classify_action` | 13 | Reset, greeting (short/long), confirm_yes, confirm_deny, bot_question, escalation, help, returns None for service, returns None for emotional, returns None for frustrated, returns None for confused, returns None for urgent |
+| `_classify_tone` | 10 | Emotional, frustrated, confused, None for neutral, no service-word gate (detects emotion even with "need"/"food" present), urgent phrases (7 variants), emotional beats urgent, pure urgency |
+| Combined routing | 10 | Emotional+service → service with prefix, help+service → service, escalation+service → service, confused+service → service with prefix, frustrated+service → service with prefix, pure emotional/help/escalation still work, urgent+service gets prefix |
+| Escalation guard | 3 | Escalation+service without location → escalation, escalation+service+location → service, "talk to someone about shelter" → escalation |
 | Message classification | 13 | All 16 routing categories including emotional, bot_question. Long messages not misclassified as greetings. Punctuation handling. Emotional distinct from confused. Bot question distinct from frustration and help |
 | Privacy classification | 2 | 19 privacy phrases (ICE, police, benefits, recording, anonymity) all route to bot_question. Privacy phrasing not misclassified as service request |
 | Routing paths | 12 | Greeting (with and without existing session), reset, thanks, help, bot question (direct answer, no slot extraction), service with results, no results, partial slots trigger follow-up, general conversation |
@@ -98,11 +100,11 @@ Validates the main chatbot module — message classification (split classifier),
 | Session ID | 2 | Auto-generated when none provided. Preserved when provided |
 | Response structure | 2 | All 8 required keys present. Relaxed search flag |
 | Service detail in confirmation | 3 | Confirmation uses service_detail ("dental care" not "health care"), falls back to generic label, change-service clears detail |
-| Family status in confirmation | 5 | Confirmation mentions "children", "family", "yourself" per status. No mention when not set. Family status extracted during multi-turn shelter flow |
+| Family status in confirmation | 6 | Confirmation mentions "children", "family", "yourself" per status. No mention when not set. Family status extracted during multi-turn shelter flow. family_status reaches query_services via _execute_and_respond |
 | Confirmation & quick replies | 10 | Confirmation triggered, change location/service, greeting/reset/follow-up quick replies, new input re-extracts, results show post-search buttons |
 | Bug fix regressions | 7 | "No" breaks confirmation loop, deny phrases classified correctly, cancel variants trigger reset, expanded frustration phrases, thanks-with-continuation falls through, empty/whitespace message guard |
 
-### `test_slot_extractor.py` — 98 tests
+### `test_slot_extractor.py` — 102 tests
 
 Validates the regex-based slot extraction pipeline.
 
@@ -111,7 +113,7 @@ Validates the regex-based slot extraction pipeline.
 | Service type | 10 | All 9 categories plus false positive prevention |
 | "Other services" keyword | 2 | Quick reply value "I need other services" and singular form both extract service_type=other |
 | Service detail extraction | 7 | Sub-type labels: dental→dental care, therapy→therapy, immigration→immigration services, shower→showers, food pantry→food pantries, AA meeting→AA meetings. Generic "food" has no detail |
-| Multi-service extraction | 14 | Two services, three services, no duplicate categories, "mental health" doesn't double-match "health", sub-type details preserved per service, single/no service edge cases, extract_slots returns primary + additional_services, merge_slots skips additional_services, complex multi-intent |
+| Multi-service extraction | 17 | Two services, three services, no duplicate categories, "mental health" doesn't double-match "health", sub-type details preserved per service, single/no service edge cases, extract_slots returns primary + additional_services, merge_slots skips additional_services, complex multi-intent, find() scans forward past overlaps, text-position ordering (forward and reversed), word-boundary position ordering |
 | Location | 6 | Preposition patterns, known NYC names, "near me" detection, false positives |
 | Age | 3 | Multiple formats, out-of-range rejection |
 | Urgency | 2 | High and medium levels |
@@ -133,7 +135,7 @@ Cross-cutting tests from the architecture spec and user testing plans.
 |---|---|---|
 | Location normalization | 4 | Borough → DB city mapping, neighborhood mapping, unknown locations, whitespace |
 | Template resolution | 2 | All service types resolve. Unknown types return None |
-| Multi-intent | 1 | "Food and shelter" picks first match (documented limitation) |
+| Multi-intent | 1 | "Food and shelter" extracts both; first is searched, second queued (PR 3) |
 | Location edge cases | 4 | Non-NYC locations, mixed case, mid-conversation changes |
 | Minor + urgency | 3 | 17-year-old shelter scenario from the architecture spec |
 | PII + slot interaction | 3 | Name redacted but slots preserved. Age not treated as PII |
@@ -157,9 +159,9 @@ Validates location normalization, borough expansion, proximity search, and that 
 | Neighborhood proximity | 15 | All neighborhoods have coordinates within NYC bounds, proximity search integration |
 | DB connection | 1 | `test_connection` returns False without DATABASE_URL |
 
-### `test_query_templates.py` — 82 tests
+### `test_query_templates.py` — 90 tests
 
-Validates query template correctness, SQL structure, service card formatting, schedule computation, and result sorting.
+Validates query template correctness, SQL structure, service card formatting, schedule computation, result sorting, and shelter taxonomy enrichment.
 
 | Category | Tests | What's covered |
 |---|---|---|
@@ -171,6 +173,7 @@ Validates query template correctness, SQL structure, service card formatting, sc
 | Deduplication | 5 | Removes by service_id, keeps first, edge cases |
 | Generated SQL | 4 | Parameterized (no injection), strict vs relaxed params |
 | Result sorting | 6 | Open-now priority, proximity-first with distance, freshness ordering, relaxed sort consistency |
+| Shelter taxonomy enrichment | 8 | Youth (age<18), senior (age≥62), families (with_children), single adult (alone), LGBTQ Young Adult (always), base taxonomies preserved, food queries not enriched, TEMPLATES default_params not mutated |
 
 ### `test_crisis_detector.py` — 36 tests
 
@@ -413,7 +416,7 @@ Notable additions: 2 frustration escalation scenarios (repeated frustration loop
 These are documented behaviors, not bugs:
 
 - **Bare numbers (regex only):** Replying with just "17" (no context like "I am" or "age") does not extract age with the regex extractor. LLM extraction handles this correctly when enabled.
-- **Multi-intent routing:** "I need food and shelter" correctly extracts both service types into `additional_services`, but only the first is used for the current search. Sequential queue handling (offering the second service after results) is planned in PRs 2–4.
+- **Multi-intent routing:** "I need food and shelter" correctly extracts both service types into `additional_services`, and the split classifier routes the first to the service flow with tone-aware framing. Sequential queue handling (offering the second service after results) is planned in PR 3.
 - **Name detection:** Heuristic-based (intro phrases like "my name is"). Won't catch names without an intro phrase. Acceptable tradeoff to avoid false positives on location names.
 - **Borough typos (regex only):** Misspellings like "brookyln" are not corrected by regex. LLM extraction handles these.
 - **Two boroughs in one message (regex only):** "I'm in Queens but looking for food in Brooklyn" extracts "Queens" (first preposition match), not Brooklyn. LLM extraction picks the intended location.

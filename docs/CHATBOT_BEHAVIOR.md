@@ -42,6 +42,7 @@ Two independent classifiers run in parallel:
 | `frustrated` | "not helpful", "waste of time", "already tried" | "that wasn't helpful" |
 | `emotional` | "feeling down", "rough day", "I'm scared", "nobody cares" | "I'm feeling really down" |
 | `confused` | "I don't know what to do", "I'm overwhelmed" | "I'm lost" |
+| `urgent` | "right now", "tonight", "nowhere to go", "on the street", "desperate", "kicked out today" | "I need shelter right now" |
 
 **Key difference from the old architecture:** Tone detection has **no service-word gating**. "I'm struggling and need food" detects both emotional tone AND food service intent. The old `_has_service_words` guard that suppressed emotional detection when service words were present has been eliminated.
 
@@ -56,7 +57,7 @@ The routing priority is:
 | 1 | `tone == crisis` | Crisis handler (always wins) |
 | 2 | `action == reset` | Reset handler |
 | 3 | `action` is confirmation/bot/greeting/thanks | Action handler |
-| 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused) |
+| 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exception: escalation + service without location stays as escalation |
 | 5 | `action == help` | Help handler |
 | 6 | `action == escalation` | Escalation handler |
 | 7 | `tone == frustrated` | Frustration handler |
@@ -67,6 +68,8 @@ The routing priority is:
 
 The key insight is **row 4**: when service intent is present, it wins over help/escalation/emotional/confused. Those become tone modifiers on the service flow, not separate routes. This eliminates the ad-hoc guards that previously re-checked slots inside the help and escalation handlers.
 
+**Escalation exception:** Service intent only overrides escalation when BOTH service_type AND location are present. "Connect me with a navigator about food" (food but no location) stays as escalation — the user wants human help. "Navigator, client needs shelter in East Harlem" (both present) routes to service — the user is making a request on behalf of someone.
+
 **Tone prefixes applied in the service flow:**
 
 | Tone | Prefix on confirmation/follow-up |
@@ -74,6 +77,7 @@ The key insight is **row 4**: when service intent is present, it wins over help/
 | `emotional` | "I hear you, and I want to help." |
 | `frustrated` | "I understand this has been frustrating. Let me try something different." |
 | `confused` | "No worries — let me help you with that." |
+| `urgent` | "I can see this is urgent — let me find something right away." |
 | None | (no prefix) |
 
 ### LLM Fallback (only when nothing else matches)
