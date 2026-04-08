@@ -1296,3 +1296,52 @@ def test_frustrated_plus_service_routes_to_service(fresh_session):
     from app.services.session_store import get_session_slots
     slots = get_session_slots(fresh_session)
     assert slots.get("service_type") == "clothing"
+
+
+# -----------------------------------------------------------------------
+# URGENT TONE
+# -----------------------------------------------------------------------
+
+def test_classify_tone_urgent():
+    """Urgency phrases should return 'urgent' tone."""
+    from app.services.chatbot import _classify_tone
+    phrases = [
+        "I need shelter right now",
+        "I have nowhere to go tonight",
+        "please help me find food immediately",
+        "this is urgent",
+        "we're on the street",
+        "I was evicted today",
+        "I'm desperate",
+    ]
+    for phrase in phrases:
+        result = _classify_tone(phrase)
+        assert result == "urgent", f"Expected 'urgent' for '{phrase}', got '{result}'"
+
+
+def test_classify_tone_emotional_beats_urgent():
+    """Emotional tone should take priority over urgent."""
+    from app.services.chatbot import _classify_tone
+    # "I'm scared" is emotional, "tonight" is urgent — emotional wins
+    assert _classify_tone("I'm scared and need shelter tonight") == "emotional"
+
+
+def test_classify_tone_urgent_without_emotion():
+    """Pure urgency without emotional content should return 'urgent'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I need food tonight") == "urgent"
+
+
+def test_urgent_plus_service_gets_prefix(fresh_session):
+    """Urgent + service intent should produce urgent prefix in confirmation."""
+    result = send("I need shelter in Brooklyn right now", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "urgent" in response or "right away" in response
+
+
+def test_urgent_no_service_falls_through(fresh_session):
+    """Urgent tone without service intent should not crash."""
+    # "right now" has no service keyword — should fall to general/help
+    result = send("I need help right now", session_id=fresh_session)
+    # Should get help response or general, not an error
+    assert result.get("response") is not None

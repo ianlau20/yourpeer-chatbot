@@ -336,7 +336,13 @@ def _classify_tone(text: str) -> str | None:
     No service-word gating — always runs. The caller decides how to
     combine tone with service intent.
 
-    Returns one of: "crisis", "emotional", "frustrated", "confused", or None.
+    Returns one of: "crisis", "emotional", "frustrated", "confused",
+    "urgent", or None.
+
+    Priority order matters — crisis > frustrated > emotional > confused > urgent.
+    Urgent is lowest because it's about speed, not emotion. When a stronger
+    tone is present ("I'm scared and need shelter tonight"), empathy matters
+    more than acknowledging urgency (which the urgency slot already captures).
     """
     lower = text.lower().strip()
     cleaned = re.sub(r"[^\w\s']", "", lower).strip()
@@ -360,6 +366,20 @@ def _classify_tone(text: str) -> str | None:
     for phrase in _CONFUSED_PHRASES:
         if phrase in cleaned:
             return "confused"
+
+    # Urgent — time pressure or panic without a stronger emotional tone.
+    # Bridges from the urgency slot extractor's "high" phrases, plus
+    # panic-specific phrases not covered by emotional/crisis.
+    _URGENT_PHRASES = [
+        "right now", "tonight", "immediately", "asap", "urgent",
+        "emergency", "before dark", "freezing",
+        "nowhere to go", "have nowhere", "on the street",
+        "please help", "please hurry", "desperate",
+        "kicked out today", "evicted today",
+    ]
+    for phrase in _URGENT_PHRASES:
+        if phrase in cleaned:
+            return "urgent"
 
     return None
 
@@ -1580,6 +1600,8 @@ def generate_reply(
         _tone_prefix = "I understand this has been frustrating. Let me try something different. "
     elif _response_tone == "confused" and has_service_intent:
         _tone_prefix = "No worries — let me help you with that. "
+    elif _response_tone == "urgent" and has_service_intent:
+        _tone_prefix = "I can see this is urgent — let me find something right away. "
 
     # If enough detail exists AND this message contributed new info,
     # go to CONFIRMATION step.
