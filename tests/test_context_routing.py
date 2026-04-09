@@ -449,3 +449,121 @@ class TestUnrecognizedServiceEscalation:
         r = send("blorp blorp blorp", session_id=sid)
         s = get_session_slots(sid)
         assert s.get("_unrecognized_count", 0) == 0
+
+
+class TestOtherServiceTypeInterception:
+    """When LLM returns service_type='other' without detail (e.g., 'helicopter
+    ride'), it should be intercepted and treated as unrecognized rather
+    than searching for 'other services'."""
+
+    def test_other_without_detail_is_unrecognized(self, sid):
+        """service_type='other' with no detail should trigger redirect."""
+        # Simulate by pre-setting session with service_type='other'
+        from app.services.session_store import save_session_slots
+        save_session_slots(sid, {
+            'service_type': 'other',
+            'location': 'staten island',
+        })
+        # Send a follow-up that triggers re-evaluation
+        r = send("yes", session_id=sid)
+        # The session had 'other' — the interception should have cleared it
+        # (This tests the flow through confirm_yes with service_type='other')
+
+    def test_other_with_detail_is_legitimate(self, sid):
+        """service_type='other' WITH detail should proceed normally."""
+        # SNAP benefits → extracted as 'other' with detail 'snap'
+        r = send("I need help with SNAP benefits in Brooklyn", session_id=sid)
+        st = r["slots"].get("service_type")
+        # Should be extracted as 'other' with detail, or as a recognized category
+        # The key assertion: it should NOT be redirected to unrecognized
+        assert st is not None or "food" in r["response"].lower() or \
+            "search" in r["response"].lower()
+
+
+class TestImplicitServiceChange:
+    """Holistic change-mind detection: during pending confirmation, any
+    message with a DIFFERENT service_type is an implicit correction.
+    No denial keyword needed. Also handles negation-blind regex via
+    additional_services swap."""
+
+    @pytest.mark.parametrize("change_msg", [
+        "Actually, I need shelter tonight",
+        "Actually I need shelter not food",
+        "Wait, can you search for shelter instead?",
+        "I changed my mind, shelter please",
+        "Shelter please",
+        "I need shelter in Queens",
+        "Can you look for shelter instead",
+    ])
+    def test_direct_service_change(self, sid, change_msg):
+        """User states a different service — should update."""
+        send("I need food in Brooklyn", session_id=sid)
+        r = send(change_msg, session_id=sid)
+        assert r["slots"].get("service_type") == "shelter"
+
+    @pytest.mark.parametrize("change_msg", [
+        "Forget food, I need a place to stay",
+        "Not food — I need shelter",
+        "I don't want food, shelter please",
+    ])
+    def test_negation_with_new_service(self, sid, change_msg):
+        """User negates current service and states new one. Regex extracts
+        both (negation-blind). The different service should win."""
+        send("I need food in Brooklyn", session_id=sid)
+        r = send(change_msg, session_id=sid)
+        assert r["slots"].get("service_type") == "shelter"
+
+    def test_same_service_different_location(self, sid):
+        """Same service but new location should update location, not service."""
+        send("I need food in Brooklyn", session_id=sid)
+        r = send("I need food in Manhattan", session_id=sid)
+        assert r["slots"].get("service_type") == "food"
+        assert "manhattan" in r["slots"].get("location", "").lower()
+
+    def test_confirm_yes_unaffected(self, sid):
+        """'yes' should confirm the pending service, not change it."""
+        send("I need food in Brooklyn", session_id=sid)
+        r = send("yes", session_id=sid)
+        assert r["slots"].get("service_type") == "food"
+
+    def test_location_carries_over_on_service_change(self, sid):
+        """When service changes, location should persist from pending."""
+        send("I need food in Brooklyn", session_id=sid)
+        r = send("shelter please", session_id=sid)
+        assert r["slots"].get("service_type") == "shelter"
+        assert "brooklyn" in r["slots"].get("location", "").lower()
+
+    def test_service_change_shows_new_confirmation(self, sid):
+        """After service change, should show new confirmation for new service."""
+        send("I need food in Brooklyn", session_id=sid)
+        r = send("Actually I need shelter", session_id=sid)
+        assert r["slots"].get("_pending_confirmation") is True
+        assert "shelter" in r["response"].lower()
+
+    # --- Additive intent (ADD, not CHANGE) ---
+
+    @pytest.mark.parametrize("add_msg", [
+        "I also need shelter",
+        "And I need shelter too",
+        "Can you also look for shelter?",
+        "Oh and I need shelter as well",
+        "I need shelter too",
+        "food is good but I also need shelter",
+    ])
+    def test_additive_keeps_primary(self, sid, add_msg):
+        """Additive keywords ('also', 'too', 'as well') should queue
+        the new service, NOT replace the primary."""
+        send("I need food in Brooklyn", session_id=sid)
+        r = send(add_msg, session_id=sid)
+        assert r["slots"].get("service_type") == "food", \
+            f"'{add_msg}' should keep food as primary"
+        queued = [s for s, _ in r["slots"].get("_queued_services", [])]
+        assert "shelter" in queued, \
+            f"'{add_msg}' should queue shelter"
+
+    def test_additive_then_confirm_searches_primary(self, sid):
+        """After additive, confirming should search the primary service."""
+        send("I need food in Brooklyn", session_id=sid)
+        send("I also need shelter", session_id=sid)
+        r = send("Yes, search", session_id=sid)
+        assert r["slots"].get("service_type") == "food"

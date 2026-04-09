@@ -1974,6 +1974,19 @@ def generate_reply(
         deny_slots = extract_slots(message)
         new_service = deny_slots.get("service_type")
         current_service = existing.get("service_type")
+        deny_additional = deny_slots.get("additional_services", [])
+
+        # Implicit service change: if regex extracts the SAME service
+        # (negation-blind: "don't want food" → food) but additional_services
+        # has a DIFFERENT one, swap to the different one.
+        if new_service == current_service and deny_additional:
+            for alt_svc, alt_detail in deny_additional:
+                if alt_svc != current_service:
+                    new_service = alt_svc
+                    deny_slots["service_type"] = alt_svc
+                    deny_slots["service_detail"] = alt_detail
+                    break
+
         if new_service and new_service != current_service:
             # User changed their mind — update service and re-confirm
             existing.pop("_pending_confirmation", None)
@@ -2048,7 +2061,84 @@ def generate_reply(
         pending_has_new = any(v is not None for k, v in pending_extracted.items()
                               if k != "additional_services")
 
+        # --- Implicit service change vs additive detection ---
+        # When a confirmation is pending and the user's message contains a
+        # DIFFERENT service type, we need to distinguish:
+        #   CHANGE: "Actually I need shelter" → replace food with shelter
+        #   ADD:    "I also need shelter"    → keep food, queue shelter
+        #
+        # Detection: additive keywords ("also", "too", "as well", "and",
+        # "in addition") signal ADD. Change keywords ("instead", "actually",
+        # "forget", "not [current]", "rather") signal CHANGE. Without either,
+        # default to CHANGE (more common user intent during pending).
+        current_service = existing.get("service_type")
+        new_service = pending_extracted.get("service_type")
+        additional = pending_extracted.get("additional_services", [])
+        additional_types = [s for s, _ in additional] if additional else []
+
+        _lower_msg = message.lower()
+        _is_additive = bool(re.search(
+            r'\b(also|too|as well|in addition|additionally|and also|plus)\b',
+            _lower_msg,
+        ))
+
+        if new_service and new_service != current_service and _is_additive:
+            # ADDITIVE intent: "I also need shelter" → queue the new service,
+            # keep the current one as primary. Re-show confirmation with
+            # the queue noted.
+            if not pending_extracted.get("additional_services"):
+                pending_extracted["additional_services"] = []
+            pending_extracted["additional_services"].append(
+                (new_service, pending_extracted.get("service_detail"))
+            )
+            # Restore original service as primary
+            pending_extracted["service_type"] = current_service
+            pending_has_new = True
+            logger.info(
+                f"Additive service: keeping '{current_service}', "
+                f"queuing '{new_service}'"
+            )
+        elif new_service and new_service != current_service:
+            # CHANGE intent: user stated a different service → use it
+            pending_has_new = True
+        elif new_service == current_service and additional_types:
+            if _is_additive:
+                # Additive with same primary: "food is good but I also need shelter"
+                # Keep food as primary, queue the additional services
+                pending_has_new = True
+                logger.info(
+                    f"Additive service (via additional): keeping '{current_service}', "
+                    f"queuing {additional_types}"
+                )
+            else:
+                # Regex extracted the same service (negation blind) but also
+                # found a different one. The different one is the correction.
+                # "Not food, I need shelter" → food (regex primary) + shelter (additional)
+                for alt_svc, alt_detail in additional:
+                    if alt_svc != current_service:
+                        pending_extracted["service_type"] = alt_svc
+                        pending_extracted["service_detail"] = alt_detail
+                        pending_extracted["additional_services"] = [
+                            (s, d) for s, d in additional if s != alt_svc
+                        ]
+                        pending_has_new = True
+                        logger.info(
+                            f"Implicit service change: '{current_service}' → "
+                            f"'{alt_svc}' (preferred different service during "
+                            f"pending confirmation)"
+                        )
+                        break
+
+        if pending_has_new:
+            # Propagate the (possibly modified) pending_extracted to the
+            # service flow below. Without this, the fall-through uses
+            # early_extracted which has the ORIGINAL regex result (e.g.,
+            # service_type=food) rather than the swapped one (shelter).
+            early_extracted = pending_extracted
+
         if not pending_has_new:
+            # No new slots — user is probably trying to confirm or is confused.
+            # Re-show the confirmation with a nudge, but acknowledge tone
             # No new slots — user is probably trying to confirm or is confused.
             # Re-show the confirmation with a nudge, but acknowledge tone
             # if the user expressed emotion.
@@ -2131,6 +2221,58 @@ def generate_reply(
         merged.pop("_queued_services", None)
 
     save_session_slots(session_id, merged)
+
+    # Intercept "other" service type without detail — this happens when the
+    # LLM can't categorize the request (e.g., "helicopter ride" → "other").
+    # Only intercept when REGEX also didn't find a service type — this
+    # distinguishes "helicopter ride" (regex=None, LLM="other") from
+    # "SNAP benefits" (regex="other", LLM="other").
+    if (merged.get("service_type") == "other"
+            and not merged.get("service_detail")
+            and not early_extracted.get("service_type")
+            and category == "service"):
+        merged.pop("service_type", None)
+        merged.pop("_pending_confirmation", None)
+        unrec_count = merged.get("_unrecognized_count", 0) + 1
+        merged["_unrecognized_count"] = unrec_count
+        save_session_slots(session_id, merged)
+
+        location_note = f" in {merged['location']}" if merged.get("location") else ""
+
+        if unrec_count >= 3:
+            _unrec_response = (
+                "I think a peer navigator would be the best fit for what "
+                "you're looking for. They can help with things I can't."
+            )
+            _unrec_qr = [
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🔄 Start over", "value": "Start over"},
+            ]
+        elif unrec_count >= 2:
+            _unrec_response = (
+                "I'm not finding a match for that. I can search for food, "
+                "shelter, clothing, showers, health care, legal help, "
+                "mental health, and employment services"
+                f"{location_note}. Or a peer navigator might be able to "
+                "help with other needs."
+            )
+            _unrec_qr = list(_WELCOME_QUICK_REPLIES) + [
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+            ]
+        else:
+            _unrec_response = (
+                "I don't have information about that specifically, but "
+                "I can search for free services"
+                f"{location_note} — things like food, shelter, clothing, "
+                "showers, health care, legal help, mental health, and "
+                "employment services. Which of these would be helpful?"
+            )
+            _unrec_qr = list(_WELCOME_QUICK_REPLIES)
+
+        result = _empty_reply(session_id, _unrec_response, merged, quick_replies=_unrec_qr)
+        _log_turn(session_id, redacted_message, result, "unrecognized_service",
+                  request_id=request_id, tone=tone)
+        return result
 
     # Geolocation: if location is "near me" but we have browser coords,
     # that's enough to run a proximity search.
