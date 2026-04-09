@@ -187,3 +187,83 @@ class TestNormalizationDoesNotAffectCrisis:
         # This is verified by the code structure, not easily testable
         # in isolation, but we document the design intent here.
         pass
+
+
+# -----------------------------------------------------------------------
+# Intensifier stripping
+# -----------------------------------------------------------------------
+
+class TestStripIntensifiers:
+    """Intensifier removal should work correctly."""
+
+    @pytest.mark.parametrize("input_text,expected", [
+        ("i'm really scared", "i'm scared"),
+        ("so incredibly down", "down"),
+        ("feeling pretty hopeless", "feeling hopeless"),
+        ("i just feel stuck", "i feel stuck"),
+        ("totally overwhelmed", "overwhelmed"),
+        ("i'm not doing well", "i'm not doing well"),  # "not" is NOT an intensifier
+        ("really really sad", "sad"),  # double intensifier
+    ])
+    def test_strip_intensifiers(self, input_text, expected):
+        from app.services.chatbot import _strip_intensifiers
+        assert _strip_intensifiers(input_text) == expected
+
+    def test_does_not_strip_negation(self):
+        """'not' must never be stripped — it changes meaning."""
+        from app.services.chatbot import _strip_intensifiers
+        assert "not" in _strip_intensifiers("i'm not okay")
+        assert "not" in _strip_intensifiers("not helpful")
+        assert "never" in _strip_intensifiers("never helpful")
+
+
+class TestIntensifierInClassifyTone:
+    """Intensifier stripping should catch all intensifier×emotion combos."""
+
+    @pytest.mark.parametrize("intensifier", [
+        "really", "very", "so", "super", "extremely",
+        "pretty", "quite", "totally", "absolutely", "incredibly",
+    ])
+    @pytest.mark.parametrize("emotion", [
+        "scared", "down", "sad", "lonely", "anxious",
+        "depressed", "hopeless", "stuck", "stressed",
+    ])
+    def test_intensifier_emotion_matrix(self, intensifier, emotion):
+        """Every intensifier×emotion combination should classify as emotional."""
+        phrase = f"I'm {intensifier} {emotion}"
+        with patch("app.services.chatbot.detect_crisis", return_value=None):
+            tone = _classify_tone(phrase)
+        assert tone == "emotional", \
+            f"'{phrase}' should be emotional, got '{tone}'"
+
+    @pytest.mark.parametrize("phrase", [
+        "that's really not helpful",
+        "this is absolutely useless",
+        "totally didn't work",
+    ])
+    def test_intensifier_frustration(self, phrase):
+        """Intensifiers in frustration phrases should still match."""
+        with patch("app.services.chatbot.detect_crisis", return_value=None):
+            tone = _classify_tone(phrase)
+        assert tone == "frustrated", \
+            f"'{phrase}' should be frustrated, got '{tone}'"
+
+    @pytest.mark.parametrize("phrase", [
+        "I'm just so confused",
+        "I'm really overwhelmed",
+        "I'm totally lost",
+    ])
+    def test_intensifier_confused(self, phrase):
+        """Intensifiers in confused phrases should still match."""
+        with patch("app.services.chatbot.detect_crisis", return_value=None):
+            tone = _classify_tone(phrase)
+        assert tone == "confused", \
+            f"'{phrase}' should be confused, got '{tone}'"
+
+    def test_crisis_not_affected_by_stripping(self):
+        """Crisis detection must not use intensifier stripping."""
+        from app.services.crisis_detector import detect_crisis
+        # "I really want to die" — crisis should fire from "want to die"
+        result = detect_crisis("I really want to die")
+        assert result is not None
+        # The crisis regex already has "want to die" so stripping isn't needed

@@ -83,6 +83,49 @@ def _normalize_contractions(text: str) -> str:
     for contraction, expansion in _CONTRACTION_PAIRS:
         result = result.replace(contraction, expansion)
     return result
+
+
+# ---------------------------------------------------------------------------
+# INTENSIFIER STRIPPING
+# ---------------------------------------------------------------------------
+# Removes common intensifier adverbs that break substring contiguity in
+# phrase matching. "I'm really scared" → "I'm scared" matches "i'm scared".
+#
+# Applied alongside contraction normalization in _classify_tone.
+# NOT applied to crisis detection — explicit enumeration is safer.
+#
+# Only pure intensifiers are stripped — words that modify degree without
+# changing meaning. "not", "never", "no longer" are NOT stripped.
+
+_INTENSIFIERS = {
+    "really", "very", "so", "super", "extremely", "pretty", "quite",
+    "totally", "absolutely", "incredibly", "truly", "deeply",
+    "terribly", "horribly", "awfully", "genuinely", "particularly",
+    "just", "kinda", "sorta",
+}
+
+# Pre-compile: match any intensifier surrounded by whitespace
+_INTENSIFIER_RE = re.compile(
+    r'\b(' + '|'.join(re.escape(w) for w in sorted(_INTENSIFIERS, key=len, reverse=True)) + r')\b\s*',
+    re.IGNORECASE,
+)
+
+
+def _strip_intensifiers(text: str) -> str:
+    """Remove common intensifiers for consistent phrase matching.
+
+    "I'm really scared"      → "I'm scared"
+    "I'm so incredibly down" → "I'm down"
+    "feeling pretty hopeless" → "feeling hopeless"
+    "I just feel stuck"      → "I feel stuck"
+
+    Applied to frustration/emotional/confused matching so phrase lists
+    don't need every intensifier×emotion combination.
+    NOT applied to crisis detection (explicit enumeration is safer).
+    """
+    result = _INTENSIFIER_RE.sub('', text)
+    # Clean up any double spaces left behind
+    return re.sub(r'\s{2,}', ' ', result).strip()
 from app.services.audit_log import (
     log_conversation_turn,
     log_query_execution,
@@ -209,10 +252,21 @@ _EMOTIONAL_PHRASES = [
     "having a hard time", "having a rough time", "having a tough time",
     "rough day", "bad day", "tough day", "hard day",
     "stressed out", "so stressed", "really stressed",
+    "i'm stressed", "im stressed",
     "i'm struggling", "im struggling",
     "tired of everything", "exhausted",
     "i just need someone to talk to", "just need to talk",
     "nobody cares", "no one cares",
+    # "i'm X" / "im X" variants — needed so intensifier stripping works.
+    # "I'm really sad" → stripped → "I'm sad" needs "i'm sad" in the list.
+    # Without these, only "feeling sad" form was covered.
+    "i'm sad", "im sad",
+    "i'm down", "im down",
+    "i'm anxious", "im anxious",
+    "i'm lonely", "im lonely",
+    "i'm hopeless", "im hopeless",
+    "i'm depressed", "im depressed",
+    "i'm stuck", "im stuck",
     # Shame / stigma (P1 audit — #1 barrier to help-seeking in this population)
     "embarrassed to ask", "ashamed to ask", "ashamed of myself",
     "embarrassed to be here", "feel like a failure",
@@ -474,24 +528,30 @@ def _classify_tone(text: str) -> str | None:
     # Crisis detection uses its own explicit enumeration for safety.
     normalized = _normalize_contractions(cleaned)
 
-    # Crisis — highest priority (uses original text, NOT normalized)
+    # Stripped form removes intensifiers so phrase lists don't need every
+    # intensifier×emotion combination. "I'm really scared" → "I'm scared".
+    # Applied to both cleaned and normalized variants.
+    stripped = _strip_intensifiers(cleaned)
+    stripped_normalized = _strip_intensifiers(normalized)
+
+    # Crisis — highest priority (uses original text, NOT normalized/stripped)
     crisis_result = detect_crisis(text)
     if crisis_result is not None:
         return "crisis"
 
-    # Frustration — check both original and normalized
+    # Frustration — check all variants
     for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned or phrase in normalized:
+        if phrase in cleaned or phrase in normalized or phrase in stripped or phrase in stripped_normalized:
             return "frustrated"
 
-    # Emotional — check both original and normalized
+    # Emotional — check all variants
     for phrase in _EMOTIONAL_PHRASES:
-        if phrase in cleaned or phrase in normalized:
+        if phrase in cleaned or phrase in normalized or phrase in stripped or phrase in stripped_normalized:
             return "emotional"
 
-    # Confused — check both original and normalized
+    # Confused — check all variants
     for phrase in _CONFUSED_PHRASES:
-        if phrase in cleaned or phrase in normalized:
+        if phrase in cleaned or phrase in normalized or phrase in stripped or phrase in stripped_normalized:
             return "confused"
 
     # Urgent — time pressure or panic without a stronger emotional tone.
@@ -534,8 +594,10 @@ def _classify_message(text: str) -> str:
         return action
 
     # Frustration (before slot check — "not helpful" is never a service request)
+    normalized = _normalize_contractions(cleaned)
+    stripped = _strip_intensifiers(cleaned)
     for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned:
+        if phrase in cleaned or phrase in normalized or phrase in stripped:
             return "frustration"
 
     # Check slots — if service intent found, it wins over emotional/confused

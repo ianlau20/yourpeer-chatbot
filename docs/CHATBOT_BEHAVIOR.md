@@ -365,6 +365,10 @@ Add to `_EMOTIONAL_PHRASES` in `chatbot.py`. Avoid phrases that overlap with ser
 
 `_normalize_contractions()` in `chatbot.py` expands 37 common contractions (e.g., "isn't" → "is not", "i'm" → "i am") before phrase matching in `_classify_tone()` and the help negators in `_classify_action()`. This means phrase lists only need the expanded "not" form to match all contraction variants. Normalization is NOT applied to crisis detection — crisis uses explicit enumeration for safety. To add a new contraction, add it to `_CONTRACTION_MAP` in `chatbot.py` and add a test in `test_contraction_normalization.py`.
 
+### Intensifier stripping
+
+`_strip_intensifiers()` in `chatbot.py` removes 20 common intensifier adverbs (really, very, so, super, extremely, pretty, quite, totally, absolutely, incredibly, truly, deeply, terribly, horribly, awfully, genuinely, particularly, just, kinda, sorta) before phrase matching in `_classify_tone()` and `_classify_message()`. This means "I'm really scared" → "I'm scared" matches the phrase "i'm scared" without needing an explicit "really scared" entry. Stripping is NOT applied to crisis detection. "not" and other negation words are never stripped — they change meaning. To add a new intensifier, add it to `_INTENSIFIERS` in `chatbot.py`.
+
 ### Modifying guardrails
 
 LLM guardrails are embedded in three prompt builders in `chatbot.py`:
@@ -376,7 +380,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 106 phrase audit tests in `test_phrase_audit.py`, 56 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`, and 80 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 118 phrase audit tests in `test_phrase_audit.py`, 161 contraction/intensifier normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 80 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

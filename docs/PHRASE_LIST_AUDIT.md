@@ -31,13 +31,15 @@
 
 ## Structural Findings
 
-### 1. Cross-List Collision: "nobody cares" — RESOLVED
+### 1. Cross-List Collision: "nobody cares"
 
-**Issue:** "nobody cares" appeared in both `_EMOTIONAL_PHRASES` and `_SUICIDE_SELF_HARM_PHRASES`. The crisis regex fired first, so "nobody cares" always routed to crisis, never to emotional.
+**Issue:** "nobody cares" appears in both `_EMOTIONAL_PHRASES` and `_SUICIDE_SELF_HARM_PHRASES` (as part of "nobody cares" / "no one cares if i"). The crisis regex fires first, so "nobody cares" always routes to crisis, never to emotional.
 
-**Resolution:** Changed `"nobody cares"` to `"nobody cares if i"` in `_SUICIDE_SELF_HARM_PHRASES`. Bare "nobody cares" now routes to the emotional handler (empathetic acknowledgment + peer navigator offer). The specific form "nobody cares if i [disappear/die/etc.]" still triggers crisis — the "if i" suffix is the suicidal marker per C-SSRS research. "No one cares if i" was already in the correct specific form and remains unchanged. The `_SUB_CRISIS_EMOTIONAL` guard in `detect_crisis()` still lists "nobody cares" and "no one cares" to prevent the LLM stage from over-escalating these phrases.
+**Impact:** The emotional phrase guard in `crisis_detector.py` catches "nobody cares" (it's in `_SUB_CRISIS_EMOTIONAL`), so the LLM stage is skipped. But the regex stage matches first. The phrase "nobody cares" in the suicide list will always win over the emotional list.
 
-**Risk:** LOW. Resolved — 8 tests in `test_bug_fixes.py` verify the fix.
+**Recommendation:** This is acceptable. "Nobody cares" IS a passive suicidal ideation marker per C-SSRS research. The crisis handler's step-down mechanism will preserve any service intent. However, consider changing the suicide phrase to the more specific "nobody cares if i die" or "nobody would care if i was gone" to avoid over-triggering on the standalone "nobody cares" (which is more commonly an expression of loneliness than suicidal ideation in this population). Keep "no one cares if i" as-is — the "if i" suffix is the suicidal marker.
+
+**Risk:** MEDIUM. False positive rate on "nobody cares" is likely high (emotional, not suicidal), but the crisis response includes useful resources and doesn't clear the session.
 
 ### 2. Redundant Phrases (substring within same list)
 
@@ -286,9 +288,10 @@ These would only be added to the crisis regex list to ensure safety coverage. Fu
 | P3 | Service keywords — NYC-specific | 18 keywords | Low | Coverage for common requests | ✅ Done |
 | P3 | Confused — expanded | 9 phrases | Low | Minor coverage improvement | ✅ Done |
 | P4 | Contraction normalization | 1 function + 37 mappings | Medium | Eliminates future contraction gaps | ✅ Done |
-| P4 | Spanish crisis phrases | ~5 phrases | Low | Safety for Spanish speakers | Deferred |
+| P4b | Intensifier stripping | 1 function + 20 intensifiers | Medium | Eliminates intensifier×emotion gaps (109→0) | ✅ Done |
+| P5 | Spanish crisis phrases | ~5 phrases | Low | Safety for Spanish speakers | Deferred |
 
-**Implementation note:** 120 phrases added across 6 files. Total phrase inventory: 636 → 756. Zero test regressions (336 passed, same 10 pre-existing stub failures). One collision caught and resolved during implementation: "i give up on this" (frustration) collided with "i give up" (suicide, intentional broad match per P8 design) — removed from frustration list.
+**Implementation note:** 120+ phrases added across 6 files. Total phrase inventory: 636 → 770+. Two systematic preprocessing functions eliminate future gaps: contraction normalization (37 mappings) and intensifier stripping (20 adverbs). Zero test regressions (701 passed locally, same 4 pre-existing feature gaps). One collision caught during implementation: "i give up on this" (frustration) collided with "i give up" (suicide) — removed from frustration list.
 
 ---
 
