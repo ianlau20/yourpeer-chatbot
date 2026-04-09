@@ -1,526 +1,358 @@
 """
-Audit Log — Records anonymized conversation events for staff review.
+Audit Log — in-memory event store for the staff review console.
 
-Stores a capped ring buffer of conversation events in memory (demo mode).
-All entries are already PII-redacted by the chatbot pipeline before
-reaching this module.
+Stores conversation turns, query executions, crisis events, session resets,
+and user feedback in ring buffers. Provides aggregation functions for the
+admin dashboard (stats, conversation summaries, query log).
 
-Event types:
-    - conversation_turn: A single user message + bot response pair
-    - query_execution:   A database query that was executed
-    - crisis_detected:   Crisis language was detected
-    - session_reset:     User started over
-    - feedback:          Thumbs up/down from the user after results
+All data is lost on server restart. For production, replace with a
+persistent store (PostgreSQL, Redis, or a dedicated logging service).
 
-Production note: Replace the in-memory store with a persistent database
-(PostgreSQL, Redis, etc.) for real deployments.
+Thread-safe: all mutations and reads acquire _lock. FastAPI serves
+concurrent requests, so unguarded dict/deque mutations would corrupt state.
 """
 
-import time
+import json
+import logging
 import threading
-from collections import deque
+from collections import deque, OrderedDict
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Optional
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------------------------
 
-MAX_EVENTS = 2000          # Maximum events stored in memory
-MAX_CONVERSATIONS = 500    # Maximum unique conversations tracked
+MAX_EVENTS = 2000
+MAX_CONVERSATIONS = 500
 
 # ---------------------------------------------------------------------------
-# IN-MEMORY STORE
+# STORAGE
 # ---------------------------------------------------------------------------
 
 _lock = threading.Lock()
-
-# All events in insertion order (ring buffer)
 _events: deque = deque(maxlen=MAX_EVENTS)
-
-# Conversation index: session_id → list of event indices
-_conversations: dict = {}
-
-# Query execution log
+_conversations: OrderedDict = OrderedDict()
 _query_log: deque = deque(maxlen=MAX_EVENTS)
-
-# Eval results (loaded from JSON file or set programmatically)
 _eval_results: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
-# EVENT RECORDING
+# INTERNAL HELPERS
 # ---------------------------------------------------------------------------
 
-def log_conversation_turn(
-    session_id: str,
-    user_message_redacted: str,
-    bot_response: str,
-    slots: dict,
-    category: str,
-    services_count: int = 0,
-    quick_replies: list = None,
-    follow_up_needed: bool = False,
-    request_id: Optional[str] = None,
-):
-    """Record a single conversation turn (user message + bot response)."""
-    # Strip internal keys from slots for display
-    clean_slots = {
-        k: v for k, v in (slots or {}).items()
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _clean_slots(slots: Optional[dict]) -> dict:
+    if not slots:
+        return {}
+    return {
+        k: v for k, v in slots.items()
         if v is not None and not k.startswith("_") and k != "transcript"
     }
 
+
+def _extract_qr_labels(quick_replies: Optional[list]) -> list:
+    if not quick_replies:
+        return []
+    return [qr["label"] if isinstance(qr, dict) else qr for qr in quick_replies]
+
+
+def _register_conversation(session_id: str, event: dict) -> None:
+    """MUST be called with _lock held."""
+    if session_id not in _conversations:
+        if len(_conversations) >= MAX_CONVERSATIONS:
+            _conversations.popitem(last=False)
+        _conversations[session_id] = []
+    else:
+        _conversations.move_to_end(session_id)
+    _conversations[session_id].append(event)
+
+
+# ---------------------------------------------------------------------------
+# LOGGING FUNCTIONS
+# ---------------------------------------------------------------------------
+
+def log_conversation_turn(
+    session_id="", user_message_redacted="", bot_response="",
+    slots=None, category="", services_count=0, quick_replies=None,
+    follow_up_needed=False, request_id=None, tone=None, **kwargs,
+):
     event = {
         "type": "conversation_turn",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": _now_iso(),
         "session_id": session_id,
-        "request_id": request_id,
         "user_message": user_message_redacted,
         "bot_response": bot_response,
+        "slots": _clean_slots(slots),
         "category": category,
-        "slots": clean_slots,
         "services_count": services_count,
-        "quick_replies": [qr.get("label", qr) if isinstance(qr, dict) else qr
-                          for qr in (quick_replies or [])],
+        "quick_replies": _extract_qr_labels(quick_replies),
         "follow_up_needed": follow_up_needed,
+        "request_id": request_id,
+        "tone": tone,
     }
-
     with _lock:
         _events.append(event)
-        if session_id not in _conversations:
-            _conversations[session_id] = []
-            # Evict oldest conversations if over limit
-            if len(_conversations) > MAX_CONVERSATIONS:
-                oldest = next(iter(_conversations))
-                del _conversations[oldest]
-        _conversations[session_id].append(len(_events) - 1)
+        _register_conversation(session_id, event)
 
 
 def log_query_execution(
-    session_id: str,
-    template_name: str,
-    params: dict,
-    result_count: int,
-    relaxed: bool,
-    execution_ms: int,
-    freshness: Optional[dict] = None,
-    request_id: Optional[str] = None,
+    session_id="", template_name="", params=None, result_count=0,
+    relaxed=False, execution_ms=0, freshness=None, request_id=None,
+    **kwargs,
 ):
-    """Record a database query execution."""
+    clean_params = dict(params or {})
+    clean_params.pop("max_results", None)
     event = {
         "type": "query_execution",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": _now_iso(),
         "session_id": session_id,
-        "request_id": request_id,
         "template_name": template_name,
-        "params": {k: v for k, v in params.items() if k != "max_results"},
+        "params": clean_params,
         "result_count": result_count,
         "relaxed": relaxed,
         "execution_ms": execution_ms,
         "freshness": freshness,
+        "request_id": request_id,
     }
-
     with _lock:
         _events.append(event)
         _query_log.append(event)
+        _register_conversation(session_id, event)
 
 
 def log_crisis_detected(
-    session_id: str,
-    crisis_category: str,
-    user_message_redacted: str,
-    request_id: Optional[str] = None,
+    session_id="", crisis_category="", user_message_redacted="",
+    request_id=None, **kwargs,
 ):
-    """Record a crisis detection event."""
     event = {
         "type": "crisis_detected",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": _now_iso(),
         "session_id": session_id,
-        "request_id": request_id,
         "crisis_category": crisis_category,
         "user_message": user_message_redacted,
+        "request_id": request_id,
     }
-
     with _lock:
         _events.append(event)
-        if session_id not in _conversations:
-            _conversations[session_id] = []
-        _conversations[session_id].append(len(_events) - 1)
+        _register_conversation(session_id, event)
 
 
-def log_session_reset(session_id: str):
-    """Record a session reset."""
+def log_session_reset(session_id="", **kwargs):
     event = {
         "type": "session_reset",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": _now_iso(),
         "session_id": session_id,
     }
-
     with _lock:
         _events.append(event)
+        _register_conversation(session_id, event)
 
 
-def log_feedback(session_id: str, rating: str, comment: Optional[str] = None):
-    """Record a thumbs up/down feedback event.
-
-    Args:
-        session_id: The session the feedback belongs to.
-        rating: 'up' or 'down'.
-        comment: Optional free-text comment (keep brief; no PII expected).
-    """
-    if rating not in ("up", "down"):
-        raise ValueError(f"rating must be 'up' or 'down', got {rating!r}")
-
+def log_feedback(session_id="", rating="", comment=None, **kwargs):
     event = {
         "type": "feedback",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": _now_iso(),
         "session_id": session_id,
         "rating": rating,
-        "comment": comment or None,
+        "comment": comment,
     }
-
     with _lock:
         _events.append(event)
-        if session_id not in _conversations:
-            _conversations[session_id] = []
-        _conversations[session_id].append(len(_events) - 1)
+        _register_conversation(session_id, event)
 
 
 # ---------------------------------------------------------------------------
-# DATA RETRIEVAL (for the admin API)
+# RETRIEVAL
 # ---------------------------------------------------------------------------
 
-def get_recent_events(limit: int = 100, event_type: str = None) -> list:
-    """Get recent events, optionally filtered by type."""
+def get_recent_events(limit=100, event_type=None, n=None, **kwargs):
+    if n is not None:
+        limit = n
     with _lock:
-        events = list(_events)
-
-    if event_type:
-        events = [e for e in events if e["type"] == event_type]
-
-    return events[-limit:]
+        if event_type:
+            filtered = [e for e in _events if e.get("type") == event_type]
+            return list(filtered[-limit:])
+        return list(list(_events)[-limit:])
 
 
 def get_conversation(session_id: str) -> list:
-    """Get all events for a specific conversation."""
     with _lock:
-        events = list(_events)
-
-    return [e for e in events if e.get("session_id") == session_id]
+        return list(_conversations.get(session_id, []))
 
 
-def get_conversations_summary(limit: int = 50) -> list:
-    """Get a summary of recent conversations."""
+def get_conversations_summary(limit=50) -> list:
     with _lock:
-        events = list(_events)
-
-    # Group by session_id
-    sessions = {}
-    for e in events:
-        sid = e.get("session_id")
-        if not sid:
-            continue
-        if sid not in sessions:
-            sessions[sid] = {
-                "session_id": sid,
-                "first_seen": e["timestamp"],
-                "last_seen": e["timestamp"],
-                "turn_count": 0,
-                "services_delivered": 0,
-                "crisis_detected": False,
-                "categories": set(),
-                "final_slots": {},
-            }
-        s = sessions[sid]
-        s["last_seen"] = e["timestamp"]
-
-        if e["type"] == "conversation_turn":
-            s["turn_count"] += 1
-            s["services_delivered"] += e.get("services_count", 0)
-            if e.get("category"):
-                s["categories"].add(e["category"])
-            if e.get("slots"):
-                s["final_slots"] = e["slots"]
-        elif e["type"] == "crisis_detected":
-            s["crisis_detected"] = True
-        elif e["type"] == "query_execution":
-            s["services_delivered"] = max(
-                s["services_delivered"], e.get("result_count", 0)
-            )
-
-    # Convert sets to lists for JSON serialization
-    result = []
-    for s in sessions.values():
-        s["categories"] = sorted(s["categories"])
-        result.append(s)
-
-    # Sort by last_seen descending
-    result.sort(key=lambda x: x["last_seen"], reverse=True)
-
-    return result[:limit]
+        summaries = []
+        for session_id in reversed(_conversations):
+            events = _conversations[session_id]
+            if not events:
+                continue
+            turns = [e for e in events if e.get("type") == "conversation_turn"]
+            crisis = any(e.get("type") == "crisis_detected" for e in events)
+            categories = list({t.get("category", "") for t in turns if t.get("category")})
+            last_turn = turns[-1] if turns else {}
+            summaries.append({
+                "session_id": session_id,
+                "turn_count": len(turns),
+                "services_delivered": last_turn.get("services_count", 0),
+                "crisis_detected": crisis,
+                "categories": categories,
+                "final_slots": last_turn.get("slots", {}),
+                "last_seen": events[-1].get("timestamp", ""),
+            })
+            if len(summaries) >= limit:
+                break
+        return summaries
 
 
-def get_query_log(limit: int = 100) -> list:
-    """Get recent query execution log."""
+def get_query_log(limit=100) -> list:
     with _lock:
-        return list(_query_log)[-limit:]
+        return list(list(_query_log)[-limit:])
 
 
 def get_stats() -> dict:
-    """Get aggregate statistics for the dashboard."""
     with _lock:
-        events = list(_events)
+        all_events = list(_events)
 
-    total_turns = sum(1 for e in events if e["type"] == "conversation_turn")
-    total_queries = sum(1 for e in events if e["type"] == "query_execution")
-    total_crises = sum(1 for e in events if e["type"] == "crisis_detected")
-    total_resets = sum(1 for e in events if e["type"] == "session_reset")
-    feedback_up = sum(1 for e in events if e["type"] == "feedback" and e.get("rating") == "up")
-    feedback_down = sum(1 for e in events if e["type"] == "feedback" and e.get("rating") == "down")
+    turns = [e for e in all_events if e.get("type") == "conversation_turn"]
+    queries = [e for e in all_events if e.get("type") == "query_execution"]
+    crises = [e for e in all_events if e.get("type") == "crisis_detected"]
+    resets = [e for e in all_events if e.get("type") == "session_reset"]
+    feedbacks = [e for e in all_events if e.get("type") == "feedback"]
 
-    unique_sessions = set(e.get("session_id") for e in events if e.get("session_id"))
+    all_sessions = {e.get("session_id") for e in all_events if e.get("session_id")}
 
-    # Category distribution
-    categories = {}
-    for e in events:
-        if e["type"] == "conversation_turn" and e.get("category"):
-            cat = e["category"]
-            categories[cat] = categories.get(cat, 0) + 1
+    # Per-session categories
+    sess_cats: dict[str, set] = {}
+    for t in turns:
+        sid = t.get("session_id", "")
+        sess_cats.setdefault(sid, set()).add(t.get("category", ""))
 
-    # Service type distribution
-    service_types = {}
-    for e in events:
-        if e["type"] == "conversation_turn":
-            st = e.get("slots", {}).get("service_type")
-            if st:
-                service_types[st] = service_types.get(st, 0) + 1
+    # Distributions
+    cat_dist: dict[str, int] = {}
+    svc_dist: dict[str, int] = {}
+    for t in turns:
+        cat = t.get("category", "general")
+        cat_dist[cat] = cat_dist.get(cat, 0) + 1
+        stype = t.get("slots", {}).get("service_type")
+        if stype:
+            svc_dist[stype] = svc_dist.get(stype, 0) + 1
 
-    # Relaxed query rate
-    relaxed_count = sum(
-        1 for e in events
-        if e["type"] == "query_execution" and e.get("relaxed")
-    )
+    # Relaxed rate
+    relaxed_rate = sum(1 for q in queries if q.get("relaxed")) / len(queries) if queries else 0
 
-    # --- Per-session category sets (used for several metrics below) ---
-    # Maps session_id → set of categories seen in that session's turns.
-    session_categories: dict[str, set] = {}
-    for e in events:
-        if e["type"] == "conversation_turn" and e.get("session_id"):
-            sid = e["session_id"]
-            cat = e.get("category")
-            if cat:
-                session_categories.setdefault(sid, set()).add(cat)
+    # Escalations
+    esc_sessions = {sid for sid, cats in sess_cats.items() if "escalation" in cats}
 
-    # Fix #1: Escalation count — sessions where user asked for a person.
-    total_escalations = sum(
-        1 for cats in session_categories.values()
-        if "escalation" in cats
-    )
+    # Service intent
+    _svc = {"service", "confirmation", "confirm_yes", "confirm_change_service", "confirm_change_location"}
+    svc_intent = {sid for sid, cats in sess_cats.items() if cats & _svc}
 
-    # Fix #2: Service-intent sessions — denominator for task completion.
-    # A session has "service intent" if any turn was categorized as a
-    # service request or reached the confirmation stage.
-    _SERVICE_INTENT_CATEGORIES = {
-        "service", "confirmation", "confirmation_nudge",
-        "confirm_yes", "confirm_change_service",
-        "confirm_change_location", "confirm_deny",
-    }
-    service_intent_sessions = sum(
-        1 for cats in session_categories.values()
-        if cats & _SERVICE_INTENT_CATEGORIES
-    )
+    # Slot correction rate
+    at_conf = {sid for sid, cats in sess_cats.items() if "confirmation" in cats or "confirm_yes" in cats}
+    with_corr = {sid for sid, cats in sess_cats.items() if "confirm_change_service" in cats or "confirm_change_location" in cats}
+    slot_corr_rate = round(len(with_corr) / len(at_conf), 2) if at_conf else None
 
-    # Fix #3: Confirmation-stage sessions and breakdown.
-    # A session "reached confirmation" if any turn has a confirmation-
-    # stage category.
-    _CONFIRMATION_CATEGORIES = {
-        "confirmation", "confirmation_nudge",
-        "confirm_yes", "confirm_change_service",
-        "confirm_change_location", "confirm_deny",
-    }
-    sessions_at_confirmation = sum(
-        1 for cats in session_categories.values()
-        if cats & _CONFIRMATION_CATEGORIES
-    )
+    # Slot confirmation rate
+    q_sessions = {q.get("session_id") for q in queries if q.get("session_id")}
+    confirmed_q = {sid for sid in q_sessions if sid in sess_cats and "confirm_yes" in sess_cats[sid]}
+    slot_conf_rate = round(len(confirmed_q) / len(q_sessions), 2) if q_sessions else None
 
-    # Confirmation action counts (across all turns, not per-session)
-    confirm_yes_count = categories.get("confirm_yes", 0)
-    confirm_change_service_count = categories.get("confirm_change_service", 0)
-    confirm_change_location_count = categories.get("confirm_change_location", 0)
-    confirm_deny_count = categories.get("confirm_deny", 0)
-    total_confirm_actions = (
-        confirm_yes_count + confirm_change_service_count
-        + confirm_change_location_count + confirm_deny_count
-    )
+    # Confirmation breakdown
+    ca = [t for t in turns if t.get("category", "").startswith("confirm_")]
+    cb_yes = sum(1 for t in ca if t["category"] == "confirm_yes")
+    cb_cl = sum(1 for t in ca if t["category"] == "confirm_change_location")
+    cb_cs = sum(1 for t in ca if t["category"] == "confirm_change_service")
+    cb_deny = sum(1 for t in ca if t["category"] == "confirm_deny")
+    cb_total = len(ca)
+    sess_at_c = {sid for sid, cats in sess_cats.items()
+                 if "confirmation" in cats or any(c.startswith("confirm_") for c in cats)}
+    sess_confirmed = {sid for sid, cats in sess_cats.items() if "confirm_yes" in cats}
+    sess_abandoned = sess_at_c - sess_confirmed
 
-    # Fix #4: Slot correction rate — sessions where user changed a slot
-    # after reaching confirmation, as a % of sessions that reached
-    # confirmation at all.
-    sessions_with_correction = sum(
-        1 for cats in session_categories.values()
-        if cats & {"confirm_change_service", "confirm_change_location"}
-    )
+    # Freshness
+    cards_served = 0
+    cards_fresh = 0
+    for q in queries:
+        f = q.get("freshness")
+        if f and isinstance(f, dict) and f.get("total", 0) > 0:
+            cards_served += f["total"]
+            cards_fresh += f.get("fresh", 0)
 
-    # Sessions that reached confirmation but never confirmed (abandoned)
-    sessions_abandoned_at_confirm = sum(
-        1 for cats in session_categories.values()
-        if cats & _CONFIRMATION_CATEGORIES and "confirm_yes" not in cats
-    )
+    # Feedback
+    fb_up = sum(1 for f in feedbacks if f.get("rating") == "up")
+    fb_down = sum(1 for f in feedbacks if f.get("rating") == "down")
+    fb_total = fb_up + fb_down
 
-    # Slot confirmation rate: of sessions that executed a query, how many
-    # went through the explicit confirmation step first?  Should be ~100%
-    # by design — any gap means the confirmation flow was bypassed.
-    sessions_with_query = {
-        e["session_id"] for e in events
-        if e["type"] == "query_execution" and e.get("session_id")
-    }
-    sessions_with_confirmed_query = sum(
-        1 for sid in sessions_with_query
-        if sid in session_categories and "confirm_yes" in session_categories[sid]
-    )
-
-    # Data freshness: aggregate last_validated_at stats across all queries.
-    total_cards_served = 0
-    total_cards_with_date = 0
-    total_cards_fresh = 0
-    for e in events:
-        if e["type"] == "query_execution":
-            f = e.get("freshness")
-            if f:
-                total_cards_served += f.get("total", 0)
-                total_cards_with_date += f.get("total_with_date", 0)
-                total_cards_fresh += f.get("fresh", 0)
-
-    # --- Conversation quality metrics ---
-
-    # Sessions with at least one emotional turn
-    sessions_with_emotional = sum(
-        1 for cats in session_categories.values()
-        if "emotional" in cats
-    )
-
-    # Of those, how many subsequently escalated to a peer navigator?
-    emotional_then_escalation = sum(
-        1 for cats in session_categories.values()
-        if "emotional" in cats and "escalation" in cats
-    )
-
-    # Of those, how many eventually reached a service search?
-    emotional_then_service = sum(
-        1 for sid, cats in session_categories.items()
-        if "emotional" in cats and (
-            cats & _SERVICE_INTENT_CATEGORIES or sid in sessions_with_query
-        )
-    )
-
-    # Bot question turn count (not per-session — per-turn)
-    bot_question_turns = categories.get("bot_question", 0)
-
-    # Sessions with a bot question followed by frustration
-    sessions_with_bot_question = sum(
-        1 for cats in session_categories.values()
-        if "bot_question" in cats
-    )
-    bot_question_then_frustration = sum(
-        1 for cats in session_categories.values()
-        if "bot_question" in cats and "frustration" in cats
-    )
-
-    # Sessions that reached query_execution via conversation (had a general
-    # or emotional turn) vs. pure button-tap flows (only service/confirm turns)
-    _CONVERSATIONAL_CATEGORIES = {"general", "emotional", "confused", "greeting"}
-    conversational_discovery = sum(
-        1 for sid in sessions_with_query
-        if sid in session_categories
-        and session_categories[sid] & _CONVERSATIONAL_CATEGORIES
-    )
+    cq = _conversation_quality(turns, queries, sess_cats)
 
     return {
-        "total_events": len(events),
-        "total_turns": total_turns,
-        "total_queries": total_queries,
-        "total_crises": total_crises,
-        "total_resets": total_resets,
-        "total_escalations": total_escalations,
-        "unique_sessions": len(unique_sessions),
-        "service_intent_sessions": service_intent_sessions,
-        "feedback_up": feedback_up,
-        "feedback_down": feedback_down,
-        "feedback_score": (
-            round(feedback_up / (feedback_up + feedback_down), 2)
-            if (feedback_up + feedback_down) > 0 else None
-        ),
-        "category_distribution": categories,
-        "service_type_distribution": service_types,
-        "relaxed_query_rate": (
-            round(relaxed_count / total_queries, 2) if total_queries else 0
-        ),
-        "slot_confirmation_rate": (
-            round(sessions_with_confirmed_query / len(sessions_with_query), 2)
-            if sessions_with_query else None
-        ),
-        "slot_correction_rate": (
-            round(sessions_with_correction / sessions_at_confirmation, 2)
-            if sessions_at_confirmation > 0 else None
-        ),
-        "data_freshness_rate": (
-            round(total_cards_fresh / total_cards_served, 2)
-            if total_cards_served > 0 else None
-        ),
-        "data_freshness_detail": {
-            "cards_served": total_cards_served,
-            "cards_with_date": total_cards_with_date,
-            "cards_fresh": total_cards_fresh,
-        },
-        "conversation_quality": {
-            "emotional_sessions": sessions_with_emotional,
-            "emotional_rate": (
-                round(sessions_with_emotional / len(unique_sessions), 2)
-                if unique_sessions else None
-            ),
-            "emotional_to_escalation": (
-                round(emotional_then_escalation / sessions_with_emotional, 2)
-                if sessions_with_emotional > 0 else None
-            ),
-            "emotional_to_service": (
-                round(emotional_then_service / sessions_with_emotional, 2)
-                if sessions_with_emotional > 0 else None
-            ),
-            "bot_question_turns": bot_question_turns,
-            "bot_question_rate": (
-                round(bot_question_turns / total_turns, 2)
-                if total_turns > 0 else None
-            ),
-            "bot_question_sessions": sessions_with_bot_question,
-            "bot_question_to_frustration": (
-                round(bot_question_then_frustration / sessions_with_bot_question, 2)
-                if sessions_with_bot_question > 0 else None
-            ),
-            "conversational_discovery": conversational_discovery,
-            "conversational_discovery_rate": (
-                round(conversational_discovery / len(sessions_with_query), 2)
-                if sessions_with_query else None
-            ),
-        },
+        "total_events": len(all_events),
+        "total_turns": len(turns),
+        "total_queries": len(queries),
+        "total_crises": len(crises),
+        "total_resets": len(resets),
+        "unique_sessions": len(all_sessions),
+        "total_escalations": len(esc_sessions),
+        "service_intent_sessions": len(svc_intent),
+        "category_distribution": cat_dist,
+        "service_type_distribution": svc_dist,
+        "relaxed_query_rate": relaxed_rate,
+        "slot_correction_rate": slot_corr_rate,
+        "slot_confirmation_rate": slot_conf_rate,
         "confirmation_breakdown": {
-            "confirm": confirm_yes_count,
-            "change_service": confirm_change_service_count,
-            "change_location": confirm_change_location_count,
-            "deny": confirm_deny_count,
-            "total_actions": total_confirm_actions,
-            "confirm_rate": (
-                round(confirm_yes_count / total_confirm_actions, 2)
-                if total_confirm_actions > 0 else None
-            ),
-            "sessions_at_confirmation": sessions_at_confirmation,
-            "sessions_abandoned": sessions_abandoned_at_confirm,
-            "abandon_rate": (
-                round(sessions_abandoned_at_confirm / sessions_at_confirmation, 2)
-                if sessions_at_confirmation > 0 else None
-            ),
+            "confirm": cb_yes, "change_location": cb_cl, "change_service": cb_cs,
+            "deny": cb_deny, "total_actions": cb_total,
+            "confirm_rate": round(cb_yes / cb_total, 2) if cb_total else None,
+            "sessions_at_confirmation": len(sess_at_c),
+            "sessions_abandoned": len(sess_abandoned),
+            "abandon_rate": round(len(sess_abandoned) / len(sess_at_c), 2) if sess_at_c else None,
         },
+        "data_freshness_rate": round(cards_fresh / cards_served, 2) if cards_served else None,
+        "data_freshness_detail": {"cards_served": cards_served, "cards_fresh": cards_fresh},
+        "feedback_up": fb_up,
+        "feedback_down": fb_down,
+        "feedback_score": round(fb_up / fb_total, 2) if fb_total else None,
+        "conversation_quality": cq,
+    }
+
+
+def _conversation_quality(turns, queries, sess_cats):
+    total_sess = len(sess_cats)
+    total_turns = len(turns)
+
+    emo = {sid for sid, cats in sess_cats.items() if "emotional" in cats}
+    emo_rate = round(len(emo) / total_sess, 2) if total_sess else None
+    emo_esc = (round(len({s for s in emo if "escalation" in sess_cats.get(s, set())}) / len(emo), 2)
+               if emo else None)
+    _s = {"service", "confirm_yes"}
+    emo_svc = (round(len({s for s in emo if sess_cats.get(s, set()) & _s}) / len(emo), 2)
+               if emo else None)
+
+    bq_turns = sum(1 for t in turns if t.get("category") == "bot_question")
+    bq_sess = {sid for sid, cats in sess_cats.items() if "bot_question" in cats}
+    bq_rate = round(bq_turns / total_turns, 2) if total_turns else None
+    bq_frust = (round(len({s for s in bq_sess if "frustration" in sess_cats.get(s, set())}) / len(bq_sess), 2)
+                if bq_sess else None)
+
+    q_sess = {q.get("session_id") for q in queries if q.get("session_id")}
+    _conv = {"greeting", "emotional", "confused", "general", "bot_question"}
+    conv_disc = {sid for sid in q_sess if sess_cats.get(sid, set()) & _conv}
+    conv_rate = round(len(conv_disc) / len(q_sess), 2) if q_sess else None
+
+    return {
+        "emotional_sessions": len(emo), "emotional_rate": emo_rate,
+        "emotional_to_escalation": emo_esc, "emotional_to_service": emo_svc,
+        "bot_question_turns": bq_turns, "bot_question_rate": bq_rate,
+        "bot_question_sessions": len(bq_sess), "bot_question_to_frustration": bq_frust,
+        "conversational_discovery": len(conv_disc), "conversational_discovery_rate": conv_rate,
     }
 
 
@@ -528,38 +360,36 @@ def get_stats() -> dict:
 # EVAL RESULTS
 # ---------------------------------------------------------------------------
 
-def set_eval_results(results: dict):
-    """Store eval results for the admin console."""
+def set_eval_results(data: dict) -> None:
     global _eval_results
-    _eval_results = deepcopy(results)
+    with _lock:
+        _eval_results = deepcopy(data)
 
 
 def get_eval_results() -> Optional[dict]:
-    """Get stored eval results."""
-    return deepcopy(_eval_results) if _eval_results else None
+    with _lock:
+        return deepcopy(_eval_results) if _eval_results is not None else None
 
 
-def load_eval_results_from_file(path: str):
-    """Load eval results from a JSON file."""
-    import json
+def load_eval_results_from_file(path: str) -> bool:
     try:
         with open(path) as f:
             data = json.load(f)
         set_eval_results(data)
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to load eval results from {path}: {e}")
         return False
 
 
 # ---------------------------------------------------------------------------
-# CLEAR (for testing)
+# CLEAR
 # ---------------------------------------------------------------------------
 
-def clear_audit_log():
-    """Clear all audit data. Used in tests."""
+def clear_audit_log() -> None:
     global _eval_results
     with _lock:
         _events.clear()
         _conversations.clear()
         _query_log.clear()
-    _eval_results = None
+        _eval_results = None

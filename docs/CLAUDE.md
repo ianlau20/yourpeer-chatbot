@@ -108,11 +108,11 @@ information, preventing hallucination.
 - **Stability**: 1,000-char message length limit (frontend + backend), coordinate validation (lat ±90, lng ±180), 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
 - **Observability**: `X-Request-ID` correlation IDs flow from frontend → Next.js proxy → FastAPI backend → audit log, enabling end-to-end request tracing
 - **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
-- **Test suite**: 19 pytest files (695 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, and DB schema/query integration
+- **Test suite**: 24 pytest files (1029 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
 
 ## Known Gaps / In Progress
 
-- **Multi-intent requests** — extraction of multiple service types from a single message is implemented (`additional_services` in slot extractor), but routing/queue handling is pending (PRs 2–4 in the multi-intent plan)
+- **Multi-intent requests** — extraction, split-classifier routing, and service queue are complete. Multiple service types are extracted, the first is searched with tone-aware framing, and remaining services are offered sequentially after results. Remaining: LLM extractor multi-service schema (PR 4). 30 multi-intent eval scenarios cover queue flow, decline, location change mid-queue, shame tone, cross-service slot conflicts, and NYC persona-based flows. See `MULTI_INTENT_PLAN.md`
 - **Real-time location** — browser geolocation supported (opt-in); falls back to text-based location when denied
 - **Multilingual support** — English only
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage

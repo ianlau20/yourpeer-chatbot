@@ -141,9 +141,10 @@ SCENARIOS = [
         "name": "Food first, then location",
         "category": "multi_turn",
         "description": "User says they need food but doesn't give location. Bot asks, user provides.",
-        "user_turns": ["I'm hungry"],
+        "user_turns": ["I'm hungry", "Manhattan", "Yes, search"],
         "expected": {
             "service_type": "food",
+            "location_contains": "manhattan",
             "should_ask_location": True,
             "should_reach_confirmation": True,
         },
@@ -153,8 +154,10 @@ SCENARIOS = [
         "name": "Location first, then service",
         "category": "multi_turn",
         "description": "User says where they are but not what they need.",
-        "user_turns": ["I'm in Williamsburg"],
+        "user_turns": ["I'm in Williamsburg", "I need food", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "williamsburg",
             "should_ask_service_type": True,
             "should_reach_confirmation": True,
         },
@@ -164,8 +167,10 @@ SCENARIOS = [
         "name": "Vague request refined through dialog",
         "category": "multi_turn",
         "description": "User starts vague, bot helps narrow down.",
-        "user_turns": ["I need help"],
+        "user_turns": ["I need help", "I need food", "Manhattan", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "manhattan",
             "should_ask_service_type": True,
         },
     },
@@ -291,8 +296,10 @@ SCENARIOS = [
         "name": "Near me without location",
         "category": "edge_case",
         "description": "User says 'near me' — bot should ask for a specific location.",
-        "user_turns": ["food near me"],
+        "user_turns": ["food near me", "Manhattan", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "manhattan",
             "should_ask_location": True,
         },
     },
@@ -466,6 +473,7 @@ SCENARIOS = [
             "I need food",
             "Manhattan",
             "Actually forget the food, I really need a place to sleep tonight",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
@@ -477,7 +485,7 @@ SCENARIOS = [
         "name": "Multiple service needs",
         "category": "multi_turn",
         "description": "User asks for two services at once. Bot should handle the primary need first.",
-        "user_turns": ["I need food and shelter in Brooklyn"],
+        "user_turns": ["I need food and shelter in Brooklyn", "Yes, search"],
         "expected": {
             "should_handle_at_least_one": True,
             "location_contains": "brooklyn",
@@ -640,10 +648,13 @@ SCENARIOS = [
         "description": "Someone just arrived in NYC. From YourPeer Advisor scenario (Dani on a bus).",
         "user_turns": [
             "I just got to New York at Port Authority. I don't know the city at all. "
-            "Where can I sleep tonight?"
+            "Where can I sleep tonight?",
+            "Manhattan",
+            "Yes, search",
         ],
         "expected": {
             "service_type": "shelter",
+            "location_contains": "manhattan",
             "should_help_with_location": True,
         },
     },
@@ -665,8 +676,10 @@ SCENARIOS = [
         "name": "Low literacy / simple language",
         "category": "accessibility",
         "description": "User types with simple language, typos, and fragments.",
-        "user_turns": ["were food broklyn free"],
+        "user_turns": ["were food broklyn free", "Yes, search"],
         "expected": {
+            "service_type": "food",
+            "location_contains": "brooklyn",
             "should_understand_intent": True,
             "should_respond_simply": True,
         },
@@ -826,9 +839,10 @@ SCENARIOS = [
         "category": "borough_filter",
         "description": "Tests that Manhattan, Brooklyn, Queens, Bronx, and Staten Island "
                        "are all recognized as valid boroughs for slot extraction.",
-        "user_turns": ["Are there shelters in all five boroughs of New York City?"],
+        "user_turns": ["Are there shelters in all five boroughs of New York City?", "Manhattan", "Yes, search"],
         "expected": {
             "service_type": "shelter",
+            "location_contains": "manhattan",
             "should_ask_location": True,
         },
     },
@@ -1451,9 +1465,11 @@ SCENARIOS = [
         "user_turns": [
             "I'm sleeping on the street tonight. I don't have anywhere to go "
             "and nobody is helping me.",
+            "Manhattan",
         ],
         "expected": {
             "service_type": "shelter",
+            "location_contains": "manhattan",
             "should_offer_escalation": True,
             "should_remain_empathetic": True,
             "should_treat_as_urgent": True,
@@ -1628,6 +1644,678 @@ SCENARIOS = [
             "should_not_ask_for_already_provided_info": True,
         },
     },
+
+    # ---------------------------------------------------------------------------
+    # MULTI-INTENT EVAL SCENARIOS (30 scenarios)
+    # ---------------------------------------------------------------------------
+    # Grounded in Streetlives / YourPeer context:
+    #   - YourPeer targets youth 16-24 (DYCD RHY age range)
+    #   - 2,600+ services at 1,500+ locations across NYC
+    #   - Service categories: food, shelter, housing, clothing, healthcare,
+    #     personal care, legal advice
+    #   - Partner orgs: Ali Forney Center (LGBTQ youth), Safe Horizon
+    #     Streetwork, Good Shepherd Services, Sheltering Arms, Holy Apostles
+    #     Soup Kitchen, Rethink Food, St. John's Bread & Life
+    #   - DYCD crisis shelters: 16-20 (RHY) and 21-24 (HYA), up to 120 days
+    #   - Drop-in centers provide food, clothing, showers, laundry, case mgmt
+    #   - "Opportunity Starts with a Home" — NYC's Plan to Prevent and End
+    #     Youth Homelessness
+    #   - Community Information Specialists with lived experience
+    #   - No PII collected — privacy is a core design principle
+    #
+    # NYC homeless services research:
+    #   - 86K+ individuals in DHS system (Feb 2026)
+    #   - PATH intake center (Bronx) — only intake for families with children
+    #   - Safe Haven / stabilization beds / drop-in centers for unsheltered
+    #   - Foster care aging-out: 31-46% experience homelessness by age 26
+    #   - Re-entry from Rikers: 40%+ enter shelters immediately on release
+    #   - 7,261 asylum seeker families in DHS shelters (Nov 2025)
+    #   - DYCD RHY system: 714 beds, frequently strained
+    #   - Covenant House Cash with Care: $1,200/month for youth 18-24
+    #   - 49% of substance use clients not placed in specialized shelters
+    #
+    # =======================================================================
+    # SECTION 1: CORE QUEUE FLOW — two services extracted, both searched
+    # =======================================================================
+
+    {
+        "id": "multi_food_and_shelter_brooklyn",
+        "name": "Food and shelter in Brooklyn — full sequential search",
+        "category": "multi_intent",
+        "description": "The canonical multi-intent case from MULTI_INTENT_PLAN.md. "
+                       "User needs two services in the same borough. First service "
+                       "should search, then offer the second. Tests the complete "
+                       "queue-offer-accept flow.",
+        "user_turns": ["I need food and a place to sleep in Brooklyn", "Yes, search"],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "shelter",
+        },
+    },
+    {
+        "id": "multi_accept_queued_shelter",
+        "name": "Accept queued shelter after food results — sequential search",
+        "category": "multi_intent",
+        "description": "Full end-to-end: user asks for food and shelter, confirms food "
+                       "search, gets results, then taps 'Yes' to search for shelter. "
+                       "Second search should reuse location from session.",
+        "user_turns": [
+            "I need food and shelter in Brooklyn",
+            "Yes, search",
+            "I need shelter",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+        },
+    },
+    {
+        "id": "multi_shower_and_food_drop_in",
+        "name": "Shower and food — drop-in center pattern",
+        "category": "multi_intent",
+        "description": "Shower + food is the most common combination at NYC drop-in "
+                       "centers (DHS offers chairs, showers, and basic services at "
+                       "drop-ins for unsheltered individuals). Both should be "
+                       "searchable sequentially.",
+        "user_turns": ["Where can I get a shower and something to eat in Manhattan?", "Yes, search"],
+        "expected": {
+            "service_type": "personal_care",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "food",
+        },
+    },
+    {
+        "id": "multi_clothing_and_food_harlem",
+        "name": "Clothing and food in Harlem",
+        "category": "multi_intent",
+        "description": "Clothing + food is common at YourPeer partner organizations "
+                       "like Holy Apostles Soup Kitchen and Rethink Food, which often "
+                       "co-locate with clothing distribution.",
+        "user_turns": ["I need some clean clothes and a meal in Harlem", "Yes, search"],
+        "expected": {
+            "service_type": "clothing",
+            "location_contains": "harlem",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "food",
+        },
+    },
+
+    # =======================================================================
+    # SECTION 2: THREE-SERVICE COMBOS
+    # =======================================================================
+
+    {
+        "id": "multi_three_services_youth_drop_in",
+        "name": "Food, shower, clothing — DYCD drop-in center trio",
+        "category": "multi_intent",
+        "description": "DYCD drop-in centers (like Safe Horizon Streetwork) provide "
+                       "food, clothing, showers, laundry, and case management. A youth "
+                       "asking for all three is a realistic drop-in seeker pattern. "
+                       "First service searched, remaining two queued sequentially.",
+        "user_turns": [
+            "I need to eat, take a shower, and get some clothes. "
+            "I'm near Times Square.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+        },
+    },
+    {
+        "id": "multi_three_services_legal_benefits_food",
+        "name": "Legal, benefits, and food — asylum seeker trio",
+        "category": "multi_intent",
+        "description": "Asylum seekers commonly need immigration legal help, benefits "
+                       "enrollment, and food simultaneously. YourPeer's Community "
+                       "Information Specialists include asylum seekers who understand "
+                       "this pattern firsthand.",
+        "user_turns": [
+            "I need help with my asylum case, food stamps, and somewhere "
+            "to get food. I'm in Jackson Heights.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "legal",
+            "location_contains": "jackson heights",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+        },
+    },
+
+    # =======================================================================
+    # SECTION 3: QUEUE DECLINE
+    # =======================================================================
+
+    {
+        "id": "multi_decline_queued_service",
+        "name": "User declines queued service — 'No thanks'",
+        "category": "multi_intent",
+        "description": "After food results, bot offers queued shelter. User says "
+                       "'No thanks'. Queue should clear, show wrap-up message with "
+                       "welcome quick replies. No dangling queue state.",
+        "user_turns": [
+            "I need food and shelter in Brooklyn",
+            "Yes, search",
+            "No thanks",
+        ],
+        "expected": {
+            "should_clear_queue": True,
+            "should_respond_gracefully": True,
+        },
+    },
+    {
+        "id": "multi_decline_with_different_phrasing",
+        "name": "User declines queued service — 'nah I'm good'",
+        "category": "multi_intent",
+        "description": "Informal decline of queued service. Should be classified as "
+                       "confirm_deny and clear the queue just like 'No thanks'.",
+        "user_turns": [
+            "I need food and clothing in the Bronx",
+            "Yes, search",
+            "nah I'm good",
+        ],
+        "expected": {
+            "should_clear_queue": True,
+            "should_respond_gracefully": True,
+        },
+    },
+
+    # =======================================================================
+    # SECTION 4: LOCATION CHANGE MID-QUEUE
+    # =======================================================================
+
+    {
+        "id": "multi_change_location_mid_queue",
+        "name": "User changes location between queued services",
+        "category": "multi_intent",
+        "description": "User searches food in Brooklyn, then when offered shelter, "
+                       "says they want shelter in Queens instead. The second search "
+                       "should use the new location, not the original.",
+        "user_turns": [
+            "I need food and shelter in Brooklyn",
+            "Yes, search",
+            "I need shelter in Queens",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "queens",
+            "should_reach_confirmation": True,
+        },
+    },
+    {
+        "id": "multi_change_location_via_button",
+        "name": "User taps 'change location' after queue offer",
+        "category": "multi_intent",
+        "description": "After results with queue offer, user ignores the queue and "
+                       "says 'change location'. Should enter the change-location flow "
+                       "for the next search.",
+        "user_turns": [
+            "I need food and shelter in Brooklyn",
+            "Yes, search",
+            "change location",
+        ],
+        "expected": {
+            "should_ask_location": True,
+        },
+    },
+
+    # =======================================================================
+    # SECTION 5: CROSS-SERVICE SLOT CONFLICTS
+    # =======================================================================
+
+    {
+        "id": "multi_cross_borough_food_brooklyn_shelter_manhattan",
+        "name": "Cross-borough: food in Brooklyn, shelter in Manhattan",
+        "category": "multi_intent",
+        "description": "Known limitation: only one location is extracted per message. "
+                       "User says two different boroughs for two services. System "
+                       "should extract the first-mentioned location and use it for "
+                       "the primary service. The user can correct via 'change location' "
+                       "when the second service is offered.",
+        "user_turns": [
+            "I need food in Brooklyn and shelter in Manhattan",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "shelter",
+        },
+    },
+    {
+        "id": "multi_cross_neighborhood_shower_les_food_chinatown",
+        "name": "Cross-neighborhood: shower in LES, food in Chinatown",
+        "category": "multi_intent",
+        "description": "Adjacent neighborhoods with different locations per service. "
+                       "Extractor picks first-mentioned location. Tests that multi-intent "
+                       "still works even when locations conflict.",
+        "user_turns": [
+            "I want to shower in the Lower East Side and grab food in Chinatown",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "personal_care",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+        },
+    },
+
+    # =======================================================================
+    # SECTION 6: EMOTIONAL + MULTI-SERVICE (empathetic framing on both)
+    # =======================================================================
+
+    {
+        "id": "multi_emotional_food_and_shelter_empathy",
+        "name": "Emotional + food and shelter — empathetic framing",
+        "category": "multi_intent",
+        "description": "User is distressed AND requesting two services. Confirmation "
+                       "should include empathetic prefix ('I hear you, and I want to "
+                       "help.'). When the queued service is later offered, the tone "
+                       "should remain warm and supportive, not clinical.",
+        "user_turns": [
+            "I'm so scared, I got kicked out last night and I haven't eaten "
+            "since yesterday. I need food and shelter in Brooklyn.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+            "should_queue_additional": True,
+        },
+    },
+    {
+        "id": "multi_emotional_accept_second_still_warm",
+        "name": "Emotional user accepts second service — tone stays warm",
+        "category": "multi_intent",
+        "description": "After emotional food search with empathetic framing, user "
+                       "accepts shelter search. The second confirmation should still "
+                       "feel supportive, not a cold reset to default tone.",
+        "user_turns": [
+            "I'm really struggling and need food and shelter in Brooklyn",
+            "Yes, search",
+            "I need shelter",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+        },
+    },
+    {
+        "id": "multi_urgent_shelter_and_food_tonight",
+        "name": "Urgent + shelter and food tonight",
+        "category": "multi_intent",
+        "description": "User has urgent time pressure with 'right now' and 'tonight'. "
+                       "Should trigger urgent tone prefix alongside multi-service "
+                       "extraction. Common pattern for unsheltered individuals "
+                       "approaching a drop-in center or Safe Haven.",
+        "user_turns": [
+            "I need somewhere to sleep right now and a hot meal tonight. "
+            "I'm near Penn Station.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+            "should_queue_additional": True,
+        },
+    },
+    {
+        "id": "multi_confused_shelter_and_legal",
+        "name": "Confused + shelter and legal — overwhelmed youth",
+        "category": "multi_intent",
+        "description": "User is overwhelmed and doesn't know where to start but has "
+                       "identifiable needs. Confused tone should not suppress service "
+                       "extraction. Typical of youth newly unhoused who haven't "
+                       "navigated the system before — a core YourPeer user.",
+        "user_turns": [
+            "I don't even know where to begin. I need a place to stay and "
+            "I think I need a lawyer too. I'm in Jamaica, Queens.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "queens",
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+            "should_queue_additional": True,
+        },
+    },
+    {
+        "id": "multi_frustrated_food_and_clothing",
+        "name": "Frustrated + food and clothing — prior failed attempts",
+        "category": "multi_intent",
+        "description": "User is frustrated from previous failed attempts but still "
+                       "requesting two services. Should acknowledge frustration "
+                       "while proceeding with the search, not routing to the "
+                       "standalone frustration handler.",
+        "user_turns": [
+            "I've been to three places already and none of them had anything. "
+            "I just need food and some warm clothes in the Bronx.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "bronx",
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+            "should_queue_additional": True,
+        },
+    },
+
+    # =======================================================================
+    # SECTION 7: SHAME / EMBARRASSMENT TONE
+    # =======================================================================
+
+    {
+        "id": "multi_shame_food_bank_first_time",
+        "name": "Shame — 'I never thought I'd need a food bank'",
+        "category": "multi_intent",
+        "description": "User expresses embarrassment about needing help. Research "
+                       "(NCBI, DAPHNE chatbot studies) identifies shame as a distinct "
+                       "emotional state in this population. Currently falls under "
+                       "'emotional' tone. Response should normalize rather than just "
+                       "empathize — 'Lots of people use these services' not only "
+                       "'I'm sorry you're going through this.'",
+        "user_turns": [
+            "I never thought I'd be asking for this but I need food and "
+            "maybe some clothes. I'm embarrassed to even ask. I'm in Midtown.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "midtown",
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+            "should_queue_additional": True,
+            "additional_service": "clothing",
+        },
+    },
+    {
+        "id": "multi_shame_shelter_stigma",
+        "name": "Shame — 'I don't want anyone to know I'm homeless'",
+        "category": "multi_intent",
+        "description": "User carries stigma about shelter use and discloses it while "
+                       "requesting services. Response should be normalizing and "
+                       "reassuring about privacy (YourPeer doesn't collect PII). "
+                       "Should not trigger the privacy bot_question handler — the "
+                       "shame is about social stigma, not data privacy.",
+        "user_turns": [
+            "I don't want anyone to know I'm in this situation but I need "
+            "shelter and food. I'm ashamed to be asking. East Village.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "east village",
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+            "should_queue_additional": True,
+        },
+    },
+    {
+        "id": "multi_shame_single_service",
+        "name": "Shame — single service, normalizing response",
+        "category": "multi_intent",
+        "description": "User is embarrassed about asking for food only (no second "
+                       "service). Tests that shame/emotional detection works without "
+                       "multi-service extraction. Response should normalize.",
+        "user_turns": [
+            "This is really hard for me to say but I can't afford to eat. "
+            "I'm in the Bronx.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "bronx",
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+        },
+    },
+
+    # =======================================================================
+    # SECTION 8: YOURPEER / STREETLIVES PERSONA SCENARIOS
+    # =======================================================================
+
+    {
+        "id": "multi_lgbtq_youth_ali_forney",
+        "name": "LGBTQ youth — shelter and food (Ali Forney age range)",
+        "category": "multi_intent",
+        "description": "LGBTQ youth (16-24) are a primary YourPeer audience. Ali "
+                       "Forney Center is a key Streetlives partner providing LGBTQ "
+                       "youth shelter in all five boroughs. 28% of homeless foster "
+                       "youth identify as LGBTQ+.",
+        "user_turns": [
+            "I'm 19 and I'm gay and my family kicked me out. I need somewhere "
+            "safe to stay and food. I'm in Chelsea.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "chelsea",
+            "age": 19,
+            "should_reach_confirmation": True,
+            "should_show_empathy": True,
+            "should_queue_additional": True,
+            "additional_service": "food",
+        },
+    },
+    {
+        "id": "multi_dycd_rhy_youth_runaway",
+        "name": "Runaway youth 17 — shelter and clothing (DYCD RHY range)",
+        "category": "multi_intent",
+        "description": "DYCD RHY crisis shelters serve ages 16-20 with up to 120-day "
+                       "stays. YourPeer was specifically co-designed with this age "
+                       "range. A 17-year-old runaway is a core user persona from "
+                       "Streetlives' co-design sessions.",
+        "user_turns": [
+            "I'm 17 and I ran away. I need somewhere to stay tonight and I "
+            "don't have any clean clothes. I'm in Bushwick.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "bushwick",
+            "age": 17,
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "clothing",
+        },
+    },
+    {
+        "id": "multi_foster_youth_aging_out",
+        "name": "Foster youth aging out at 21 — shelter and employment",
+        "category": "multi_intent",
+        "description": "31-46% of transition-aged foster youth experience homelessness "
+                       "by 26 (national data). DYCD HYA shelters serve 21-24. "
+                       "Covenant House Cash with Care provides $1,200/month for "
+                       "youth 18-24 in shelter programs. NYC Council secured $6M "
+                       "in FY2026 for 100 additional RHY beds.",
+        "user_turns": [
+            "I just aged out of foster care and I'm 21. I don't have "
+            "anywhere to go and I need a job. I'm in Bed-Stuy.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "bed-stuy",
+            "age": 21,
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "employment",
+        },
+    },
+    {
+        "id": "multi_asylum_seeker_food_legal",
+        "name": "Asylum seeker — food and immigration legal help",
+        "category": "multi_intent",
+        "description": "7,261 asylum seeker families were in DHS shelters as of "
+                       "Nov 2025. YourPeer's Community Information Specialists "
+                       "include asylum seekers and immigrants. Jackson Heights "
+                       "and Sunset Park have some of NYC's largest immigrant "
+                       "communities.",
+        "user_turns": [
+            "I came here recently from Venezuela and I need food for my "
+            "family and help with my asylum case. We are in Jackson Heights.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "food",
+            "location_contains": "jackson heights",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "legal",
+        },
+    },
+    {
+        "id": "multi_reentry_shelter_employment",
+        "name": "Re-entry from Rikers — shelter and employment",
+        "category": "multi_intent",
+        "description": "40%+ of people released from NYC jails enter shelters "
+                       "immediately. One-third were unhoused before incarceration. "
+                       "Fortune Society, Osborne Association, and The Doe Fund "
+                       "serve this population. NYC passed Intro 1100 in 2025 "
+                       "expanding supportive housing eligibility for people leaving "
+                       "incarceration.",
+        "user_turns": [
+            "I just got out of Rikers yesterday. I need somewhere to stay "
+            "and help finding work. I'm in the South Bronx.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "bronx",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "employment",
+        },
+    },
+    {
+        "id": "multi_family_with_children_path",
+        "name": "Parent with children — food and shelter",
+        "category": "multi_intent",
+        "description": "In NYC, families with children must apply at PATH intake "
+                       "center in the Bronx (the only intake point). Average 133 "
+                       "families applied daily in 2025. 18,057 families with "
+                       "children were in DHS shelters nightly in 2025. Should "
+                       "detect family_status = children.",
+        "user_turns": [
+            "I have two kids and we need somewhere to sleep tonight and "
+            "food. We're in Harlem.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "harlem",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "food",
+            "family_status": "children",
+        },
+    },
+
+    # =======================================================================
+    # SECTION 9: QUEUE EDGE CASES
+    # =======================================================================
+
+    {
+        "id": "multi_ignore_queue_new_service",
+        "name": "User ignores queue offer and types new service request",
+        "category": "multi_intent",
+        "description": "After results with a queued shelter offer, user ignores it "
+                       "and types a completely different request. Stale queue should "
+                       "be cleared, new service processed normally.",
+        "user_turns": [
+            "I need food and shelter in Brooklyn",
+            "Yes, search",
+            "Actually I need medical care in Manhattan",
+        ],
+        "expected": {
+            "service_type": "health",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+        },
+    },
+    {
+        "id": "multi_start_over_clears_queue",
+        "name": "Start over clears queue completely",
+        "category": "multi_intent",
+        "description": "User says 'start over' after getting results with a queued "
+                       "service. Everything should reset — session, queue, location.",
+        "user_turns": [
+            "I need food and shelter in Brooklyn",
+            "Yes, search",
+            "Start over",
+        ],
+        "expected": {
+            "should_reset_session": True,
+        },
+    },
+
+    # =======================================================================
+    # SECTION 10: COMPLEX NATURAL LANGUAGE + MULTI-INTENT
+    # =======================================================================
+
+    {
+        "id": "multi_narrative_substance_use_shelter",
+        "name": "Narrative — substance use and shelter co-occurring",
+        "category": "multi_intent",
+        "description": "49% of clients with substance use disorders are not placed "
+                       "in specialized shelters (NYS Comptroller audit). User "
+                       "describes addiction alongside housing need in a narrative "
+                       "style typical of longer chatbot sessions.",
+        "user_turns": [
+            "I've been drinking a lot and I can't keep staying on the street. "
+            "I need help with my drinking and a safe place to stay. "
+            "I'm in the Lower East Side.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "mental_health",
+            "location_contains": "lower east side",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "additional_service": "shelter",
+        },
+    },
+    {
+        "id": "multi_outreach_worker_referral",
+        "name": "Outreach worker — multi-need client referral",
+        "category": "multi_intent",
+        "description": "DHS Street Homeless Solutions deploys outreach teams across "
+                       "NYC. The HOME-STAT program reported 3,724 clients in Q1 "
+                       "FY2026. Outreach workers commonly relay multiple client "
+                       "needs at once. This tests third-person + multi-intent.",
+        "user_turns": [
+            "I'm an outreach worker. I have a client who's 19, sleeping "
+            "rough near the Port Authority. He needs shelter, food, and "
+            "mental health services.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "age": 19,
+        },
+    },
 ]
 
 
@@ -1698,6 +2386,7 @@ def simulate_conversation(
 
     transcript = []
     turns = 0
+    llm_simulator_turns = []
 
     # Queue of pre-defined user messages
     user_queue = list(scenario.get("user_turns", []))
@@ -1709,7 +2398,8 @@ def simulate_conversation(
         else:
             # Generate a natural follow-up using Claude
             user_msg = _generate_user_response(
-                client, scenario, transcript
+                client, scenario, transcript,
+                llm_simulator_turns=llm_simulator_turns,
             )
             if user_msg is None:
                 break  # conversation is complete
@@ -1777,6 +2467,7 @@ def simulate_conversation(
         "scenario": scenario,
         "transcript": transcript,
         "turn_count": turns,
+        "llm_simulator_turns": llm_simulator_turns,
     }
 
 
@@ -1784,6 +2475,7 @@ def _generate_user_response(
     client: anthropic.Anthropic,
     scenario: dict,
     transcript: list,
+    llm_simulator_turns: list | None = None,
 ) -> str | None:
     """Use Claude to generate a natural user follow-up response."""
     if not transcript:
@@ -1841,13 +2533,24 @@ def _generate_user_response(
         # Default to Manhattan if no match
         return "Manhattan"
 
-    # Build conversation context for the user simulator
+    # LLM fallback — ideally all scenarios have sufficient scripted turns
+    # or are handled by deterministic button matching above. Log a warning
+    # when this fallback fires so we can identify scenarios that still need
+    # scripted turns for full determinism.
+    scenario_id = scenario.get("id", "unknown")
+    turn_num = len([t for t in transcript if t["role"] == "user"]) + 1
+    logging.warning(
+        f"LLM user simulator invoked for scenario '{scenario_id}' turn {turn_num} "
+        f"(no scripted turn or button match). This adds non-determinism."
+    )
+    if llm_simulator_turns is not None:
+        llm_simulator_turns.append(turn_num)
+
     conv_text = "\n".join(
         f"{'User' if t['role'] == 'user' else 'Bot'}: {t['text']}"
         for t in transcript
     )
 
-    # Include available quick-reply options in the prompt
     qr_hint = ""
     if qr_labels:
         qr_hint = (
@@ -1876,6 +2579,7 @@ def _generate_user_response(
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=50,
+            temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text.strip().strip('"')
@@ -1980,6 +2684,7 @@ def judge_conversation(
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
+            temperature=0,
             system=JUDGE_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -2034,11 +2739,13 @@ def generate_report(results: list) -> dict:
         scores = judgment.get("scores", {})
         scenario_avg = []
 
+        llm_turns = r["conversation"].get("llm_simulator_turns", [])
         scenario_result = {
             "id": scenario["id"],
             "name": scenario["name"],
             "category": scenario["category"],
             "turn_count": r["conversation"]["turn_count"],
+            "llm_simulator_turns": llm_turns,
             "scores": {},
         }
 
@@ -2075,6 +2782,12 @@ def generate_report(results: list) -> dict:
 
         per_scenario.append(scenario_result)
 
+    # Count scenarios that used the LLM simulator (non-deterministic)
+    non_deterministic = [
+        s for s in per_scenario
+        if s.get("llm_simulator_turns")
+    ]
+
     # Build summary
     summary = {
         "overall_average": 0,
@@ -2085,6 +2798,7 @@ def generate_report(results: list) -> dict:
         "scenarios_with_errors": sum(
             1 for r in results if "error" in r["judgment"]
         ),
+        "non_deterministic_scenarios": len(non_deterministic),
     }
 
     all_scores = []
@@ -2126,6 +2840,8 @@ def print_report(report: dict):
     print(f"  Scenarios evaluated: {summary['scenarios_evaluated']}")
     print(f"  Scenarios with errors: {summary['scenarios_with_errors']}")
     print(f"  Critical failures: {summary['critical_failure_count']}")
+    nd = summary.get('non_deterministic_scenarios', 0)
+    print(f"  Non-deterministic scenarios: {nd}")
     print(f"\n  OVERALL SCORE: {summary['overall_average']:.2f} / 5.00")
 
     # Dimension breakdown
@@ -2165,6 +2881,16 @@ def print_report(report: dict):
         print("-" * 70)
         for cf in report["critical_failures"]:
             print(f"  [{cf['scenario']}] {cf['failure']}")
+
+    # Non-deterministic scenarios
+    nd_scenarios = [s for s in report["scenarios"] if s.get("llm_simulator_turns")]
+    if nd_scenarios:
+        print("\n" + "-" * 70)
+        print("  ⚠️  NON-DETERMINISTIC SCENARIOS (used LLM user simulator)")
+        print("-" * 70)
+        for s in nd_scenarios:
+            turns = s["llm_simulator_turns"]
+            print(f"  [{s['id']}] LLM simulator used on turn(s): {turns}")
 
     # Per-scenario details
     print("\n" + "-" * 70)

@@ -2,138 +2,149 @@
 
 ## Problem
 
-The chatbot currently assumes one service type per message. Classification gates whether slot extraction even runs, leading to three ad-hoc workarounds:
+The chatbot originally assumed one service type per message. Classification gated whether slot extraction even ran, leading to three ad-hoc workarounds that have now been eliminated.
 
-1. `_has_service_words` hardcoded word list in `_classify_message()` — gates emotional/confused
-2. `help_slots = extract_slots()` in help handler — re-classifies to service
-3. `esc_slots = extract_slots()` in escalation handler — re-classifies to service
+## Status
 
-This breaks when a user says "I need food and shelter in Brooklyn" (only food extracted), or "I'm really struggling, I need shelter" (might classify as emotional, ignoring the shelter request entirely).
+| PR | Status | Description |
+|---|---|---|
+| PR 1 | ✅ Done | Extract all service types from a message |
+| PR 2 | ✅ Done | Split classifier, extract-first routing, tone prefixes, bug fixes |
+| PR 3 | ✅ Done | Service queue — offer queued services after results |
+| PR 4 | ✅ Done | LLM extractor — update schema for multi-service |
 
-## Proposed Architecture: Extract First, Classify Tone, Route by Both
+---
 
-### Phase 1 — Extract all service types (slot_extractor.py)
+## Completed: PR 1 — Extract All Service Types
 
-**`_extract_all_service_types(text)`** — returns a list of `(service_type, service_detail)` tuples instead of the first match.
+**`_extract_all_service_types(text)`** scans for ALL service keywords in a message with:
+- Span tracking to prevent sub-matches ("mental health" doesn't also match "health")
+- Forward scanning past overlapping spans ("food stamps and food" finds both)
+- Text-position ordering (user's first-mentioned service is primary)
+- Category deduplication ("food" and "food pantry" → one "food" entry)
 
-```python
-# "I need food and shelter" → [("food", None), ("shelter", None)]
-# "I need dental care" → [("medical", "dental care")]
-# "hello" → []
+**`extract_slots(message)`** returns `additional_services` — a list of `(service_type, service_detail)` tuples beyond the primary. `merge_slots()` skips this field; `has_new_slots` checks exclude it.
+
+**Bug fixes applied during audit:**
+- `find()` only returned first occurrence — now scans forward past overlapping spans
+- Order reflected keyword length, not text position — now sorted by position
+
+**Tests:** 17 covering multi-service extraction, ordering, overlap, deduplication, additional_services in extract_slots/merge_slots.
+
+## Completed: PR 2 — Split Classifier + Extract-First Routing
+
+### Architecture
+
+```
+message
+  ↓
+┌──────────────────────────┐
+│ 1. extract_slots(message)│  ← always runs first (regex, <1ms)
+│    has_service_intent?   │
+└───────────┬──────────────┘
+            ↓
+┌──────────────────────────┐
+│ 2a. _classify_action()   │  → reset, greeting, confirm_yes, help, escalation, etc.
+│ 2b. _classify_tone()     │  → crisis, frustrated, emotional, confused, urgent, None
+└───────────┬──────────────┘
+            ↓
+┌──────────────────────────────────────────────────┐
+│ 3. Combined routing (priority order)             │
+│                                                  │
+│  crisis tone           → crisis resources        │
+│  reset action          → clear session           │
+│  confirmations/bot/etc → action handlers         │
+│  service + escalation  → service only if location│
+│  service + any tone    → service + tone prefix   │
+│  help (no service)     → help handler            │
+│  escalation (no svc)   → escalation handler      │
+│  frustrated            → frustration handler     │
+│  emotional             → emotional handler       │
+│  confused              → confused handler        │
+│  LLM (>3 words)        → LLM classification      │
+│  none                  → general conversation    │
+└──────────────────────────────────────────────────┘
 ```
 
-**`extract_slots(message)`** — returns:
+### What was removed
+- `_has_service_words` — eliminated entirely
+- `help_slots = extract_slots()` ad-hoc guard in help handler
+- `esc_slots = extract_slots()` ad-hoc guard in escalation handler
+- Second-pass emotional/confused check after slot extraction
+- Double slot extraction (service section now uses `early_extracted`)
+
+### Tone prefixes
+When service intent + emotional tone are both present, the confirmation and follow-up messages get an empathetic prefix:
+
+| Tone | Prefix |
+|---|---|
+| emotional | "I hear you, and I want to help." |
+| frustrated | "I understand this has been frustrating. Let me try something different." |
+| confused | "No worries — let me help you with that." |
+| urgent | "I can see this is urgent — let me find something right away." |
+
+Also applied to pending confirmation re-show (defensive, for future tones).
+
+### Escalation guard
+Service intent only overrides escalation when BOTH service_type AND location are present. "Connect me with a navigator about food" (food but no location) stays as escalation — the user wants human help. "Navigator, client needs shelter in East Harlem" (both present) routes to service.
+
+### Bug fixes applied during audit
+- Escalation guard regression — restored location requirement
+- Tone prefix used `has_service_intent` (regex only) — changed to `category == "service"` to cover LLM-detected intent
+- Tone-aware nudge prefix added to pending confirmation re-show
+
+### Tone categories (5)
+Based on research from NCBI clinical studies on homeless populations, ISEAR emotion models, and the DAPHNE social needs chatbot:
+
+| Tone | Priority | Rationale |
+|---|---|---|
+| crisis | 1 | Acute danger — always wins |
+| frustrated | 2 | System frustration — check before urgency |
+| emotional | 3 | Sadness, fear, loneliness — covers the dominant emotional states in this population |
+| confused | 4 | Overwhelm, not knowing what to do |
+| urgent | 5 (lowest) | Time pressure — empathy matters more when stronger tones co-occur |
+
+**Future tone candidates** (not blocking, easy to add later):
+- `shame` — "I'm embarrassed to ask" → normalizing response. Distinct from emotional.
+- Anger collapses into frustrated. Distrust into privacy bot_question. Hopelessness into emotional/crisis.
+
+**Tests:** 40+ covering split classifier functions, combined routing, tone prefixes, escalation guard, taxonomy enrichment.
+
+---
+
+## Planned: PR 3 — Service Queue
+
+### Goal
+After delivering results for the first service, proactively offer the next queued service. "I need food and shelter in Brooklyn" → food results → "You also mentioned shelter — want me to search for that too?"
+
+### Design decisions
+
+**1. When to store the queue**
+
+Store `_queued_services` in session when `additional_services` is non-empty in the service flow. This should happen at the point where we merge slots and proceed to confirmation — not earlier (the user might change their mind during follow-up questions).
+
 ```python
-{
-    "service_type": "food",           # primary (first match)
-    "service_detail": None,
-    "additional_services": [          # NEW: remaining matches
-        ("shelter", None),
-    ],
-    "location": "Brooklyn",
-    "age": None,
-    "family_status": None,
-    "urgency": None,
-}
+# In the service section, after merge:
+additional = extracted.get("additional_services", [])
+if additional:
+    merged["_queued_services"] = additional
 ```
 
-### Phase 2 — Classify tone separately (chatbot.py)
+**2. When to offer the next service**
 
-New function `_classify_tone(text)` — returns the emotional/tonal component only:
-- `"crisis"` — crisis language detected
-- `"emotional"` — sub-crisis distress
-- `"frustrated"` — frustration with the system
-- `"confused"` — overwhelmed/lost
-- `"neutral"` — no strong emotional signal
-
-This replaces the dual-purpose `_classify_message()` for emotional categories. The action categories (reset, greeting, thanks, confirm_yes, confirm_deny, etc.) stay as-is — they're about user intent, not tone.
-
-### Phase 3 — Unified routing in generate_reply()
+After `_execute_and_respond` delivers results. Append the offer to the response and replace quick replies:
 
 ```python
-def generate_reply(message, session_id, ...):
-    # 1. PII redaction (unchanged)
-    redacted_message, pii_detections = redact_pii(message)
-    
-    # 2. Always extract slots first
-    extracted = extract_slots(message)  # or extract_slots_smart()
-    has_service_intent = extracted.get("service_type") is not None
-    additional_services = extracted.pop("additional_services", [])
-    
-    # 3. Classify action intent (reset, greeting, confirm, etc.)
-    action = _classify_action(message)
-    
-    # 4. Classify emotional tone
-    tone = _classify_tone(message)
-    
-    # 5. Crisis always wins — regardless of slots
-    if tone == "crisis":
-        # handle crisis (unchanged)
-        return crisis_response
-    
-    # 6. Action intents that don't involve services
-    if action in ("reset", "greeting", "thanks", "bot_identity", "bot_question"):
-        # handle as today (unchanged)
-        return action_response
-    
-    # 7. Confirmation actions (context-dependent)
-    if action in ("confirm_yes", "confirm_deny", "confirm_change_service", 
-                   "confirm_change_location"):
-        # handle confirmation (unchanged)
-        return confirmation_response
-    
-    # 8. THE KEY CHANGE: service intent + tone combined
-    if has_service_intent:
-        # Queue additional services
-        if additional_services:
-            existing["_queued_services"] = additional_services
-        
-        # Merge slots, proceed to confirmation/follow-up
-        merged = merge_slots(existing, extracted)
-        
-        # Frame the response with the appropriate tone
-        if tone == "emotional":
-            # Acknowledge feelings, then proceed to service
-            prefix = "I hear you, and I want to help. "
-        elif tone == "frustrated":
-            # Acknowledge frustration, then proceed to new search
-            prefix = "I understand this has been frustrating. Let me try something different. "
-        elif tone == "confused":
-            prefix = "No worries — let me help you with that. "
-        else:
-            prefix = ""
-        
-        # Normal service flow continues with prefix applied...
-        if is_enough_to_answer(merged):
-            confirm_msg = prefix + _build_confirmation_message(merged)
-            # ... confirmation flow
-        else:
-            follow_up = prefix + next_follow_up_question(merged)
-            # ... follow-up flow
-    
-    # 9. No service intent — handle by tone alone
-    if tone == "emotional":
-        # pure emotional response (unchanged)
-    if tone == "frustrated":
-        # pure frustration response (unchanged)  
-    if tone == "confused":
-        # pure confused response (unchanged)
-    
-    # 10. Escalation, general conversation (unchanged)
-```
-
-### Phase 4 — Service queue handling
-
-After delivering results for the first service, check `_queued_services`:
-
-```python
-# After results are shown:
-queued = existing.get("_queued_services", [])
+# In _execute_and_respond, after building the result:
+queued = slots.get("_queued_services", [])
 if queued:
-    next_service, next_detail = queued.pop(0)
-    existing["_queued_services"] = queued
-    save_session_slots(session_id, existing)
-    
+    next_service, next_detail = queued[0]
+    remaining = queued[1:]
+
+    # Update session: remove offered service, keep remaining
+    slots["_queued_services"] = remaining
+    save_session_slots(session_id, slots)
+
     label = next_detail or _SERVICE_LABELS.get(next_service, next_service)
     result["response"] += (
         f"\n\nYou also mentioned {label} — would you like me to "
@@ -145,80 +156,217 @@ if queued:
     ]
 ```
 
-### Phase 5 — LLM extractor updates (llm_slot_extractor.py)
+**3. How "Yes, search for shelter" works**
 
-Update the tool schema to support multiple service types:
+The quick reply sends `"I need shelter"` as a new message. This enters `generate_reply` normally:
+- Extracts service_type = "shelter"
+- Location, age, family_status are already in session from the previous search
+- Proceeds to confirmation (or straight to search if enough info)
 
+This is the simplest approach — no special queue-consumption logic needed. The quick reply value IS the new search request.
+
+**4. How "No thanks" works**
+
+"No thanks" enters `generate_reply`:
+- `_classify_action` → "confirm_deny"
+- No pending confirmation → falls through
+- `_queued_services` should be cleared
+- Show a wrap-up message
+
+Need to add: when category is "confirm_deny" and no pending confirmation but `_queued_services` is set, clear the queue and respond gracefully:
+
+```python
+if not pending and category == "confirm_deny" and existing.get("_queued_services"):
+    existing.pop("_queued_services", None)
+    save_session_slots(session_id, existing)
+    result = _empty_reply(
+        session_id,
+        "No problem! Let me know if you need anything else.",
+        existing,
+        quick_replies=list(_WELCOME_QUICK_REPLIES),
+    )
+    return result
+```
+
+**5. What "start over" does to the queue**
+
+`clear_session` already clears all session state including `_queued_services`. No changes needed.
+
+**6. Shared slots across queued services**
+
+When searching for the next queued service, the session retains location, age, family_status from the previous search. This is usually correct — "I need food and shelter in Brooklyn" means both in Brooklyn. But edge cases exist:
+
+- "I need food in Brooklyn and shelter in Manhattan" — the location would be wrong for the second service. This is a pre-existing limitation (regex extracts only one location). The user can correct via "change location" during the queued service confirmation.
+- Service-specific slots like `family_status` (only relevant for shelter) should not cause issues — they're ignored by non-shelter query templates.
+
+**7. What if the queue has 3+ services?**
+
+After the second service's results, check if more are queued. Same logic applies recursively. In practice, 3+ services in one message is rare.
+
+**8. What if the user ignores the queue offer and types something new?**
+
+The new message enters `generate_reply` normally. If it has a new service_type, slots are merged (overwriting the old service_type). The queue should be cleared when a new explicit service request comes in, to avoid confusing the user with stale offers.
+
+```python
+# At the top of the service section, if new service_type differs from existing:
+if (extracted.get("service_type") and existing.get("service_type")
+        and extracted["service_type"] != existing["service_type"]):
+    existing.pop("_queued_services", None)
+```
+
+### Files to change
+
+| File | Change |
+|---|---|
+| `chatbot.py` | Store queue in service flow, offer after results, handle "no thanks", clear on new service |
+| No other files | Queue is purely a chatbot session concern |
+
+### Test scenarios
+
+```
+"I need food and shelter in Brooklyn"
+  → confirms food → results → "You also mentioned shelter..."
+  → "Yes" → confirms shelter → results
+
+"I need food and shelter in Brooklyn"
+  → confirms food → results → "You also mentioned shelter..."
+  → "No thanks" → clears queue, wrap-up message
+
+"I need food, clothing, and legal help in Manhattan"
+  → confirms food → results → "You also mentioned clothing..."
+  → "Yes" → results → "You also mentioned legal help..."
+
+"I need food and shelter in Brooklyn" → food results → "start over"
+  → clears everything including queue
+
+"I need food and shelter in Brooklyn" → food results
+  → user ignores queue offer and types "I need medical care"
+  → new service replaces food, queue cleared
+
+"I need food and shelter in Brooklyn" → food results
+  → user types "that wasn't helpful"
+  → frustration handler fires, queue preserved for later
+```
+
+---
+
+## Planned: PR 4 — LLM Extractor Updates
+
+### Current state
+
+The LLM extractor (`extract_slots_llm`) returns a single `service_type` string. When `extract_slots_smart` calls it, the result is supplemented with regex-extracted fields including `additional_services`. This means multi-service already partially works via LLM:
+
+1. Regex extracts: `{service_type: "food", additional_services: [("shelter", None)]}`
+2. LLM extracts: `{service_type: "food"}` (single service)
+3. Supplementation: regex `additional_services` is added to LLM result
+
+So even without LLM schema changes, `additional_services` from regex is available.
+
+### What the LLM schema change adds
+
+The LLM could detect services that regex misses — e.g., "I need somewhere to eat and a place to crash" might not match "shelter" in regex but the LLM would understand "place to crash" = shelter.
+
+**Option A: Array service_type** (breaking change to schema)
 ```python
 "service_type": {
     "type": "array",
-    "items": {
-        "type": "string",
-        "enum": ["food", "shelter", ...],
-    },
-    "description": "All service types the user is looking for. "
-                   "May be multiple (e.g., 'food and shelter').",
+    "items": {"type": "string", "enum": [...]},
 }
 ```
+Pro: Clean. Con: Breaks existing parsing, needs migration.
 
-Or simpler: add a second field:
+**Option B: Additional field** (additive, recommended)
 ```python
 "additional_service_types": {
     "type": "array",
     "items": {"type": "string", "enum": [...]},
-    "description": "Any additional service types beyond the primary one."
+    "description": "Service types beyond the primary one."
 }
 ```
+Pro: Backward compatible. Con: Two fields for the same concept.
 
-## What Changes
+**Recommendation:** Option B. The LLM returns `service_type` (primary) + `additional_service_types` (extras). The smart extractor merges them into the standard `additional_services` format. No breaking changes.
 
-| Component | Change | Risk |
-|---|---|---|
-| `_extract_service_type` | Returns list instead of first match | Low — internal function |
-| `extract_slots` | Adds `additional_services` field | Low — callers ignore unknown keys |
-| `_classify_message` | Split into `_classify_action` + `_classify_tone` | Medium — core routing logic |
-| `generate_reply` | Reorder: extract → classify → route by both | Medium — lots of branches |
-| `_execute_and_respond` | Add queue check after results | Low — additive |
-| LLM extractor schema | Support array service_type | Low — schema change only |
-| `_has_service_words` | Removed entirely | Low — no longer needed |
-| help/escalation guards | Removed entirely | Low — no longer needed |
+### Priority
 
-## What Doesn't Change
+Low — regex already handles the common multi-intent cases ("food and shelter", "clothing and legal help"). The LLM adds value only for indirect multi-service requests, which are rare. PR 3 (queue handling) is more impactful and should ship first.
 
-- `query_services`, `execute_service_query`, templates — still single-service
-- `ChatResponse` model — no schema change
-- Frontend — no changes needed
-- Crisis detection — still highest priority
-- Confirmation flow — still one service at a time
-- PII redaction — unchanged
+## Completed: PR 4 — LLM Extractor Multi-Service (Option B)
 
-## Migration Strategy
+Added `additional_service_types` array field to the LLM tool schema.
+The LLM returns `service_type` (primary) + `additional_service_types`
+(extras). `extract_slots_smart()` merges LLM-detected additional
+services with regex-detected ones, deduplicating by category. Regex
+results take precedence when both detect the same service (regex
+preserves detail info like "food stamps").
 
-1. **PR 1: Extract all service types** — `_extract_all_service_types`, `extract_slots` returns `additional_services`, add tests. No routing changes yet.
-2. **PR 2: Split classifier** — `_classify_action` + `_classify_tone`, remove `_has_service_words` and ad-hoc guards. Route by combination. Add tests.
-3. **PR 3: Service queue** — Store `_queued_services`, offer next service after results. Add tests.
-4. **PR 4: LLM extractor** — Update schema for multi-service. Add tests.
+**What this adds over regex:** The LLM can detect services from indirect
+phrasing that regex misses — e.g., "a place to crash" → shelter,
+"someone to talk to" → mental_health, "somewhere to eat" → food.
 
-## Test Scenarios
+**Tests:** 7 new tests covering LLM additional extraction, smart merge,
+deduplication, primary exclusion, detail preservation, and key cleanup.
+
+---
+
+## Architecture Diagram
 
 ```
-"I need food and shelter in Brooklyn"
-  → primary: food, queued: [shelter], location: Brooklyn
-  → confirms food → results → "You also mentioned shelter..."
-
-"I'm really struggling, I need food and somewhere to sleep in Queens"
-  → primary: food, queued: [shelter], location: Queens, tone: emotional
-  → "I hear you. I'll search for food in Queens, with shelter queued"
-
-"That wasn't helpful. Find me clothing in the Bronx instead"
-  → primary: clothing, location: Bronx, tone: frustrated
-  → "I understand. I'll search for clothing in the Bronx."
-
-"I don't know what I need... maybe food?"
-  → primary: food, tone: confused
-  → "No worries — I can search for food. What neighborhood are you in?"
-
-"I need food and dental care and legal help in Manhattan"
-  → primary: food, queued: [medical/dental, legal], location: Manhattan
-  → food first → dental next → legal last
+User: "I'm struggling and need food and shelter in Brooklyn"
+  │
+  ├─ extract_slots()
+  │   → service_type: "food"
+  │   → additional_services: [("shelter", None)]
+  │   → location: "Brooklyn"
+  │
+  ├─ _classify_action() → None
+  ├─ _classify_tone()   → "emotional"
+  │
+  ├─ Combined routing
+  │   → has_service_intent + emotional tone
+  │   → category: "service"
+  │   → tone_prefix: "I hear you, and I want to help."
+  │
+  ├─ Service flow
+  │   → Store _queued_services: [("shelter", None)]    ← PR 3
+  │   → Confirm: "I hear you, and I want to help.
+  │               I'll search for food in Brooklyn."
+  │
+  ├─ User confirms → _execute_and_respond
+  │   → DB query: food + Brooklyn
+  │   → Results: 5 food services
+  │   → Append: "You also mentioned shelter —           ← PR 3
+  │              would you like me to search for that?"
+  │
+  └─ User taps "Yes, search for shelter"
+      → New message: "I need shelter"
+      → Location "Brooklyn" already in session
+      → Confirm → execute → shelter results
 ```
+
+---
+
+## Future Improvements (not blocking)
+
+### Eval scenarios for multi-intent
+30 LLM-as-judge scenarios added in `multi_intent_eval_scenarios.py` (appended to SCENARIOS in eval_llm_judge.py):
+- ✅ Two services extracted and both searched sequentially (4 core queue scenarios)
+- ✅ User declines queued service (2 — formal and informal phrasing)
+- ✅ User changes location mid-queue (2 — typed and button)
+- ✅ Emotional + multi-service gets empathetic framing on both (5 — emotional, urgent, confused, frustrated, second-service warmth)
+- ✅ Shame tone — normalizing response for embarrassment/stigma (3)
+- ✅ Cross-service slot conflicts — different locations per service (2)
+- ✅ YourPeer persona scenarios (6 — LGBTQ/Ali Forney, DYCD RHY, foster aging-out, asylum seeker, re-entry, family/PATH)
+- ✅ Queue edge cases (2 — ignore with new request, start over)
+- ✅ Three-service combos (2 — drop-in trio, asylum seeker trio)
+- ✅ Complex natural language (2 — substance use narrative, outreach worker referral)
+
+### Shame tone
+Research identified shame/embarrassment as a distinct emotional state in this population ("I'm embarrassed to ask", "I never thought I'd need a food bank"). Current `emotional` tone covers it but the response should normalize rather than just empathize. Easy to add: new phrase list in `_classify_tone()`, new handler with normalizing response.
+
+**Eval coverage:** 3 scenarios test shame/embarrassment detection and normalizing responses: `multi_shame_food_bank_first_time`, `multi_shame_shelter_stigma`, `multi_shame_single_service`.
+
+### Cross-service slot conflicts
+"I need food in Brooklyn and shelter in Manhattan" — only one location is extracted. Future improvement: extract per-service locations. Would require significant slot extractor changes and is rare enough to not block the queue feature.
+
+**Eval coverage:** 2 scenarios test this known limitation: `multi_cross_borough_food_brooklyn_shelter_manhattan` (Brooklyn vs Manhattan), `multi_cross_neighborhood_shower_les_food_chinatown` (LES vs Chinatown). Both verify the system still functions correctly despite extracting only the first-mentioned location.

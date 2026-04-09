@@ -86,15 +86,20 @@ def test_sliding_window_allows_after_expiry():
     _clear_all()
     limits = [(1, 2)]  # 2 per 1 second
 
-    check_rate_limit("test-key", limits)
-    check_rate_limit("test-key", limits)
-    result = check_rate_limit("test-key", limits)
-    assert result.allowed is False
+    base_time = time.monotonic()
 
-    # Wait for the window to expire
-    time.sleep(1.1)
-    result = check_rate_limit("test-key", limits)
-    assert result.allowed is True
+    with patch("app.services.rate_limiter.time") as mock_time:
+        # Time 0: two requests fill the window
+        mock_time.monotonic.return_value = base_time
+        check_rate_limit("test-key", limits)
+        check_rate_limit("test-key", limits)
+        result = check_rate_limit("test-key", limits)
+        assert result.allowed is False
+
+        # Time +1.1s: window has expired, should be allowed again
+        mock_time.monotonic.return_value = base_time + 1.1
+        result = check_rate_limit("test-key", limits)
+        assert result.allowed is True
 
 
 def test_retry_after_is_positive():

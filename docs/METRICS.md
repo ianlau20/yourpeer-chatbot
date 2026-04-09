@@ -174,13 +174,44 @@ These metrics assess how well the chatbot handles emotional and conversational i
 **Measurement:** Audit log — query sessions with at least one conversational-category turn / all query sessions. ✅ Tracked in admin dashboard.  
 **Phase:** Pilot.
 
+### 4.7 Routing Category Distribution
+**Definition:** Distribution of all conversation turns across routing categories (service, general, emotional, crisis, escalation, greeting, thanks, help, bot_question, etc.).
+**Why it matters:** Shows where user messages are actually going. The `general` category is the highest-risk route because the LLM fully generates the response with no template grounding — any increase should be investigated.
+**Target:** General (LLM) ≤ 15% of total turns. Service flow should be the largest bucket.
+**Measurement:** Audit log — `category` field on each `conversation_turn` event, grouped into five buckets: service flow (service + confirmation categories), conversational safe (greeting, thanks, help, bot_identity, reset), emotional (emotional, frustration, confused), safety (crisis, escalation), and general (LLM-generated). ✅ Tracked in admin dashboard.
+**Phase:** Pilot.
+
+### 4.8 General (LLM-Generated) Rate
+**Definition:** % of conversation turns routed to the `general` category, where the LLM generates a free-form response not grounded in a query template or deterministic handler.
+**Why it matters:** This is the only path where the bot's response is not structurally constrained. While the LLM is instructed to stay on-topic and avoid fabricating service data, this is the highest-risk category for hallucination, off-topic responses, or inappropriate content. Staff should investigate if this rate rises above target.
+**Target:** ≤ 15% of categorized turns.
+**Measurement:** Audit log — `category_distribution["general"] / total_categorized_turns`. ✅ Tracked in admin dashboard with warning threshold.
+**Phase:** Pilot.
+
+### 4.9 Tone Distribution
+**Definition:** Distribution of detected emotional tones across all conversation turns: crisis, frustrated, emotional, confused, urgent, or none.
+**Why it matters:** Tones are independent of routing — a turn can have both a service intent and an emotional tone (e.g., "I'm scared and need shelter"). Tracking tone distribution shows how emotionally charged interactions are and whether the tone detection is calibrated correctly for this population.
+**Target:** Baseline tracking — no hard target. If emotional + frustrated + confused together exceed 40%, investigate whether the phrase lists are too broad. If below 5%, detection may be too narrow for this population.
+**Measurement:** Audit log — `tone` field on each `conversation_turn` event. Requires the split classifier to pass tone to the audit log (added in PR 19). ✅ Tracked in admin dashboard.
+**Phase:** Pilot.
+
+### 4.10 Multi-Intent Queue Metrics
+**Definition:** Tracks multi-service request handling: how often the bot offers a queued second service after results, and whether users accept or decline.
+**Sub-metrics:**
+- **Queue Offers:** Count of times the bot appended "You also mentioned [service] — would you like me to search for that too?" to results.
+- **Queue Declines:** Count of times the user declined with "No thanks" or equivalent.
+- **Queue Accept Rate:** `(queue_offers - queue_declines) / queue_offers`. Note: this is approximate — a user might ignore the offer entirely (neither accept nor decline), which inflates the accept rate.
+**Target:** Baseline tracking. Accept rate indicates whether multi-service detection is surfacing genuine needs vs. false extractions.
+**Measurement:** Audit log — queue offers counted by presence of "also mentioned" in bot response text; queue declines counted by `queue_decline` category. ✅ Tracked in admin dashboard.
+**Phase:** Pilot.
+
 ---
 
 ## 5. System Quality (LLM-as-Judge Eval)
 
 These metrics come from the automated evaluation framework in `tests/eval_llm_judge.py`, which runs scripted and simulated conversations through the full system and scores them using Claude as an impartial judge.
 
-The eval covers 102 scenarios across 8 scoring dimensions, each rated 1–5. It can be triggered from the admin console (Eval tab → Run Evals) or via CLI.
+The eval covers 144 scenarios across 8 scoring dimensions, each rated 1–5. It can be triggered from the admin console (Eval tab → Run Evals) or via CLI.
 
 ### Dimensions and Targets
 
@@ -199,7 +230,7 @@ The eval covers 102 scenarios across 8 scoring dimensions, each rated 1–5. It 
 **Critical failures:** 0 (any score of 1 on Safety & Crisis Handling or Hallucination Resistance is a deploy blocker).
 
 ### Cadence
-- Run the full 102-scenario eval before each significant deploy.
+- Run the full 144-scenario eval before each significant deploy.
 - Run the 5-scenario "quick" eval (happy path + crisis) before minor deploys or hotfixes.
 - Store results in `tests/eval_report.json`; view in admin console.
 

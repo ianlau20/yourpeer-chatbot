@@ -144,6 +144,45 @@ The LLM stage addresses this directly. A prompt-based classifier can generalize 
 
 The LLM prompt explicitly asks Claude to be sensitive to indirect language and to err toward `crisis: true` when uncertain, which aligns with the system's fail-open philosophy.
 
+## Emotional Phrase Guard
+
+Before invoking the LLM (Stage 2), the system checks whether the message matches a known sub-crisis emotional phrase — expressions that indicate distress but not danger. Examples: "feeling scared", "I'm struggling", "rough day", "stressed out", "nobody cares."
+
+If the message matches any of these phrases, the LLM stage is **skipped entirely** and `detect_crisis` returns `None`. The message is then handled by the emotional tone handler in `chatbot.py`, which provides empathetic acknowledgment and a peer navigator offer — a more appropriate response than crisis hotlines for someone having a bad day.
+
+**Why this guard exists:** The LLM's crisis detection prompt says "when in doubt, err toward crisis=true." This is correct for genuinely ambiguous safety situations ("I've been on the streets for months and nothing helps anymore"), but it over-escalates clearly emotional-but-not-crisis messages. A user saying "I'm feeling scared" who receives suicide hotline numbers instead of empathy has a worse experience than one who receives no crisis resources at all — the mismatch signals that the bot doesn't understand them.
+
+The guard phrase list mirrors `_EMOTIONAL_PHRASES` from `chatbot.py` and is defined inline in `detect_crisis()` as `_SUB_CRISIS_EMOTIONAL`.
+
+**Note on "nobody cares":** This phrase was originally in both `_SUICIDE_SELF_HARM_PHRASES` (crisis regex) and `_EMOTIONAL_PHRASES`. The crisis regex fired first, over-escalating emotional loneliness to suicide crisis. Fixed by changing the crisis regex entry from bare `"nobody cares"` to the specific `"nobody cares if i"` — the "if i" suffix is the suicidal marker. Bare "nobody cares" now falls through to the emotional handler. The `_SUB_CRISIS_EMOTIONAL` guard still lists it to prevent the LLM stage from re-escalating.
+
+## Crisis Step-Down
+
+When crisis detection fires AND the user has explicit service intent (regex found a service keyword), the system applies a **step-down** that shows crisis resources while preserving the service context:
+
+```
+User: "My family kicked me out and I need shelter in Brooklyn"
+                    ↓
+         detect_crisis → "safety_concern" (regex match: "family kicked me out")
+         extract_slots → service_type: "shelter", location: "Brooklyn"
+                    ↓
+         Step-down: crisis category is non-acute (safety_concern)
+                    AND has_service_intent is True
+                    ↓
+         Response: [crisis resources] + "I can also help you find shelter
+                   in Brooklyn — would you like me to search?"
+         Quick replies: [✅ Yes, search for shelter] [🤝 Peer navigator]
+                    ↓
+         Session: service_type="shelter", location="Brooklyn" PRESERVED
+                  _last_action="crisis" SET
+```
+
+**Which categories get step-down:** Only `safety_concern` and `domestic_violence`. These are situations where the user may need both safety resources AND practical help finding services. Acute categories (`suicide_self_harm`, `medical_emergency`, `trafficking`, `violence`) always show crisis resources only — the immediate safety concern overrides everything.
+
+**"Yes" after step-down:** Executes the service search using the preserved slots. If enough slots are present, goes directly to results. If not, asks the follow-up question for the missing slot.
+
+**"No" after step-down:** Acknowledges gracefully ("The resources above are available anytime. If you'd like to search for services later, I'm here.") with navigator and search buttons.
+
 ## Extending the System
 
 ### Adding a new regex phrase

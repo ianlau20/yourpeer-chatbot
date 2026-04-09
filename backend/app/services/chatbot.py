@@ -19,6 +19,71 @@ from app.services.slot_extractor import (
 from app.rag import query_services
 from app.privacy.pii_redactor import redact_pii
 from app.services.crisis_detector import detect_crisis
+from app.services.post_results import classify_post_results_question, answer_from_results
+
+
+# ---------------------------------------------------------------------------
+# CONTRACTION NORMALIZATION (P4 audit)
+# ---------------------------------------------------------------------------
+# Expands common contractions to their full forms so phrase lists only need
+# the expanded version (e.g., "not helpful") to match all contraction
+# variants ("isn't helpful", "isnt helpful", "wasn't helpful", etc.).
+#
+# Applied to frustration, emotional, and confused matching in _classify_tone.
+# NOT applied to crisis detection — crisis uses explicit enumeration for safety.
+
+_CONTRACTION_MAP = {
+    # Negative contractions → "not" form
+    "isn't": "is not", "isnt": "is not",
+    "wasn't": "was not", "wasnt": "was not",
+    "aren't": "are not", "arent": "are not",
+    "weren't": "were not", "werent": "were not",
+    "doesn't": "does not", "doesnt": "does not",
+    "didn't": "did not", "didnt": "did not",
+    "don't": "do not", "dont": "do not",
+    "can't": "can not", "cant": "can not",
+    "won't": "will not", "wont": "will not",
+    "hasn't": "has not", "hasnt": "has not",
+    "haven't": "have not", "havent": "have not",
+    "wouldn't": "would not", "wouldnt": "would not",
+    "couldn't": "could not", "couldnt": "could not",
+    "shouldn't": "should not", "shouldnt": "should not",
+    # Pronoun contractions
+    "i'm": "i am", "im": "i am",
+    "i've": "i have", "ive": "i have",
+    "i'll": "i will",
+    "i'd": "i would",
+    "it's": "it is",
+    "that's": "that is",
+    "there's": "there is",
+    "what's": "what is",
+    "you're": "you are", "youre": "you are",
+    "they're": "they are", "theyre": "they are",
+    "we're": "we are",
+}
+
+# Sort by length descending so longer contractions match first
+# ("wouldn't" before "won't" to avoid partial replacement)
+_CONTRACTION_PAIRS = sorted(_CONTRACTION_MAP.items(), key=lambda x: -len(x[0]))
+
+
+def _normalize_contractions(text: str) -> str:
+    """Expand contractions for consistent phrase matching.
+
+    Applied to frustration/emotional/confused matching so phrase lists
+    only need the 'not' form to catch all contraction variants.
+
+    NOT applied to crisis detection (explicit enumeration is safer).
+
+    Example:
+        "that wasn't helpful" → "that was not helpful"
+        "I'm struggling"     → "I am struggling"
+        "doesnt work"        → "does not work"
+    """
+    result = text.lower()
+    for contraction, expansion in _CONTRACTION_PAIRS:
+        result = result.replace(contraction, expansion)
+    return result
 from app.services.audit_log import (
     log_conversation_turn,
     log_query_execution,
@@ -75,13 +140,17 @@ _THANKS_EXACT = [
 ]
 
 _HELP_PHRASES = [
-    "help", "what can you do", "how does this work",
+    "what can you do", "how does this work",
     "what is this", "who are you", "what do you do",
     "how do i use this", "instructions",
     "what services", "what other services", "what else",
     "what do you offer", "what can i search for",
     "list services", "show services", "available services",
 ]
+
+# "help" needs word-boundary matching to avoid colliding with
+# "helpful", "unhelpful", "not helpful" (which are frustration phrases).
+_HELP_WORD_RE = re.compile(r"\bhelp\b", re.IGNORECASE)
 
 _ESCALATION_PHRASES = [
     "peer navigator", "talk to a person", "talk to someone",
@@ -92,7 +161,9 @@ _ESCALATION_PHRASES = [
 
 _FRUSTRATION_PHRASES = [
     "not helpful", "isn't helpful", "isnt helpful",
+    "wasn't helpful", "wasnt helpful", "wasn't useful", "wasnt useful",
     "doesn't help", "doesnt help", "didn't help", "didnt help",
+    "still not helpful", "still not useful", "still not working",
     "already tried", "tried that", "tried those",
     "none of those", "none of them", "doesn't work",
     "doesnt work", "didn't work", "didnt work",
@@ -102,6 +173,20 @@ _FRUSTRATION_PHRASES = [
     "wrong results", "results are bad", "results are wrong",
     "thats not right", "that's not right", "thats wrong", "that's wrong",
     "not useful", "this sucks", "so unhelpful",
+    # Missing contraction variants (P2 audit)
+    "hasn't helped", "hasnt helped",
+    "isn't working", "isnt working",
+    "isn't useful", "isnt useful",
+    "can't help me", "cant help me",
+    "won't work", "wont work",
+    # Stronger frustration / directed at bot (P2 audit)
+    "this is ridiculous", "this is stupid",
+    "you're not listening", "youre not listening",
+    "you don't understand", "you dont understand",
+    "same thing every time",
+    "i keep getting the same results",
+    # Resignation (P2 audit — route to frustration handler, not reset)
+    "forget it", "this is pointless",
 ]
 
 # Emotional expressions — sub-crisis distress that deserves warm
@@ -127,6 +212,23 @@ _EMOTIONAL_PHRASES = [
     "tired of everything", "exhausted",
     "i just need someone to talk to", "just need to talk",
     "nobody cares", "no one cares",
+    # Shame / stigma (P1 audit — #1 barrier to help-seeking in this population)
+    "embarrassed to ask", "ashamed to ask", "ashamed of myself",
+    "embarrassed to be here", "feel like a failure",
+    "never thought i'd need help", "never thought id need help",
+    "never thought i'd need a food bank",
+    "i'm pathetic", "im pathetic", "ashamed",
+    # Grief / loss (P2 audit — common trigger for homelessness)
+    "lost someone", "someone died", "my friend died",
+    "grieving", "in mourning",
+    # Isolation (P2 audit — major factor in homeless population)
+    "nobody understands", "no one understands",
+    "completely alone", "i have no one",
+    "no friends", "no family",
+    # Despair without suicidality (P2 audit)
+    "everything is falling apart", "my life is falling apart",
+    "nothing ever works out", "things keep getting worse",
+    "i can't catch a break", "i cant catch a break",
 ]
 
 _BOT_IDENTITY_PHRASES = [
@@ -171,11 +273,17 @@ _CONFUSED_PHRASES = [
     "dont know what i need", "what should i do",
     "don't know where to start", "dont know where to start",
     "i'm confused", "im confused",
-    "i'm lost", "im lost",
-    "i'm overwhelmed", "im overwhelmed",
+    "i'm lost", "im lost", "so lost",
+    "i'm overwhelmed", "im overwhelmed", "so overwhelmed",
     "i'm not sure", "im not sure",
     "where do i start", "where do i begin",
     "what are my options", "what can i do",
+    # Expanded confusion/overwhelm (P3 audit)
+    "where do i even go", "who do i talk to",
+    "this is confusing", "too many options",
+    "everything is too much", "it's all too much",
+    "i can't think straight", "i cant think straight",
+    "so much going on",
 ]
 
 # ---------------------------------------------------------------------------
@@ -250,59 +358,18 @@ _CONFIRM_DENY_PHRASES = [
 ]
 
 
-def _classify_message(text: str) -> str:
-    """
-    Classify a message into a routing category using a two-stage approach:
+def _classify_action(text: str) -> str | None:
+    """Classify a message's action intent (what the user wants to DO).
 
-    Stage 1 — Regex (< 1ms, always runs):
-        Handles deterministic cases: crisis, reset, greetings, thanks,
-        confirmation responses, and clear service keywords. These are
-        button taps, short phrases, or unambiguous keyword matches where
-        the LLM would add latency without improving accuracy.
-
-    Stage 2 — LLM (only when regex falls through to "general"):
-        Messages that regex can't classify are often the most important:
-        indirect service needs ("I just got out of the hospital"),
-        ambiguous frustration vs. service ("this isn't working, I need
-        something else"), or mixed intent. The LLM sees the full message
-        and returns a category.
-
-    Fail-safe: If the LLM is unavailable or returns an unexpected value,
-    falls back to the regex result (which is "general" at that point).
-
-    Returns one of:
-        "crisis"           — suicide, violence, DV, trafficking, medical emergency
-        "reset"            — user wants to start over
-        "bot_identity"     — user asking if they're talking to AI or a person
-        "bot_question"     — user asking about the bot's capabilities or behavior
-        "greeting"         — hi / hello / hey
-        "thanks"           — thank you / thx
-        "frustration"      — user frustrated with results or bot
-        "help"             — what can you do / how does this work
-        "escalation"       — user wants to talk to a real person / peer navigator
-        "confirm_yes"      — user confirmed a pending search
-        "confirm_deny"     — user declined a pending search (no / nah / not yet)
-        "confirm_change_service"  — user wants to change service type
-        "confirm_change_location" — user wants to change location
-        "confused"         — user doesn't know what they need (overwhelmed, lost)
-        "emotional"        — sub-crisis emotional expression (feeling down, rough day)
-        "service"          — contains a service-related intent or slot data
-        "general"          — everything else (conversational, follow-up, unclear)
+    Returns one of the action categories or None if no action detected:
+        "reset", "bot_identity", "bot_question", "escalation",
+        "confirm_change_service", "confirm_change_location",
+        "confirm_yes", "confirm_deny", "greeting", "thanks", "help"
     """
     lower = text.lower().strip()
-
-    # Strip punctuation for matching
     cleaned = re.sub(r"[^\w\s']", "", lower).strip()
 
-    # --- STAGE 1: Regex classification ---
-
-    # CRISIS — highest priority. Someone typing "I want to kill myself,
-    # start over" MUST get crisis resources, not a session reset.
-    crisis_result = detect_crisis(text)
-    if crisis_result is not None:
-        return "crisis"
-
-    # Check reset (substring match for phrases, exact for short words)
+    # Reset
     for phrase in _RESET_PHRASES:
         if phrase in cleaned:
             return "reset"
@@ -310,44 +377,34 @@ def _classify_message(text: str) -> str:
         if cleaned == phrase:
             return "reset"
 
-    # Check bot identity — before escalation since "real person" would
-    # otherwise match escalation. Bot identity questions are distinct from
-    # requests to talk to a person.
+    # Bot identity
     for phrase in _BOT_IDENTITY_PHRASES:
         if phrase in cleaned:
             return "bot_identity"
 
-    # Check bot capability questions — "why couldn't you get my location",
-    # "how does this work", "what can you search for"
+    # Bot questions (including privacy)
     for phrase in _BOT_QUESTION_PHRASES:
         if phrase in cleaned:
             return "bot_question"
 
-    # Check escalation — before greetings/thanks so "connect me with
-    # a peer navigator please" doesn't fall through
+    # Escalation
     for phrase in _ESCALATION_PHRASES:
         if phrase in cleaned:
             return "escalation"
 
-    # Check confirmation responses (only meaningful when pending_confirmation
-    # is set, but we classify here and let the main flow decide)
+    # Confirmation actions
     for phrase in _CONFIRM_CHANGE_SERVICE:
         if phrase in cleaned:
             return "confirm_change_service"
-
     for phrase in _CONFIRM_CHANGE_LOCATION:
         if phrase in cleaned:
             return "confirm_change_location"
-
     for phrase in _CONFIRM_YES_EXACT:
         if cleaned == phrase:
             return "confirm_yes"
-
     for phrase in _CONFIRM_YES_STARTSWITH:
         if cleaned.startswith(phrase) or cleaned == phrase:
             return "confirm_yes"
-
-    # Check confirmation denial (no / nah / nope / not yet)
     for phrase in _CONFIRM_DENY_EXACT:
         if cleaned == phrase:
             return "confirm_deny"
@@ -355,16 +412,16 @@ def _classify_message(text: str) -> str:
         if phrase in cleaned:
             return "confirm_deny"
 
-    # Check greetings (only if the message is short — "hi where's food"
-    # should be classified as a service request, not a greeting)
+    # Greeting (short messages only)
     if len(cleaned.split()) <= 3:
         for phrase in _GREETING_PHRASES:
             if cleaned == phrase or cleaned.startswith(phrase + " "):
                 return "greeting"
 
-    # Check thanks — but only if the message is JUST thanks.
-    # "thanks but I need more options" should fall through to service/general.
-    _has_continuation = any(w in cleaned for w in ["but", "however", "though", "need", "want", "also", "more"])
+    # Thanks (only if no continuation words)
+    _has_continuation = any(w in cleaned for w in [
+        "but", "however", "though", "need", "want", "also", "more",
+    ])
     if not _has_continuation:
         for phrase in _THANKS_PHRASES:
             if phrase in cleaned:
@@ -373,58 +430,150 @@ def _classify_message(text: str) -> str:
             if cleaned == phrase:
                 return "thanks"
 
-    # Check frustration — before help since "isn't helpful" contains "help"
-    for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned:
-            return "frustration"
-
-    # Check emotional expressions — before slot extraction, but skip if the
-    # message also contains service-intent words. "I'm struggling" → emotional.
-    # "I'm struggling with addiction and need treatment" → falls through to slots.
-    _has_service_words = any(w in cleaned for w in [
-        "need", "find", "looking for", "help with", "treatment",
-        "program", "where can", "search", "shelter", "food",
-    ])
-    if not _has_service_words:
-        for phrase in _EMOTIONAL_PHRASES:
-            if phrase in cleaned:
-                return "emotional"
-
-    # Check confusion/overwhelm — same pattern: skip if service intent present.
-    if not _has_service_words:
-        for phrase in _CONFUSED_PHRASES:
-            if phrase in cleaned:
-                return "confused"
-
-    # Check help
+    # Help — word-boundary check for "help" to avoid "helpful"/"unhelpful"
+    if _HELP_WORD_RE.search(cleaned):
+        # Exclude frustration phrases that contain "help" as a word
+        # e.g., "doesn't help", "didn't help", "not helpful"
+        # These should fall through to frustration handling, not help.
+        # Check both original and normalized to catch all contraction forms.
+        _help_negators = ["not help", "did not help", "does not help",
+                          "will not help", "never help", "can not help",
+                          "was not help", "has not help"]
+        normalized = _normalize_contractions(cleaned)
+        if not any(neg in cleaned for neg in _help_negators) and \
+           not any(neg in normalized for neg in _help_negators):
+            return "help"
     for phrase in _HELP_PHRASES:
         if phrase in cleaned:
             return "help"
 
-    # Try slot extraction — if it finds anything, it's a service message.
-    extracted = extract_slots(text)
-    has_new_slot = any(
-        v is not None for v in extracted.values()
-    )
-    if has_new_slot:
-        return "service"
+    return None
 
-    # No service slots found — check emotional/confused again for messages
-    # that had service words but no actual slots (e.g. "I need to talk",
-    # which has "need" but no service_type).
+
+_URGENT_PHRASES = [
+    "right now", "tonight", "immediately", "asap", "urgent",
+    "emergency", "before dark", "freezing",
+    "nowhere to go", "have nowhere", "on the street",
+    "please help", "please hurry", "desperate",
+    "kicked out today", "evicted today",
+]
+
+
+_CRISIS_NOT_CHECKED = object()  # sentinel: caller hasn't run detect_crisis yet
+
+
+def _classify_tone(text: str, crisis_result=_CRISIS_NOT_CHECKED) -> str | None:
+    """Classify a message's emotional tone (how the user FEELS).
+
+    No service-word gating — always runs. The caller decides how to
+    combine tone with service intent.
+
+    Args:
+        text: The user's message.
+        crisis_result: Pre-computed result from detect_crisis().
+            Pass the return value directly (a tuple for crisis, None for
+            no crisis). When omitted, _classify_tone calls detect_crisis
+            itself. This avoids a redundant Sonnet LLM call when the
+            caller has already checked.
+
+    Returns one of: "crisis", "emotional", "frustrated", "confused",
+    "urgent", or None.
+
+    Priority order matters — crisis > frustrated > emotional > confused > urgent.
+    Urgent is lowest because it's about speed, not emotion. When a stronger
+    tone is present ("I'm scared and need shelter tonight"), empathy matters
+    more than acknowledging urgency (which the urgency slot already captures).
+    """
+    lower = text.lower().strip()
+    cleaned = re.sub(r"[^\w\s']", "", lower).strip()
+
+    # Normalized form expands contractions so phrase lists only need
+    # the "not" form (e.g., "not helpful") to match "isn't helpful",
+    # "wasnt helpful", etc. Applied to frustration/emotional/confused only.
+    # Crisis detection uses its own explicit enumeration for safety.
+    normalized = _normalize_contractions(cleaned)
+
+    # Crisis — highest priority (uses original text, NOT normalized)
+    # Use pre-computed result if available to avoid a redundant LLM call.
+    if crisis_result is _CRISIS_NOT_CHECKED:
+        crisis_result = detect_crisis(text)
+    if crisis_result is not None:
+        return "crisis"
+
+    # Frustration — check both original and normalized
+    for phrase in _FRUSTRATION_PHRASES:
+        if phrase in cleaned or phrase in normalized:
+            return "frustrated"
+
+    # Emotional — check both original and normalized
     for phrase in _EMOTIONAL_PHRASES:
-        if phrase in cleaned:
+        if phrase in cleaned or phrase in normalized:
             return "emotional"
 
+    # Confused — check both original and normalized
     for phrase in _CONFUSED_PHRASES:
-        if phrase in cleaned:
+        if phrase in cleaned or phrase in normalized:
             return "confused"
 
-    # --- STAGE 2: LLM classification (only for messages regex couldn't route) ---
-    # At this point regex returned "general". For short messages (≤3 words)
-    # that aren't greetings, this is likely correct — don't burn an LLM call.
-    # For longer messages, the LLM may detect implicit service needs,
-    # frustration, or confusion that regex keywords missed.
+    # Urgent — time pressure or panic without a stronger emotional tone.
+    # Bridges from the urgency slot extractor's "high" phrases, plus
+    # panic-specific phrases not covered by emotional/crisis.
+    for phrase in _URGENT_PHRASES:
+        if phrase in cleaned:
+            return "urgent"
+
+    return None
+
+
+def _classify_message(text: str) -> str:
+    """Classify a message into a single routing category.
+
+    Thin wrapper that combines _classify_action() and _classify_tone()
+    for backward compatibility with existing tests and the LLM fallback.
+
+    The main routing in generate_reply() uses the split functions directly
+    for more nuanced handling (e.g., service intent + emotional tone).
+    """
+    lower = text.lower().strip()
+    cleaned = re.sub(r"[^\w\s']", "", lower).strip()
+
+    # Crisis always wins
+    crisis_result = detect_crisis(text)
+    if crisis_result is not None:
+        return "crisis"
+
+    # Action intent
+    action = _classify_action(text)
+    if action:
+        return action
+
+    # Frustration (before slot check — "not helpful" is never a service request)
+    # Check both original and normalized to catch all contraction variants,
+    # consistent with how _classify_tone handles frustration.
+    normalized = _normalize_contractions(cleaned)
+    for phrase in _FRUSTRATION_PHRASES:
+        if phrase in cleaned or phrase in normalized:
+            return "frustration"
+
+    # Check slots — if service intent found, it wins over emotional/confused
+    extracted = extract_slots(text)
+    has_slot = any(v is not None for k, v in extracted.items()
+                   if k != "additional_services")
+    if has_slot:
+        return "service"
+
+    # Emotional / confused / urgent (only when no service intent)
+    tone = _classify_tone(text)
+    if tone == "emotional":
+        return "emotional"
+    if tone == "confused":
+        return "confused"
+    # Urgent without service intent is not actionable on its own —
+    # it only matters as a prefix modifier in the service flow.
+    # Map to "general" so LLM can try to interpret the message.
+    # (Don't return "urgent" — no handler exists for that category.)
+
+    # LLM fallback for longer messages
     if _USE_LLM and len(cleaned.split()) > 3:
         llm_category = classify_message_llm(text)
         if llm_category is not None:
@@ -433,7 +582,6 @@ def _classify_message(text: str) -> str:
             )
             return llm_category
 
-    # Nothing matched — general conversation
     return "general"
 
 
@@ -583,7 +731,14 @@ def _build_confirmation_message(slots: dict) -> str:
         # (e.g. street addresses extracted as location)
         location, _ = redact_pii(location)
 
-    parts = [f"I'll search for {service_label} {location}"]
+    # "near your location" reads naturally without "in", but borough/
+    # neighborhood names need "in" ("in Brooklyn", "in Harlem").
+    if location.startswith("near "):
+        location_phrase = location
+    else:
+        location_phrase = f"in {location}"
+
+    parts = [f"I'll search for {service_label} {location_phrase}"]
     if age:
         parts[0] += f" (age {age})"
 
@@ -928,7 +1083,10 @@ def _static_bot_answer(message: str) -> str:
         )
 
     # Privacy — immigration / law enforcement fears
-    if any(w in lower for w in ["ice", "immigration", "deport", "undocumented", "immigrant"]):
+    # NOTE: "ice" uses word-boundary regex because it's a substring of "police"
+    _ice_words = ["immigration", "deport", "undocumented", "immigrant"]
+    _ice_re = re.compile(r'\bice\b', re.IGNORECASE)
+    if any(w in lower for w in _ice_words) or _ice_re.search(lower):
         return (
             "I don't collect any identifying information — no name, no "
             "address, no immigration status. I'm not connected to any "
@@ -1101,20 +1259,158 @@ def generate_reply(
         existing["_longitude"] = longitude
         save_session_slots(session_id, existing)
 
-    category = _classify_message(message)  # classify on original for accuracy
+    # --- EXTRACT SLOTS FIRST (before classification) ---
+    # This is the key architectural change: slots are always extracted
+    # so we know if there's service intent before deciding how to route.
+    # Regex only here — LLM extraction runs later for complex messages.
+    early_extracted = extract_slots(message)
+    has_service_intent = early_extracted.get("service_type") is not None
+
+    # --- CLASSIFY ACTION (regex, instant) ---
+    _action_pre = _classify_action(message)
+
+    # --- CRISIS DETECTION (always runs before any other handler) ---
+    # Safety: crisis detection MUST run before post-results, confirmation,
+    # or any other handler. Eval scenario "crisis_after_results" (P10) found
+    # that DV disclosures after search results were being missed when crisis
+    # detection didn't run on every turn.
+    #
+    # Performance: for short, unambiguous safe actions ("yes", "start over",
+    # "hello"), we skip the expensive Sonnet LLM call (~2-5s) and only run
+    # the instant regex check. The regex catches explicit crisis language;
+    # the LLM catches indirect phrasing — which doesn't appear in "yes".
+    _is_safe_short = (
+        _action_pre in (
+            "confirm_yes", "confirm_deny", "confirm_change_service",
+            "confirm_change_location", "reset", "greeting", "thanks",
+            "bot_identity",
+        )
+        and len(message.split()) <= 4
+    )
+    _crisis_result = detect_crisis(message, skip_llm=_is_safe_short)
+
+    # Crisis takes absolute priority — even over post-results questions
+    if _crisis_result is not None:
+        tone = "crisis"
+    else:
+        tone = _classify_tone(message, crisis_result=_crisis_result)
+
+    if tone == "crisis":
+        # Jump straight to crisis handling (below in routing section)
+        pass
+    else:
+        # --- POST-RESULTS QUESTION CHECK ---
+        # Only runs when crisis detection cleared the message as safe.
+        # Handles follow-up questions about displayed services
+        # deterministically — NO LLM, no hallucination risk.
+        _last_results = existing.get("_last_results")
+        _is_confirmation_action = _action_pre in (
+            "confirm_change_service", "confirm_change_location",
+            "confirm_yes", "confirm_deny", "reset", "greeting",
+        )
+        if _last_results and not has_service_intent and not _is_confirmation_action:
+            # "Show all results" — re-display the stored results
+            if message.lower().strip() in ("show all results", "show results", "show all"):
+                result = {
+                    "session_id": session_id,
+                    "response": "Here are all the results again:",
+                    "follow_up_needed": False,
+                    "slots": existing,
+                    "services": _last_results,
+                    "result_count": len(_last_results),
+                    "relaxed_search": False,
+                    "quick_replies": [
+                        {"label": "🔍 New search", "value": "Start over"},
+                        {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+                    ],
+                }
+                _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+                return result
+
+            post_intent = classify_post_results_question(message)
+            if post_intent is not None:
+                pr = answer_from_results(post_intent, _last_results)
+                result = {
+                    "session_id": session_id,
+                    "response": pr["response"],
+                    "follow_up_needed": False,
+                    "slots": existing,
+                    "services": pr.get("services", []),
+                    "result_count": len(pr.get("services", [])),
+                    "relaxed_search": False,
+                    "quick_replies": pr.get("quick_replies", []),
+                }
+                _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+                return result
+
+        # If the user is starting a new action, clear stale results
+        if _last_results and (has_service_intent or _is_confirmation_action):
+            existing.pop("_last_results", None)
+            save_session_slots(session_id, existing)
+
+    # --- COMBINE INTO ROUTING CATEGORY ---
+    # Priority: crisis > reset > confirmations > service intent > actions > tone > LLM > general
+    action = _action_pre  # Already computed above (avoid duplicate call)
+    _response_tone = tone  # stored for use in service flow framing
+
+    if tone == "crisis":
+        category = "crisis"
+    elif action == "reset":
+        category = "reset"
+    elif action in ("confirm_change_service", "confirm_change_location",
+                     "confirm_yes", "confirm_deny"):
+        category = action
+    elif action in ("bot_identity", "bot_question", "greeting", "thanks"):
+        category = action
+    elif has_service_intent:
+        # Service intent wins — help/escalation/emotional/confused become
+        # tone modifiers, not separate routes. This replaces the ad-hoc
+        # guards that used to re-check slots inside help/escalation handlers.
+        #
+        # Exception: escalation requires BOTH service_type AND location to
+        # override. "Connect me with a navigator about food" (food but no
+        # location) should stay as escalation — the user wants human help.
+        # "Navigator, client needs shelter in East Harlem" (both present)
+        # should route to service — the user is making a request.
+        if action == "escalation" and not early_extracted.get("location"):
+            category = "escalation"
+        else:
+            category = "service"
+    elif action == "help":
+        category = "help"
+    elif action == "escalation":
+        category = "escalation"
+    elif tone == "frustrated":
+        category = "frustration"
+    elif tone == "emotional":
+        category = "emotional"
+    elif tone == "confused":
+        category = "confused"
+    elif _USE_LLM and len(message.strip().split()) > 3:
+        llm_category = classify_message_llm(message)
+        if llm_category is not None:
+            logger.info(
+                f"LLM classifier override: regex='general' → llm='{llm_category}'"
+            )
+            category = llm_category
+        else:
+            category = "general"
+    else:
+        category = "general"
 
     # --- Crisis ---
     # Highest priority. Crisis resources are shown immediately.
     # The session is NOT cleared — the user may continue afterward.
     if category == "crisis":
-        crisis_result = detect_crisis(message)
-        if crisis_result is None:
+        # Reuse the crisis result computed once above (before _classify_tone).
+        # No need to call detect_crisis again.
+        if _crisis_result is None:
             # Classification said crisis but detect_crisis disagrees
             # (e.g. LLM fail-open during classification but not during
             # the dedicated check). Treat as general conversation.
             category = "general"
         else:
-            crisis_category, crisis_response = crisis_result
+            crisis_category, crisis_response = _crisis_result
             logger.warning(
                 f"Session {session_id}: crisis detected, "
                 f"category='{crisis_category}'"
@@ -1124,9 +1420,56 @@ def generate_reply(
             # return to a search confirmation on their next message.
             if existing.get("_pending_confirmation"):
                 existing.pop("_pending_confirmation", None)
+
+            # Step-down: when the user has service intent AND the crisis
+            # category is non-acute (safety_concern, domestic_violence),
+            # show crisis resources but also preserve the service context
+            # and offer to search. This handles cases like "I was kicked
+            # out and need shelter in Brooklyn" where the crisis handler
+            # fires on "kicked out" but the user also has a clear service
+            # request that shouldn't be lost.
+            _step_down_categories = ("safety_concern", "domestic_violence")
+            if (has_service_intent
+                    and crisis_category in _step_down_categories):
+                # Merge early-extracted slots into session so they're
+                # available when the user says "yes, search"
+                merged_crisis = merge_slots(existing, early_extracted)
+                # Store queued services if multi-intent
+                additional = early_extracted.get("additional_services", [])
+                if additional and "_queued_services" not in merged_crisis:
+                    merged_crisis["_queued_services"] = additional
+                merged_crisis["_last_action"] = "crisis"
+                save_session_slots(session_id, merged_crisis)
+
+                # Build the step-down offer
+                svc_label = _SERVICE_LABELS.get(
+                    early_extracted.get("service_type", ""),
+                    early_extracted.get("service_type", "services"),
+                )
+                loc_label = early_extracted.get("location", "your area")
+                step_down_msg = (
+                    f"\n\nI can also help you find {svc_label} in "
+                    f"{loc_label} — would you like me to search?"
+                )
+                result = _empty_reply(
+                    session_id,
+                    crisis_response + step_down_msg,
+                    merged_crisis,
+                    quick_replies=[
+                        {"label": f"✅ Yes, search for {svc_label}",
+                         "value": "Yes, search"},
+                        {"label": "🤝 Peer navigator",
+                         "value": "Connect with peer navigator"},
+                    ],
+                )
+            else:
+                # Acute crisis (suicide, medical, trafficking, violence)
+                # or no service intent — show crisis resources only.
+                existing["_last_action"] = "crisis"
                 save_session_slots(session_id, existing)
-            result = _empty_reply(session_id, crisis_response, existing)
-            _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+                result = _empty_reply(session_id, crisis_response, existing)
+
+            _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
             return result
 
     # --- Reset ---
@@ -1137,7 +1480,7 @@ def generate_reply(
             session_id, _RESET_RESPONSE, {},
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Greeting ---
@@ -1154,7 +1497,7 @@ def generate_reply(
                 session_id, _GREETING_RESPONSE, existing,
                 quick_replies=list(_WELCOME_QUICK_REPLIES),
             )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Thanks ---
@@ -1163,26 +1506,19 @@ def generate_reply(
             session_id, _THANKS_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Help ---
     if category == "help":
-        # Check if the message actually contains a service request despite
-        # being classified as "help" (e.g., "I need help with my immigration
-        # case in the Bronx" contains "help" but is really a legal request).
-        # If slots have a service_type, treat as a service request instead.
-        # Uses fast regex only — no LLM call needed for this check.
-        help_slots = extract_slots(message)
-        if help_slots.get("service_type"):
-            category = "service"  # re-classify and fall through to slot handling
-        else:
-            result = _empty_reply(
-                session_id, _HELP_RESPONSE, existing,
-                quick_replies=list(_WELCOME_QUICK_REPLIES),
-            )
-            _log_turn(session_id, redacted_message, result, category, request_id=request_id)
-            return result
+        # No ad-hoc slot guard needed — if the message had service intent,
+        # it was already routed to "service" category above.
+        result = _empty_reply(
+            session_id, _HELP_RESPONSE, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+        return result
 
     # --- Bot Identity ---
     if category == "bot_identity":
@@ -1190,7 +1526,7 @@ def generate_reply(
             session_id, _BOT_IDENTITY_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Bot capability questions ---
@@ -1207,7 +1543,7 @@ def generate_reply(
         else:
             response = _static_bot_answer(message)
         result = _empty_reply(session_id, response, existing)
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Confused / Overwhelmed ---
@@ -1223,7 +1559,7 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Emotional expression ---
@@ -1252,7 +1588,7 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Frustration ---
@@ -1284,28 +1620,21 @@ def generate_reply(
                     {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
                 ],
             )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- Escalation ---
     if category == "escalation":
-        # Check if the message also has service slots — if so, the user
-        # is probably an outreach worker making a request (e.g., "I'm a
-        # peer navigator. I have a client who needs shelter in East Harlem.")
-        # not someone asking to talk to a person.
-        esc_slots = extract_slots(message)
-        if esc_slots.get("service_type") and esc_slots.get("location"):
-            category = "service"  # re-classify and fall through to slot handling
-        else:
-            # Clear any pending confirmation so "no" after escalation
-            # doesn't re-trigger the search confirmation flow.
-            if existing.get("_pending_confirmation"):
-                existing.pop("_pending_confirmation", None)
-            existing["_last_action"] = "escalation"
-            save_session_slots(session_id, existing)
-            result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
-            _log_turn(session_id, redacted_message, result, category, request_id=request_id)
-            return result
+        # No ad-hoc slot guard needed — if the message had service intent
+        # (e.g., outreach worker with "shelter in East Harlem"), it was
+        # already routed to "service" category above.
+        if existing.get("_pending_confirmation"):
+            existing.pop("_pending_confirmation", None)
+        existing["_last_action"] = "escalation"
+        save_session_slots(session_id, existing)
+        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+        return result
 
     # --- Context-aware "yes" / "no" handling ---
     # After an escalation or emotional response, "yes" and "no" refer to the
@@ -1317,7 +1646,25 @@ def generate_reply(
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
-        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
+        return result
+
+    if last_action == "crisis" and category == "confirm_yes":
+        # "Yes" after crisis step-down = "yes, search for services"
+        # The step-down handler preserved the extracted slots in session.
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        if is_enough_to_answer(existing):
+            result = _execute_and_respond(session_id, message, existing, request_id=request_id)
+        else:
+            # Need more info — ask follow-up
+            follow_up = next_follow_up_question(existing)
+            result = _empty_reply(
+                session_id, follow_up, existing,
+                quick_replies=_follow_up_quick_replies(existing),
+            )
+            result["follow_up_needed"] = True
+        _log_turn(session_id, redacted_message, result, "service", request_id=request_id, tone=tone)
         return result
 
     if last_action == "confused" and category == "confirm_yes":
@@ -1326,20 +1673,19 @@ def generate_reply(
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
-        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
     if last_action == "frustration" and category == "confirm_yes":
-        # "Yes" after frustration = "yes, start a new search"
-        # (the frustration handler shows "Try different search" button)
+        # "Yes" after frustration = "yes, connect me with a navigator"
+        # The frustration handler's messaging pushes toward navigator
+        # ("I think a peer navigator would be more helpful"). The "Try
+        # different search" button sends "Start over" directly, so it
+        # doesn't need this "yes" shortcut for resetting.
         existing.pop("_last_action", None)
-        clear_session(session_id)
-        log_session_reset(session_id)
-        result = _empty_reply(
-            session_id, _RESET_RESPONSE, {},
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
-        )
-        _log_turn(session_id, redacted_message, result, "reset", request_id=request_id)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action == "escalation":
@@ -1352,7 +1698,7 @@ def generate_reply(
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action == "emotional":
@@ -1363,9 +1709,13 @@ def generate_reply(
             "That's okay. I'm here whenever you're ready. "
             "If there's anything practical I can help you find, just let me know.",
             existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
+            # Don't push the full service menu after someone expressed distress
+            # and declined support — keep it gentle (AVR pattern).
+            quick_replies=[
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+            ],
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action in ("frustrated", "frustration"):
@@ -1380,7 +1730,7 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     if category == "confirm_deny" and last_action == "confused":
@@ -1395,7 +1745,25 @@ def generate_reply(
                 {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
+        return result
+
+    if category == "confirm_deny" and last_action == "crisis":
+        # "No" after crisis step-down = user doesn't want to search,
+        # just needs the crisis resources that were already shown.
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "That's okay. The resources above are available anytime. "
+            "If you'd like to search for services later, I'm here.",
+            existing,
+            quick_replies=[
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+                {"label": "🔍 Search for services", "value": "I need help"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
 
     # Clear the last_action tracker now that we've checked it
@@ -1403,15 +1771,63 @@ def generate_reply(
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
 
+    # --- Handle "change location" / "change service" outside pending ---
+    # These buttons appear in after-results quick replies and in various
+    # contexts. Previously they only worked during pending confirmation,
+    # causing a full restart when tapped after results were delivered.
+    if not existing.get("_pending_confirmation"):
+        if category == "confirm_change_location":
+            existing["location"] = None
+            save_session_slots(session_id, existing)
+            result = _empty_reply(
+                session_id,
+                "Sure! What neighborhood or borough should I search in?",
+                existing,
+                quick_replies=[
+                    {"label": "📍 Use my location", "value": "__use_geolocation__"},
+                    {"label": "Manhattan", "value": "Manhattan"},
+                    {"label": "Brooklyn", "value": "Brooklyn"},
+                    {"label": "Queens", "value": "Queens"},
+                    {"label": "Bronx", "value": "Bronx"},
+                    {"label": "Staten Island", "value": "Staten Island"},
+                ],
+            )
+            _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+            return result
+
+        if category == "confirm_change_service":
+            existing["service_type"] = None
+            existing.pop("service_detail", None)
+            save_session_slots(session_id, existing)
+            result = _empty_reply(
+                session_id,
+                "No problem! What kind of help do you need?",
+                existing,
+                quick_replies=list(_WELCOME_QUICK_REPLIES),
+            )
+            _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+            return result
+
     # --- Handle confirmation responses ---
     pending = existing.get("_pending_confirmation")
 
     if pending and category == "confirm_yes":
-        # User confirmed — clear the flag and execute the query
+        # User confirmed — clear the flag and execute the query.
+        # But first check if the confirmation message itself contains a
+        # DIFFERENT service type (e.g., "search for shelter" when pending
+        # was for food). If so, update the slots before executing.
+        confirm_extracted = extract_slots(message)
+        if (confirm_extracted.get("service_type") is not None
+                and confirm_extracted["service_type"] != existing.get("service_type")):
+            logger.info(
+                f"Service type changed in confirmation: "
+                f"'{existing.get('service_type')}' → '{confirm_extracted['service_type']}'"
+            )
+            existing = merge_slots(existing, confirm_extracted)
         existing.pop("_pending_confirmation", None)
         save_session_slots(session_id, existing)
         result = _execute_and_respond(session_id, message, existing, request_id=request_id)
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     if pending and category == "confirm_change_service":
@@ -1426,7 +1842,7 @@ def generate_reply(
             existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     if pending and category == "confirm_change_location":
@@ -1446,7 +1862,7 @@ def generate_reply(
                 {"label": "Staten Island", "value": "Staten Island"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     if pending and category == "confirm_deny":
@@ -1466,7 +1882,21 @@ def generate_reply(
                 {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+        return result
+
+    # "No thanks" after a queue offer (no pending confirmation, but queue exists).
+    # The user declined the offered queued service — clear the queue.
+    if not pending and category == "confirm_deny" and existing.get("_queued_services"):
+        existing.pop("_queued_services", None)
+        save_session_slots(session_id, existing)
+        result = _empty_reply(
+            session_id,
+            "No problem! Let me know if you need anything else.",
+            existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "queue_decline", request_id=request_id, tone=tone)
         return result
 
     # If pending confirmation but user typed something new (not a
@@ -1489,12 +1919,23 @@ def generate_reply(
 
         if not pending_has_new:
             # No new slots — user is probably trying to confirm or is confused.
-            # Re-show the confirmation with a nudge.
+            # Re-show the confirmation with a nudge, but acknowledge tone
+            # if the user expressed emotion.
             existing["_pending_confirmation"] = True
             save_session_slots(session_id, existing)
 
+            nudge_prefix = "Just to make sure — "
+            if _response_tone == "emotional":
+                nudge_prefix = "I hear you. Just to make sure — "
+            elif _response_tone == "frustrated":
+                nudge_prefix = "I understand. Let me just confirm — "
+            elif _response_tone == "confused":
+                nudge_prefix = "No worries — let me just confirm: "
+            elif _response_tone == "urgent":
+                nudge_prefix = "Got it — just to confirm: "
+
             confirm_msg = (
-                "Just to make sure — " + _build_confirmation_message(existing)
+                nudge_prefix + _build_confirmation_message(existing)
                 + ' Tap "Yes, search" to go, or you can change the details.'
             )
             confirm_qr = _confirmation_quick_replies(existing)
@@ -1509,26 +1950,23 @@ def generate_reply(
                 "relaxed_search": False,
                 "quick_replies": confirm_qr,
             }
-            _log_turn(session_id, redacted_message, result, "confirmation_nudge", request_id=request_id)
+            _log_turn(session_id, redacted_message, result, "confirmation_nudge", request_id=request_id, tone=tone)
             return result
 
         # Has new slot data — merge and re-process below
 
     # --- Service request or general conversation ---
-    # Extract slots from ORIGINAL text (so "I'm 17 in Queens" still works).
-    # Store the REDACTED version in the session transcript.
-    #
-    # Only use LLM slot extraction for service-category messages.
-    # For non-service categories (confirm_deny, general, etc.) the LLM
-    # can hallucinate slots from conversation history, causing unwanted
-    # re-confirmation after a search is already complete.
+    # Slots were already extracted with regex above (early_extracted).
+    # For service-category messages, re-extract with LLM for better
+    # accuracy on complex inputs. For non-service categories, use the
+    # regex result to avoid LLM hallucinating slots from conversation history.
     if _USE_LLM and category == "service":
         extracted = extract_slots_smart(
             message,
             conversation_history=existing.get("transcript", []),
         )
     else:
-        extracted = extract_slots(message)
+        extracted = early_extracted
 
     # Track whether THIS message contributed any new slot data
     has_new_slots = any(v is not None for k, v in extracted.items()
@@ -1540,6 +1978,21 @@ def generate_reply(
     if "transcript" not in merged:
         merged["transcript"] = []
     merged["transcript"].append({"role": "user", "text": redacted_message})
+
+    # Queue additional services for offering after the primary search.
+    # Only set when new additional services are extracted — don't overwrite
+    # an existing queue from a prior multi-intent message.
+    additional = extracted.get("additional_services", [])
+    if additional and "_queued_services" not in merged:
+        merged["_queued_services"] = additional
+
+    # If the user changed their service type, clear a stale queue
+    # (e.g., they said "food and shelter" but then changed to "medical")
+    if (extracted.get("service_type")
+            and existing.get("service_type")
+            and extracted["service_type"] != existing.get("service_type")
+            and not additional):
+        merged.pop("_queued_services", None)
 
     save_session_slots(session_id, merged)
 
@@ -1555,16 +2008,30 @@ def generate_reply(
         and _has_session_coords
     )
 
+    # Build tone-based prefix for empathetic framing when the user
+    # expressed emotion alongside a service request. Uses category ==
+    # "service" rather than has_service_intent so that LLM-detected
+    # service intent (e.g., "I just got out of the hospital, I'm scared")
+    # also gets the empathetic prefix.
+    _is_service_flow = category == "service"
+    _tone_prefix = ""
+    if _response_tone == "emotional" and _is_service_flow:
+        _tone_prefix = "I hear you, and I want to help. "
+    elif _response_tone == "frustrated" and _is_service_flow:
+        _tone_prefix = "I understand this has been frustrating. Let me try something different. "
+    elif _response_tone == "confused" and _is_service_flow:
+        _tone_prefix = "No worries — let me help you with that. "
+    elif _response_tone == "urgent" and _is_service_flow:
+        _tone_prefix = "I can see this is urgent — let me find something right away. "
+
     # If enough detail exists AND this message contributed new info,
-    # go to CONFIRMATION step. If the user just typed "no" or something
-    # conversational and the old slots happen to be complete, don't
-    # re-trigger confirmation — route to general conversation instead.
+    # go to CONFIRMATION step.
     if (is_enough_to_answer(merged) or _geolocation_ready) and has_new_slots:
         # Set pending confirmation flag
         merged["_pending_confirmation"] = True
         save_session_slots(session_id, merged)
 
-        confirm_msg = _build_confirmation_message(merged)
+        confirm_msg = _tone_prefix + _build_confirmation_message(merged)
         confirm_qr = _confirmation_quick_replies(merged)
 
         result = {
@@ -1577,13 +2044,13 @@ def generate_reply(
             "relaxed_search": False,
             "quick_replies": confirm_qr,
         }
-        _log_turn(session_id, redacted_message, result, "confirmation", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "confirmation", request_id=request_id, tone=tone)
         return result
 
     # Not enough slots yet — but is this a service request or just conversation?
     if category == "service":
         # They mentioned something service-related but we need more info
-        follow_up = next_follow_up_question(merged)
+        follow_up = _tone_prefix + next_follow_up_question(merged)
         follow_up_qr = _follow_up_quick_replies(merged)
         result = {
             "session_id": session_id,
@@ -1595,7 +2062,7 @@ def generate_reply(
             "relaxed_search": False,
             "quick_replies": follow_up_qr,
         }
-        _log_turn(session_id, redacted_message, result, category, request_id=request_id)
+        _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
     # --- General conversation ---
@@ -1617,7 +2084,7 @@ def generate_reply(
             merged,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
-        _log_turn(session_id, redacted_message, result, "unrecognized_service", request_id=request_id)
+        _log_turn(session_id, redacted_message, result, "unrecognized_service", request_id=request_id, tone=tone)
         return result
 
     # Use Claude Haiku for a natural conversational response.
@@ -1637,7 +2104,7 @@ def generate_reply(
             else []
         ),
     )
-    _log_turn(session_id, redacted_message, result, "general", request_id=request_id)
+    _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
     return result
 
 
@@ -1718,6 +2185,37 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
         {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
     ]
 
+    # Check for queued services from multi-intent extraction.
+    # If the user said "I need food and shelter", food was searched first.
+    # Now offer shelter.
+    queued = slots.get("_queued_services", [])
+    if queued and services_list:
+        next_service, next_detail = queued[0]
+        remaining = queued[1:]
+
+        # Update session: pop the offered service, keep remaining
+        if remaining:
+            slots["_queued_services"] = remaining
+        else:
+            slots.pop("_queued_services", None)
+        save_session_slots(session_id, slots)
+
+        label = next_detail or _SERVICE_LABELS.get(next_service, next_service)
+        bot_response += (
+            f"\n\nYou also mentioned {label} — would you like me to "
+            f"search for that too?"
+        )
+        after_results_qr = [
+            {"label": f"✅ Yes, search for {label}", "value": f"I need {next_service}"},
+            {"label": "❌ No thanks", "value": "No thanks"},
+        ]
+
+    # Store results in session so post-results questions can reference them.
+    # Only stored when we actually have results to show.
+    if services_list:
+        slots["_last_results"] = services_list
+        save_session_slots(session_id, slots)
+
     return {
         "session_id": session_id,
         "response": bot_response,
@@ -1734,7 +2232,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
 # AUDIT LOG HELPER
 # ---------------------------------------------------------------------------
 
-def _log_turn(session_id: str, user_msg: str, result: dict, category: str, request_id: str | None = None):
+def _log_turn(session_id: str, user_msg: str, result: dict, category: str, request_id: str | None = None, tone=None):
     """Log a conversation turn to the audit log."""
     try:
         bot_response_redacted, _ = redact_pii(result.get("response", ""))
@@ -1748,6 +2246,7 @@ def _log_turn(session_id: str, user_msg: str, result: dict, category: str, reque
             quick_replies=result.get("quick_replies", []),
             follow_up_needed=result.get("follow_up_needed", False),
             request_id=request_id,
+            tone=tone,
         )
     except Exception as e:
         logger.error(f"Failed to log conversation turn: {e}")

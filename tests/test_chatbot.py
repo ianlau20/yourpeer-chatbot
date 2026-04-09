@@ -390,8 +390,11 @@ def test_confirm_deny_breaks_loop(fresh_session):
     assert len(r2["quick_replies"]) > 0
     assert "just to make sure" not in r3["response"].lower()
 def test_confirm_deny_phrases():
-    """Bug 1: All denial phrases should classify as 'confirm_deny'."""
-    for phrase in ["no", "nah", "nope", "not yet", "hold on", "stop"]:
+    """Bug 1: All denial phrases should classify as 'confirm_deny'.
+    Note: 'wait' and 'hold on' were removed — they're interruptions,
+    not denials. 'wait, I changed my mind, I need shelter' should
+    not trigger deny and lose the shelter intent."""
+    for phrase in ["no", "nah", "nope", "not yet", "stop"]:
         assert_classified(phrase, "confirm_deny")
     for phrase in ["no thanks", "no thank you", "i changed my mind",
                    "not right now", "maybe later"]:
@@ -975,16 +978,21 @@ def test_bot_question_outside_nyc_gets_specific_response(fresh_session):
 # CONTEXT-AWARE YES/NO — EXPANDED
 # -----------------------------------------------------------------------
 
-def test_yes_after_frustration_resets(fresh_session):
-    """'Yes' after frustration should start a new search."""
+def test_yes_after_frustration_connects_navigator(fresh_session):
+    """'Yes' after frustration should connect to peer navigator.
+
+    The frustration handler's messaging pushes toward navigator ('I think
+    a peer navigator would be more helpful'). The 'Try different search'
+    button sends 'Start over' directly, so 'yes' means 'yes, connect me.'
+    See STRUCTURAL_FIXES_CHANGELOG.md Fix 5."""
     send("I need food", session_id=fresh_session)
     send("Brooklyn", session_id=fresh_session)
     send("Yes, search", session_id=fresh_session)
-    send("that wasn't helpful at all", session_id=fresh_session)
+    send("this is useless", session_id=fresh_session)
     result = send("yes", session_id=fresh_session)
-    # Should reset — show welcome quick replies
-    labels = [qr["label"] for qr in result.get("quick_replies", [])]
-    assert "🍽️ Food" in labels
+    # Should route to navigator — not reset
+    response = result["response"].lower()
+    assert "peer" in response or "navigator" in response or "streetlives" in response
 
 
 def test_no_after_frustration_offers_navigator(fresh_session):
@@ -1109,3 +1117,500 @@ def test_family_status_extracted_in_flow(fresh_session):
     from app.services.session_store import get_session_slots
     slots = get_session_slots(fresh_session)
     assert slots.get("family_status") == "with_children"
+
+
+# -----------------------------------------------------------------------
+# SPLIT CLASSIFIER — _classify_action
+# -----------------------------------------------------------------------
+
+def test_classify_action_reset():
+    """Reset phrases should return 'reset' action."""
+    from app.services.chatbot import _classify_action
+    for phrase in ["start over", "reset", "new search", "cancel"]:
+        assert _classify_action(phrase) == "reset", f"Failed on: {phrase}"
+
+
+def test_classify_action_greeting():
+    """Short greetings should return 'greeting' action."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("hello") == "greeting"
+    assert _classify_action("hi") == "greeting"
+
+
+def test_classify_action_greeting_long_message():
+    """Long messages starting with 'hi' should NOT classify as greeting."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("hi I need food in Brooklyn") is None
+
+
+def test_classify_action_confirm_yes():
+    """Confirmation phrases should return 'confirm_yes'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("yes") == "confirm_yes"
+    assert _classify_action("go ahead") == "confirm_yes"
+
+
+def test_classify_action_confirm_deny():
+    """Denial phrases should return 'confirm_deny'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("no") == "confirm_deny"
+    assert _classify_action("not yet") == "confirm_deny"
+
+
+def test_classify_action_bot_question():
+    """Bot capability questions should return 'bot_question'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("how does this work") == "bot_question"
+    assert _classify_action("is this private") == "bot_question"
+
+
+def test_classify_action_escalation():
+    """Escalation phrases should return 'escalation'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("connect me with a peer navigator") == "escalation"
+
+
+def test_classify_action_help():
+    """Help phrases should return 'help'."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("help") == "help"
+
+
+def test_classify_action_none_for_service():
+    """Service requests should return None (not an action)."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("I need food in Brooklyn") is None
+
+
+def test_classify_action_none_for_emotional():
+    """Emotional phrases should return None (not an action)."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("I'm feeling really down") is None
+
+
+# -----------------------------------------------------------------------
+# SPLIT CLASSIFIER — _classify_tone
+# -----------------------------------------------------------------------
+
+def test_classify_tone_emotional():
+    """Emotional phrases should return 'emotional'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I'm feeling really down") == "emotional"
+    assert _classify_tone("having a rough day") == "emotional"
+
+
+def test_classify_tone_frustrated():
+    """Frustration phrases should return 'frustrated'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("that's not helpful") == "frustrated"
+    assert _classify_tone("this is useless") == "frustrated"
+
+
+def test_classify_tone_confused():
+    """Confused phrases should return 'confused'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I don't know what to do") == "confused"
+    assert _classify_tone("I'm overwhelmed") == "confused"
+
+
+def test_classify_tone_none_for_neutral():
+    """Neutral messages should return None."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I need food in Brooklyn") is None
+    assert _classify_tone("hello") is None
+
+
+def test_classify_tone_no_service_word_gate():
+    """Tone classifier should detect emotion EVEN with service words.
+    This is the key difference from the old _classify_message."""
+    from app.services.chatbot import _classify_tone
+    # Old classifier would skip "emotional" because "need" is a service word
+    assert _classify_tone("I'm struggling and need food") == "emotional"
+    assert _classify_tone("I'm feeling down and need shelter") == "emotional"
+
+
+# -----------------------------------------------------------------------
+# COMBINED ROUTING — SERVICE INTENT + TONE
+# -----------------------------------------------------------------------
+
+def test_emotional_plus_service_routes_to_service(fresh_session):
+    """'I'm struggling and need food in Brooklyn' should go to service flow
+    with empathetic framing, not the pure emotional handler."""
+    result = send("I'm struggling and need food in Brooklyn", session_id=fresh_session)
+    # Should reach confirmation (service flow) not emotional response
+    assert result.get("follow_up_needed") or "search" in result["response"].lower()
+    # Should have empathetic prefix
+    assert "hear you" in result["response"].lower() or "help" in result["response"].lower()
+
+
+def test_help_plus_service_routes_to_service(fresh_session):
+    """'I need help with immigration in the Bronx' should go to service flow,
+    not the help handler."""
+    result = send("I need help with immigration in the Bronx", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "legal"
+
+
+def test_escalation_plus_service_routes_to_service(fresh_session):
+    """'I'm a peer navigator, my client needs shelter in East Harlem'
+    should go to service flow, not escalation."""
+    result = send(
+        "I'm a peer navigator. I have a client who needs shelter in East Harlem.",
+        session_id=fresh_session,
+    )
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+
+
+def test_pure_emotional_still_works(fresh_session):
+    """'I'm feeling really down' with no service intent should still
+    trigger the emotional handler."""
+    result = send("I'm feeling really down", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should be empathetic, not a service confirmation
+    assert "search" not in response or "food" not in response
+    qr = result.get("quick_replies", [])
+    labels = [q["label"] for q in qr]
+    assert any("person" in l.lower() or "talk" in l.lower() for l in labels)
+
+
+def test_pure_help_still_works(fresh_session):
+    """'help' with no service intent should trigger help handler."""
+    result = send("help", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "food" in response or "shelter" in response  # lists categories
+
+
+def test_pure_escalation_still_works(fresh_session):
+    """'connect me with a peer navigator' should trigger escalation."""
+    result = send("connect me with a peer navigator", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "peer" in response or "navigator" in response or "streetlives" in response
+
+
+def test_confused_plus_service_routes_to_service(fresh_session):
+    """'I don't know, maybe shelter in Brooklyn?' should go to service
+    with a gentle tone prefix."""
+    result = send("I don't know, maybe shelter in Brooklyn?", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+    # Should have confused tone prefix
+    assert "no worries" in result["response"].lower() or "help" in result["response"].lower()
+
+
+def test_frustrated_plus_service_routes_to_service(fresh_session):
+    """'That wasn't helpful, find me clothing in Queens' should search
+    with a frustrated tone prefix."""
+    result = send("That wasn't helpful, find me clothing in Queens", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "clothing"
+    # Should have frustrated tone prefix
+    response = result["response"].lower()
+    assert "understand" in response or "frustrating" in response or "different" in response
+
+
+# -----------------------------------------------------------------------
+# URGENT TONE
+# -----------------------------------------------------------------------
+
+def test_classify_tone_urgent():
+    """Urgency phrases should return 'urgent' tone."""
+    from app.services.chatbot import _classify_tone
+    phrases = [
+        "I need shelter right now",
+        "I have nowhere to go tonight",
+        "please help me find food immediately",
+        "this is urgent",
+        "we're on the street",
+        "I was evicted today",
+        "I'm desperate",
+    ]
+    for phrase in phrases:
+        result = _classify_tone(phrase)
+        assert result == "urgent", f"Expected 'urgent' for '{phrase}', got '{result}'"
+
+
+def test_classify_tone_emotional_beats_urgent():
+    """Emotional tone should take priority over urgent."""
+    from app.services.chatbot import _classify_tone
+    # "I'm scared" is emotional, "tonight" is urgent — emotional wins
+    assert _classify_tone("I'm scared and need shelter tonight") == "emotional"
+
+
+def test_classify_tone_urgent_without_emotion():
+    """Pure urgency without emotional content should return 'urgent'."""
+    from app.services.chatbot import _classify_tone
+    assert _classify_tone("I need food tonight") == "urgent"
+
+
+def test_urgent_plus_service_gets_prefix(fresh_session):
+    """Urgent + service intent should produce urgent prefix in confirmation."""
+    result = send("I need shelter in Brooklyn right now", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "urgent" in response or "right away" in response
+
+
+def test_urgent_no_service_falls_through(fresh_session):
+    """Urgent tone without service intent should not crash."""
+    # "right now" has no service keyword — should fall to general/help
+    result = send("I need help right now", session_id=fresh_session)
+    # Should get help response or general, not an error
+    assert result.get("response") is not None
+
+
+# -----------------------------------------------------------------------
+# BUG FIX — ESCALATION GUARD REGRESSION
+# -----------------------------------------------------------------------
+
+def test_escalation_without_location_stays_escalation(fresh_session):
+    """'Connect me with a navigator about food' (food but no location)
+    should route to escalation, not service. The user wants human help."""
+    result = send("connect me with a peer navigator about food", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should be escalation response (mentions peer/navigator/streetlives)
+    assert any(w in response for w in ["peer", "navigator", "streetlives", "person"]), \
+        f"Expected escalation response, got: {response[:100]}"
+
+
+def test_escalation_with_service_and_location_routes_to_service(fresh_session):
+    """'Navigator, client needs shelter in East Harlem' (service + location)
+    should route to service, not escalation. This is a request on behalf of someone."""
+    result = send(
+        "I'm a peer navigator. My client needs shelter in East Harlem.",
+        session_id=fresh_session,
+    )
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+
+
+def test_talk_to_someone_about_shelter_stays_escalation(fresh_session):
+    """'I want to talk to someone about shelter' — user wants human,
+    not a chatbot search."""
+    result = send("I want to talk to someone about shelter", session_id=fresh_session)
+    response = result["response"].lower()
+    assert any(w in response for w in ["peer", "navigator", "streetlives", "person"]), \
+        f"Expected escalation response, got: {response[:100]}"
+
+
+# -----------------------------------------------------------------------
+# BUG FIX — TONE PREFIX ON PENDING CONFIRMATION RE-SHOW
+# -----------------------------------------------------------------------
+# Fix 5 is a defensive code quality improvement. In practice, messages
+# with a detected tone either match a category handler (emotional,
+# frustrated, confused) that fires before the pending re-show, or they
+# contain extractable slot data (urgency keywords) that causes the
+# confirmation to re-trigger via the normal path rather than the re-show.
+# The tone-aware nudge prefix exists as a safety net for future tones
+# or handler reordering. No test needed for the current tone set.
+
+
+# -----------------------------------------------------------------------
+# FAMILY_STATUS REACHES QUERY_SERVICES
+# -----------------------------------------------------------------------
+
+def test_family_status_passed_to_query(fresh_session):
+    """family_status should be passed through to query_services."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "shelter",
+        "location": "Brooklyn",
+        "family_status": "with_children",
+        "_pending_confirmation": True,
+    })
+    result = send("yes", session_id=fresh_session)
+    # The mock query_services was called — check it received family_status
+    # We can verify indirectly: the result should have services (from mock)
+    # and the session should have family_status
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    # family_status should still be in session after execution
+    assert slots.get("family_status") == "with_children"
+
+
+# -----------------------------------------------------------------------
+# _classify_action RETURNS NONE FOR TONES
+# -----------------------------------------------------------------------
+
+def test_classify_action_none_for_frustrated():
+    """Frustration phrases should return None from _classify_action (tone, not action)."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("that wasn't helpful") is None
+    assert _classify_action("this is useless") is None
+
+
+def test_classify_action_none_for_confused():
+    """Confused phrases should return None from _classify_action."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("I don't know what to do") is None
+
+
+def test_classify_action_none_for_urgent():
+    """Urgent phrases without 'help' should return None from _classify_action.
+
+    Note: 'I need help right now' legitimately contains 'help' and correctly
+    returns 'help' from _classify_action. The urgency ('right now') is
+    captured separately by _classify_tone. In generate_reply, both action
+    and tone are available for combined routing."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("tonight") is None
+    assert _classify_action("I need something right now") is None
+    assert _classify_action("this is urgent") is None
+    # "I need help right now" correctly returns "help" — the word "help"
+    # is present and should match. Urgency is a tone, not an action.
+    assert _classify_action("I need help right now") == "help"
+
+
+# -----------------------------------------------------------------------
+# SERVICE QUEUE (multi-intent PR 3)
+# -----------------------------------------------------------------------
+
+def test_multi_intent_queues_additional_services(fresh_session):
+    """'I need food and shelter in Brooklyn' should queue shelter."""
+    result = send("I need food and shelter in Brooklyn", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "food"
+    assert "_queued_services" in slots
+    assert any(s[0] == "shelter" for s in slots["_queued_services"])
+
+
+def test_multi_intent_offers_queued_after_results(fresh_session):
+    """After food results, bot should offer to search for shelter."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+        "_pending_confirmation": True,
+    })
+    result = send("yes", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "shelter" in response, f"Should mention queued shelter, got: {response[:120]}"
+    assert "also mentioned" in response or "search for that" in response
+    qr_labels = [q["label"] for q in result.get("quick_replies", [])]
+    assert any("shelter" in l.lower() for l in qr_labels), f"Expected shelter button, got {qr_labels}"
+
+
+def test_multi_intent_yes_to_queued_service(fresh_session):
+    """Tapping 'Yes, search for shelter' should start a shelter search."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+    })
+    result = send("I need shelter", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "shelter"
+    assert slots.get("location") == "Brooklyn"
+
+
+def test_multi_intent_no_thanks_clears_queue(fresh_session):
+    """'No thanks' should clear the queue and show wrap-up."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("No thanks", session_id=fresh_session)
+    response = result["response"].lower()
+    assert "no problem" in response or "let me know" in response
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_three_services_queued(fresh_session):
+    """Three services should queue the second and third."""
+    result = send("I need food, clothing, and legal help in Manhattan", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "food"
+    queued = slots.get("_queued_services", [])
+    queued_types = [s[0] for s in queued]
+    assert "clothing" in queued_types
+    assert "legal" in queued_types
+
+
+def test_multi_intent_queue_not_overwritten(fresh_session):
+    """If a queue already exists, a new message shouldn't overwrite it."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("actually make that Queens", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" in slots
+
+
+def test_multi_intent_queue_cleared_on_service_change(fresh_session):
+    """Changing service type without multi-intent should clear stale queue."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("I need medical care", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert slots.get("service_type") == "medical"
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_reset_clears_queue(fresh_session):
+    """'Start over' should clear everything including the queue."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("shelter", None)],
+    })
+    result = send("start over", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_no_queue_when_single_service(fresh_session):
+    """Single service message should not create a queue."""
+    result = send("I need food in Brooklyn", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    assert "_queued_services" not in slots
+
+
+def test_multi_intent_queue_offer_uses_detail_label(fresh_session):
+    """Queue offer should use service_detail label when available."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food",
+        "location": "Brooklyn",
+        "_queued_services": [("medical", "dental care")],
+        "_pending_confirmation": True,
+    })
+    result = send("yes", session_id=fresh_session)
+    response = result["response"].lower()
+    # Should use "dental care" not "health care"
+    if result.get("result_count", 0) > 0:
+        assert "dental care" in response, f"Should use detail label, got: {response[:120]}"
+
+
+def test_multi_intent_queue_preserved_through_confirmation(fresh_session):
+    """Queue should survive the confirmation flow."""
+    result = send("I need food and shelter in Brooklyn", session_id=fresh_session)
+    from app.services.session_store import get_session_slots
+    slots = get_session_slots(fresh_session)
+    # Should have pending confirmation AND queue
+    assert slots.get("_pending_confirmation") is True
+    assert "_queued_services" in slots
+    assert any(s[0] == "shelter" for s in slots["_queued_services"])

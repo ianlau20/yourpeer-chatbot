@@ -81,6 +81,37 @@ export interface ConversationQuality {
   conversational_discovery_rate: number | null;
 }
 
+export interface RoutingDistribution {
+  category_distribution: Record<string, number>;
+  total_categorized: number;
+  general_turns: number;
+  general_rate: number | null;
+  safe_service_turns: number;
+  conversational_safe_turns: number;
+  emotional_turns: number;
+  safety_turns: number;
+  buckets: {
+    service_flow: number;
+    conversational: number;
+    emotional: number;
+    safety: number;
+    general_llm: number;
+    other: number;
+  };
+}
+
+export interface ToneDistribution {
+  tones: Record<string, number>;
+  total_with_tone: number;
+  turns_without_tone: number;
+}
+
+export interface MultiIntentMetrics {
+  queue_offers: number;
+  queue_declines: number;
+  multi_service_sessions: number;
+}
+
 export interface AdminStats {
   unique_sessions: number;
   total_turns: number;
@@ -101,6 +132,9 @@ export interface AdminStats {
   confirmation_breakdown: ConfirmationBreakdown;
   category_distribution: Record<string, number>;
   service_type_distribution: Record<string, number>;
+  routing?: RoutingDistribution;
+  tone_distribution?: ToneDistribution;
+  multi_intent?: MultiIntentMetrics;
 }
 
 export interface ConversationSummary {

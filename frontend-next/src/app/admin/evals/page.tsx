@@ -9,6 +9,7 @@
 import { useEffect, useCallback } from "react";
 import { useAdminStore } from "@/lib/admin/store";
 import { EvalRunner, EvalResults } from "@/components/admin/eval-results";
+import { EvalSkeleton } from "@/components/admin/loading-skeleton";
 
 export default function EvalsPage() {
   const { evalResults, fetchEvalResults, invalidate } = useAdminStore();
@@ -29,7 +30,7 @@ export default function EvalsPage() {
       <EvalRunner onComplete={onEvalComplete} />
 
       {evalResults.loading && report === undefined && (
-        <p className="text-neutral-400 text-sm">Loading…</p>
+        <EvalSkeleton />
       )}
 
       {!evalResults.loading && (report === null || report === undefined) && (

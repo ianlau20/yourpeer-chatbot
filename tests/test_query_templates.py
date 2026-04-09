@@ -990,3 +990,155 @@ def test_all_templates_use_open_now_sort():
 
 
 # -----------------------------------------------------------------------
+
+
+
+# -----------------------------------------------------------------------
+# SHELTER TAXONOMY ENRICHMENT (query_services in rag/__init__.py)
+# -----------------------------------------------------------------------
+
+def _get_taxonomy_names(service_type, **kwargs):
+    """Helper: call query_services with mock and return the taxonomy_names passed."""
+    from unittest.mock import patch
+    from app.rag import query_services
+
+    with patch("app.rag.execute_service_query") as mock_exec:
+        mock_exec.return_value = {
+            "services": [], "result_count": 0,
+            "template_used": "test", "params_applied": {},
+            "relaxed": False, "execution_ms": 0,
+        }
+        query_services(service_type=service_type, location="Brooklyn", **kwargs)
+        return mock_exec.call_args.kwargs["user_params"].get("taxonomy_names", [])
+
+
+def test_shelter_enrichment_youth():
+    """Shelter query for age < 18 should add 'youth' to taxonomy_names."""
+    names = _get_taxonomy_names("shelter", age=16)
+    assert "youth" in names
+    assert "senior" not in names
+
+
+def test_shelter_enrichment_senior():
+    """Shelter query for age >= 62 should add 'senior' to taxonomy_names."""
+    names = _get_taxonomy_names("shelter", age=65)
+    assert "senior" in names
+    assert "youth" not in names
+
+
+def test_shelter_enrichment_families():
+    """Shelter query with family_status=with_children should add 'families'."""
+    names = _get_taxonomy_names("shelter", family_status="with_children")
+    assert "families" in names
+    assert "single adult" not in names
+
+
+def test_shelter_enrichment_single_adult():
+    """Shelter query with family_status=alone should add 'single adult'."""
+    names = _get_taxonomy_names("shelter", family_status="alone")
+    assert "single adult" in names
+    assert "families" not in names
+
+
+def test_shelter_enrichment_lgbtq_always():
+    """LGBTQ Young Adult should always be included in shelter queries."""
+    names = _get_taxonomy_names("shelter")
+    assert "lgbtq young adult" in names
+
+
+def test_shelter_enrichment_base_preserved():
+    """Enrichment should ADD to base shelter taxonomies, not replace them."""
+    names = _get_taxonomy_names("shelter", age=16, family_status="with_children")
+    assert "shelter" in names, "Base 'shelter' taxonomy missing"
+    assert "safe haven" in names, "Base 'safe haven' taxonomy missing"
+    assert "youth" in names, "Enriched 'youth' missing"
+    assert "families" in names, "Enriched 'families' missing"
+    assert "lgbtq young adult" in names, "Enriched 'lgbtq young adult' missing"
+
+
+def test_food_no_enrichment():
+    """Non-shelter queries should NOT get taxonomy enrichment."""
+    names = _get_taxonomy_names("food", age=16, family_status="with_children")
+    assert "youth" not in names
+    assert "families" not in names
+    assert "lgbtq young adult" not in names
+
+
+def test_shelter_enrichment_no_mutation():
+    """Enrichment should not mutate the TEMPLATES default_params."""
+    from app.rag.query_templates import TEMPLATES
+    original = list(TEMPLATES["shelter"]["default_params"]["taxonomy_names"])
+    _get_taxonomy_names("shelter", age=16, family_status="with_children")
+    after = TEMPLATES["shelter"]["default_params"]["taxonomy_names"]
+    assert original == after, "TEMPLATES default_params was mutated by enrichment"
+
+
+# -----------------------------------------------------------------------
+# OPEN-NOW SORT (post-query)
+# -----------------------------------------------------------------------
+
+def test_sort_open_first_basic():
+    """Open services should appear before closed and unknown."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": None},
+        {"service_name": "B", "is_open": "closed"},
+        {"service_name": "C", "is_open": "open"},
+    ]
+    result = _sort_open_first(cards)
+    assert result[0]["service_name"] == "C"
+    assert result[1]["service_name"] == "B"
+    assert result[2]["service_name"] == "A"
+
+
+def test_sort_open_first_stable_order():
+    """Within each group, original order should be preserved (stable sort)."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": None},
+        {"service_name": "B", "is_open": "closed"},
+        {"service_name": "C", "is_open": "open"},
+        {"service_name": "D", "is_open": None},
+        {"service_name": "E", "is_open": "open"},
+        {"service_name": "F", "is_open": "closed"},
+    ]
+    result = _sort_open_first(cards)
+    names = [c["service_name"] for c in result]
+    assert names == ["C", "E", "B", "F", "A", "D"]
+
+
+def test_sort_open_first_all_open():
+    """All open services — order should not change."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": "open"},
+        {"service_name": "B", "is_open": "open"},
+    ]
+    result = _sort_open_first(cards)
+    assert [c["service_name"] for c in result] == ["A", "B"]
+
+
+def test_sort_open_first_all_unknown():
+    """All unknown services — order should not change."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": None},
+        {"service_name": "B", "is_open": None},
+    ]
+    result = _sort_open_first(cards)
+    assert [c["service_name"] for c in result] == ["A", "B"]
+
+
+def test_sort_open_first_empty():
+    """Empty list should return empty list."""
+    from app.rag.query_executor import _sort_open_first
+    assert _sort_open_first([]) == []
+
+
+def test_sort_open_first_single():
+    """Single card should return unchanged."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [{"service_name": "A", "is_open": "closed"}]
+    result = _sort_open_first(cards)
+    assert len(result) == 1
+    assert result[0]["service_name"] == "A"
