@@ -6,11 +6,14 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAdminStore } from "@/lib/admin/store";
 import { MetricsSection } from "@/components/admin/metrics-section";
 import { MetricRow, statusClass, fmtMetric } from "@/components/admin/metric-row";
 import { MetricsSkeleton } from "@/components/admin/loading-skeleton";
+import { MetricDetailDialog } from "@/components/admin/metric-detail-dialog";
+import { findMetricDefinition } from "@/lib/admin/metric-definitions";
+import type { MetricDefinition } from "@/lib/admin/metric-definitions";
 
 export default function MetricsPage() {
   const {
@@ -27,6 +30,13 @@ export default function MetricsPage() {
     fetchConversations();
     fetchQueries();
   }, [fetchStats, fetchConversations, fetchQueries]);
+
+  const [selectedMetric, setSelectedMetric] = useState<MetricDefinition | null>(null);
+
+  const onMetricClick = useCallback((name: string) => {
+    const def = findMetricDefinition(name);
+    if (def) setSelectedMetric(def);
+  }, []);
 
   const loading = (!statsSlice.data && statsSlice.loading)
     || (convosSlice.data.length === 0 && convosSlice.loading)
@@ -96,50 +106,54 @@ export default function MetricsPage() {
     <>
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-3.5 py-2.5 text-sm text-neutral-500 mb-6">
         Metrics are computed from the in-memory audit log. Data resets on server
-        restart. <strong>n/a</strong> = not yet measurable from audit log alone.
-        See{" "}
+        restart. <strong>n/a</strong> = not yet measurable.{" "}
+        <strong>Click any metric name</strong> for a detailed explanation with
+        formula and target rationale from{" "}
         <a
           href="https://github.com/ianlau20/yourpeer-chatbot/blob/llm-power/docs/METRICS.md"
           target="_blank"
           className="text-amber-600 hover:underline"
         >
           METRICS.md
-        </a>{" "}
-        for full definitions.
+        </a>
+        .
       </div>
 
       {/* 1 · Intake Quality */}
-      <MetricsSection title="1 · Intake Quality">
+      <MetricsSection
+        title="1 · Intake Quality"
+        description="How well the chatbot collects structured fields and guides users to a confirmed search. High task completion and low correction rates indicate the slot extractor and confirmation flow are working."
+      >
         <MetricRow
-          name="Task Completion Rate"
+          name="Task Completion Rate" onClick={onMetricClick}
           subtitle="% of service-intent sessions reaching a confirmed query"
           target="≥ 70% (pilot launch)"
           value={fmtMetric(taskCompletionRate, true)}
           status={statusClass(taskCompletionRate, 0.7, "gte", 0.55)}
         />
         <MetricRow
-          name="Slot Confirmation Rate"
+          name="Slot Confirmation Rate" onClick={onMetricClick}
           subtitle="% of queries that went through the explicit confirmation step"
           target="≥ 90%"
           value={fmtMetric(stats.slot_confirmation_rate, true)}
           status={statusClass(stats.slot_confirmation_rate, 0.9, "gte", 0.8)}
         />
         <MetricRow
-          name="Slot Correction Rate"
+          name="Slot Correction Rate" onClick={onMetricClick}
           subtitle="% of sessions where user corrects a slot after confirmation"
           target="≤ 15%"
           value={fmtMetric(stats.slot_correction_rate, true)}
           status={statusClass(stats.slot_correction_rate, 0.15, "lte", 0.25)}
         />
         <MetricRow
-          name="Confirmation: Confirm Rate"
+          name="Confirmation: Confirm Rate" onClick={onMetricClick}
           subtitle={`% of confirmation actions that are "Yes, search" (${cbTotal} actions)`}
           target="≥ 65% confirm"
           value={fmtMetric(cb?.confirm_rate ?? null, true)}
           status={statusClass(cb?.confirm_rate ?? null, 0.65, "gte", 0.5)}
         />
         <MetricRow
-          name="Confirmation: Abandon Rate"
+          name="Confirmation: Abandon Rate" onClick={onMetricClick}
           subtitle="% of sessions that reach confirmation but never confirm"
           target="≤ 10%"
           value={fmtMetric(cb?.abandon_rate ?? null, true)}
@@ -162,7 +176,10 @@ export default function MetricsPage() {
       </MetricsSection>
 
       {/* 2 · Answer Quality */}
-      <MetricsSection title="2 · Answer Quality">
+      <MetricsSection
+        title="2 · Answer Quality"
+        description="Quality and usefulness of search results. Low no-result and relaxed rates indicate good query template coverage. Freshness measures how current the underlying service data is."
+      >
         <MetricRow
           name="No-Result Rate"
           subtitle="% of queries returning zero services after relaxed fallback"
@@ -171,14 +188,14 @@ export default function MetricsPage() {
           status={statusClass(noResultRate, 0.15, "lte", 0.25)}
         />
         <MetricRow
-          name="Relaxed Query Rate"
+          name="Relaxed Query Rate" onClick={onMetricClick}
           subtitle="% of queries that only returned results after relaxing strict filters"
           target="≤ 25%"
           value={fmtMetric(relaxedRateVal, true)}
           status={statusClass(relaxedRateVal, 0.25, "lte", 0.35)}
         />
         <MetricRow
-          name="Data Freshness Rate"
+          name="Data Freshness Rate" onClick={onMetricClick}
           subtitle={`% of returned service cards verified within last 90 days (${stats.data_freshness_detail?.cards_served || 0} cards served)`}
           target="≥ 80%"
           value={fmtMetric(stats.data_freshness_rate, true)}
@@ -186,7 +203,7 @@ export default function MetricsPage() {
         />
         <MetricRow name="Eligibility Fit Rate" subtitle="% of results matching all stated user criteria" target="≥ 95%" value="By design (canary)" status="no-data" />
         <MetricRow
-          name="User Feedback Score"
+          name="User Feedback Score" onClick={onMetricClick}
           subtitle={`% of post-result feedback that is positive (${fbTotal} response${fbTotal !== 1 ? "s" : ""} so far)`}
           target="≥ 70% positive"
           value={fbDisplay}
@@ -195,9 +212,12 @@ export default function MetricsPage() {
       </MetricsSection>
 
       {/* 3 · Safety */}
-      <MetricsSection title="3 · Safety">
+      <MetricsSection
+        title="3 · Safety"
+        description="Crisis detection, escalation, and feedback metrics. Crisis detection must be 100% — any miss could leave a vulnerable person without resources. Escalation rate tracks peer navigator requests."
+      >
         <MetricRow
-          name="Crisis Detection Count"
+          name="Crisis Detection Count" onClick={onMetricClick}
           subtitle="Total sessions where crisis language was detected and resources shown"
           target="Target: 100% of crisis messages"
           value={String(stats.total_crises)}
@@ -207,7 +227,7 @@ export default function MetricsPage() {
         <MetricRow name="PII Leakage Rate" subtitle="% of stored transcripts with detectable PII after redaction" target="0%" value={null} status="no-data" />
         <MetricRow name="Hallucination Rate" subtitle="% of bot responses containing fabricated service data" target="< 1% (structural guarantee)" value="~0% by design" status="on-target" />
         <MetricRow
-          name="Escalation Rate"
+          name="Escalation Rate" onClick={onMetricClick}
           subtitle="% of sessions where user requests a human peer navigator"
           target="Baseline tracking only"
           value={fmtMetric(
@@ -219,44 +239,47 @@ export default function MetricsPage() {
       </MetricsSection>
 
       {/* 4 · Conversation Quality */}
-      <MetricsSection title="4 · Conversation Quality">
+      <MetricsSection
+        title="4 · Conversation Quality"
+        description="How well the chatbot handles emotional and conversational interactions beyond service search. Tracks emotional awareness, bot question handling, and whether users can find services through natural conversation."
+      >
         <MetricRow
-          name="Emotional Detection Rate"
+          name="Emotional Detection Rate" onClick={onMetricClick}
           subtitle={`% of sessions with an emotional turn (${stats.conversation_quality?.emotional_sessions || 0} sessions)`}
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.emotional_rate ?? null, true)}
           status="no-data"
         />
         <MetricRow
-          name="Emotional → Escalation Rate"
+          name="Emotional → Escalation Rate" onClick={onMetricClick}
           subtitle="% of emotional sessions where user subsequently asked for a peer navigator"
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.emotional_to_escalation ?? null, true)}
           status="no-data"
         />
         <MetricRow
-          name="Emotional → Service Rate"
+          name="Emotional → Service Rate" onClick={onMetricClick}
           subtitle="% of emotional sessions where user eventually reached a service search"
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.emotional_to_service ?? null, true)}
           status="no-data"
         />
         <MetricRow
-          name="Bot Question Rate"
+          name="Bot Question Rate" onClick={onMetricClick}
           subtitle={`% of turns asking about bot capabilities (${stats.conversation_quality?.bot_question_turns || 0} turns)`}
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.bot_question_rate ?? null, true)}
           status="no-data"
         />
         <MetricRow
-          name="Bot Question → Frustration Rate"
+          name="Bot Question → Frustration Rate" onClick={onMetricClick}
           subtitle="% of bot-question sessions followed by frustration"
           target="≤ 10%"
           value={fmtMetric(stats.conversation_quality?.bot_question_to_frustration ?? null, true)}
           status={statusClass(stats.conversation_quality?.bot_question_to_frustration ?? null, 0.1, "lte", 0.2)}
         />
         <MetricRow
-          name="Conversational Discovery Rate"
+          name="Conversational Discovery Rate" onClick={onMetricClick}
           subtitle={`% of query sessions that included a conversational turn (${stats.conversation_quality?.conversational_discovery || 0} sessions)`}
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.conversational_discovery_rate ?? null, true)}
@@ -284,6 +307,13 @@ export default function MetricsPage() {
           status="no-data"
         />
         <MetricRow
+          name="Post-Results Questions"
+          subtitle="Follow-up questions about displayed services — answered from card data, no LLM"
+          target="Baseline tracking"
+          value={`${routing?.category_distribution?.post_results || 0} turns`}
+          status="no-data"
+        />
+        <MetricRow
           name="Emotional / Frustrated / Confused"
           subtitle="Tone-aware responses with empathetic framing"
           target="—"
@@ -298,7 +328,7 @@ export default function MetricsPage() {
           status="no-data"
         />
         <MetricRow
-          name="⚠ General (LLM-Generated)"
+          name="⚠ General (LLM-Generated)" onClick={onMetricClick}
           subtitle="Turns where the LLM fully generates the response — no template grounding"
           target="≤ 15% of turns"
           value={fmtMetric(routing?.general_rate ?? null, true)}
@@ -411,6 +441,14 @@ export default function MetricsPage() {
         <MetricRow name="Service Accuracy Rate" subtitle="% of post-visit feedback where details matched reality" target="≥ 85%" value={null} status="no-data" phase="Post-pilot" />
         <MetricRow name="Outcome Linkage" subtitle="Correlate success rates with user profile and location" target="Baseline established" value={null} status="no-data" phase="Post-pilot" />
       </MetricsSection>
+
+      {/* Metric detail dialog */}
+      {selectedMetric && (
+        <MetricDetailDialog
+          metric={selectedMetric}
+          onClose={() => setSelectedMetric(null)}
+        />
+      )}
     </>
   );
 }

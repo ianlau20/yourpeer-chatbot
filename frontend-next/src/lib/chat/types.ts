@@ -147,7 +147,7 @@ export interface ConversationSummary {
 }
 
 export interface AuditEvent {
-  type: "conversation_turn" | "query_execution" | "crisis_detected" | "session_reset";
+  type: "conversation_turn" | "query_execution" | "crisis_detected" | "session_reset" | "feedback";
   timestamp: string;
   session_id?: string;
   user_message?: string;
@@ -160,6 +160,8 @@ export interface AuditEvent {
   slots?: Record<string, string | null>;
   services_count?: number;
   quick_replies?: string[];
+  rating?: string;
+  comment?: string;
 }
 
 export interface QueryLogEntry {

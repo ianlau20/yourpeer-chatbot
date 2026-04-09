@@ -9,6 +9,8 @@
 import { useState } from "react";
 import type { ConversationSummary, AuditEvent } from "@/lib/chat/types";
 import { fetchConversationDetail } from "@/lib/chat/api";
+import { useSortableTable } from "@/hooks/use-sortable-table";
+import { SortableHeader } from "./sortable-header";
 import { TranscriptDrawer } from "./transcript-drawer";
 
 interface ConversationTableProps {
@@ -19,6 +21,11 @@ export function ConversationTable({ conversations }: ConversationTableProps) {
   const [transcript, setTranscript] = useState<AuditEvent[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { sorted, sortKey, sortDir, onSort } = useSortableTable(
+    conversations as unknown as Record<string, unknown>[],
+    "last_seen",
+    "desc",
+  );
 
   async function openTranscript(sessionId: string) {
     setSelectedId(sessionId);
@@ -53,25 +60,17 @@ export function ConversationTable({ conversations }: ConversationTableProps) {
         <table className="w-full text-sm">
           <thead>
             <tr>
-              <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-200">
-                Session
-              </th>
-              <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-200">
-                Turns
-              </th>
-              <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-200">
-                Outcome
-              </th>
+              <SortableHeader label="Session" field="session_id" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortableHeader label="Turns" field="turn_count" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortableHeader label="Outcome" field="services_delivered" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-200">
                 Slots
               </th>
-              <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-200">
-                Last Active
-              </th>
+              <SortableHeader label="Last Active" field="last_seen" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             </tr>
           </thead>
           <tbody>
-            {conversations.map((c) => {
+            {(sorted as unknown as ConversationSummary[]).map((c) => {
               const slots =
                 Object.entries(c.final_slots || {})
                   .map(([k, v]) => `${k}=${v}`)

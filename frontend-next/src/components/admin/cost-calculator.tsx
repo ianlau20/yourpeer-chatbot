@@ -222,6 +222,15 @@ export function CostCalculator() {
         </div>
       </div>
 
+      {/* Post-results savings note */}
+      <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 mb-4 text-sm text-emerald-800">
+        <span className="font-semibold">Cost optimization:</span>{" "}
+        Post-results questions (&ldquo;are any open now?&rdquo;, &ldquo;tell me about the first one&rdquo;)
+        are handled deterministically from stored card data — zero LLM calls.
+        The <code className="bg-emerald-100 px-1 rounded text-xs">skip_llm</code> optimization
+        also eliminates Sonnet crisis detection calls on short safe actions (≤ 4 words).
+      </div>
+
       {/* Scale projection */}
       <div className="bg-white border border-neutral-200 rounded-lg px-4 py-3 mb-6">
         <div className="text-xs font-semibold mb-2">
