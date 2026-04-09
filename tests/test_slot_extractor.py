@@ -1239,3 +1239,70 @@ def test_extract_all_word_boundary_ordered():
     if "shelter" in types and "food" in types:
         assert types.index("food") < types.index("shelter"), \
             f"food should come before shelter (bed), got {results}"
+
+
+# -----------------------------------------------------------------------
+# NYC ZIP CODE EXTRACTION
+# -----------------------------------------------------------------------
+
+def test_zip_to_neighborhood_specific():
+    """Common NYC zip codes should map to specific neighborhoods."""
+    cases = [
+        ("10035", "east harlem"),
+        ("10029", "east harlem"),
+        ("10027", "harlem"),
+        ("10001", "chelsea"),
+        ("10451", "mott haven"),
+        ("11201", "brooklyn"),
+        ("11354", "flushing"),
+        ("11372", "jackson heights"),
+        ("10301", "staten island"),
+    ]
+    for zip_code, expected in cases:
+        slots = extract_slots(zip_code)
+        assert slots["location"] == expected, \
+            f"Zip {zip_code}: expected '{expected}', got '{slots['location']}'"
+
+
+def test_zip_to_borough_fallback():
+    """NYC zips not in the specific lookup should map to a borough."""
+    # 10128 is Upper East Side but not in the specific table
+    # It's in the Manhattan range (10001-10282)
+    slots = extract_slots("10128")
+    assert slots["location"] == "manhattan", \
+        f"Zip 10128: expected 'manhattan', got '{slots['location']}'"
+
+
+def test_zip_non_nyc_returns_none():
+    """Non-NYC zip codes should not extract a location."""
+    for zip_code in ["90210", "60601", "02101", "99999"]:
+        slots = extract_slots(zip_code)
+        assert slots["location"] is None, \
+            f"Non-NYC zip {zip_code} should not extract, got '{slots['location']}'"
+
+
+def test_zip_in_sentence():
+    """Zip code embedded in a sentence should still extract."""
+    slots = extract_slots("I'm in the 10035 area")
+    assert slots["location"] == "east harlem"
+
+
+def test_zip_with_service():
+    """Zip code + service should extract both."""
+    slots = extract_slots("food in 10035")
+    assert slots["service_type"] == "food"
+    assert slots["location"] == "east harlem"
+
+
+def test_zip_does_not_conflict_with_age():
+    """A 5-digit number should be treated as a zip, not an age."""
+    slots = extract_slots("10035")
+    assert slots["location"] == "east harlem"
+    assert slots["age"] is None  # Not 10035 years old
+
+
+def test_zip_overridden_by_known_location():
+    """If a known location name is present, it should take priority over zip."""
+    # "in Brooklyn" should match the preposition+location pattern before zip
+    slots = extract_slots("I live at 11201 but need food in Queens")
+    assert slots["location"] == "queens"

@@ -1071,3 +1071,74 @@ def test_shelter_enrichment_no_mutation():
     _get_taxonomy_names("shelter", age=16, family_status="with_children")
     after = TEMPLATES["shelter"]["default_params"]["taxonomy_names"]
     assert original == after, "TEMPLATES default_params was mutated by enrichment"
+
+
+# -----------------------------------------------------------------------
+# OPEN-NOW SORT (post-query)
+# -----------------------------------------------------------------------
+
+def test_sort_open_first_basic():
+    """Open services should appear before closed and unknown."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": None},
+        {"service_name": "B", "is_open": "closed"},
+        {"service_name": "C", "is_open": "open"},
+    ]
+    result = _sort_open_first(cards)
+    assert result[0]["service_name"] == "C"
+    assert result[1]["service_name"] == "B"
+    assert result[2]["service_name"] == "A"
+
+
+def test_sort_open_first_stable_order():
+    """Within each group, original order should be preserved (stable sort)."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": None},
+        {"service_name": "B", "is_open": "closed"},
+        {"service_name": "C", "is_open": "open"},
+        {"service_name": "D", "is_open": None},
+        {"service_name": "E", "is_open": "open"},
+        {"service_name": "F", "is_open": "closed"},
+    ]
+    result = _sort_open_first(cards)
+    names = [c["service_name"] for c in result]
+    assert names == ["C", "E", "B", "F", "A", "D"]
+
+
+def test_sort_open_first_all_open():
+    """All open services — order should not change."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": "open"},
+        {"service_name": "B", "is_open": "open"},
+    ]
+    result = _sort_open_first(cards)
+    assert [c["service_name"] for c in result] == ["A", "B"]
+
+
+def test_sort_open_first_all_unknown():
+    """All unknown services — order should not change."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [
+        {"service_name": "A", "is_open": None},
+        {"service_name": "B", "is_open": None},
+    ]
+    result = _sort_open_first(cards)
+    assert [c["service_name"] for c in result] == ["A", "B"]
+
+
+def test_sort_open_first_empty():
+    """Empty list should return empty list."""
+    from app.rag.query_executor import _sort_open_first
+    assert _sort_open_first([]) == []
+
+
+def test_sort_open_first_single():
+    """Single card should return unchanged."""
+    from app.rag.query_executor import _sort_open_first
+    cards = [{"service_name": "A", "is_open": "closed"}]
+    result = _sort_open_first(cards)
+    assert len(result) == 1
+    assert result[0]["service_name"] == "A"

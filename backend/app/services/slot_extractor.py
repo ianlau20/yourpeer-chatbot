@@ -341,6 +341,14 @@ def _extract_location(text: str) -> Optional[str]:
         if loc in lower:
             return loc
 
+    # NYC zip codes → map to neighborhood or borough.
+    # Checked last because "10035" is unambiguous and doesn't need
+    # preposition context. Covers the most common zip codes for the
+    # population this chatbot serves.
+    zip_match = _extract_nyc_zip(text)
+    if zip_match:
+        return zip_match
+
     return None
 
 
@@ -372,6 +380,111 @@ _KNOWN_LOCATIONS = [
     "woodside", "sunnyside", "corona", "elmhurst",
     "fordham", "morrisania",
 ]
+
+
+# ---------------------------------------------------------------------------
+# NYC ZIP CODE → NEIGHBORHOOD MAPPING
+# ---------------------------------------------------------------------------
+# Maps NYC zip codes to neighborhood names that match _KNOWN_LOCATIONS
+# (and NEIGHBORHOOD_CENTERS in query_executor.py for proximity search).
+# Covers the most common zip codes for the population this chatbot serves.
+# Zips not in this table fall back to borough based on range.
+
+_NYC_ZIP_TO_NEIGHBORHOOD = {
+    # Manhattan — East Harlem / Harlem (high service concentration)
+    "10026": "harlem", "10027": "harlem", "10030": "harlem",
+    "10037": "harlem", "10039": "harlem",
+    "10029": "east harlem", "10035": "east harlem",
+    # Manhattan — Washington Heights / Inwood
+    "10031": "washington heights", "10032": "washington heights",
+    "10033": "washington heights", "10034": "inwood", "10040": "washington heights",
+    # Manhattan — Lower East Side / East Village / Chinatown
+    "10002": "lower east side", "10003": "east village", "10009": "east village",
+    "10013": "chinatown",
+    # Manhattan — Chelsea / Hell's Kitchen / Midtown
+    "10001": "chelsea", "10011": "chelsea",
+    "10018": "midtown", "10019": "midtown west", "10036": "midtown",
+    "10016": "murray hill", "10017": "midtown east",
+    # Manhattan — Other
+    "10004": "financial district", "10005": "financial district",
+    "10006": "financial district", "10007": "financial district",
+    "10012": "soho", "10014": "west village",
+    "10010": "gramercy", "10021": "upper east side",
+    "10023": "upper west side", "10024": "upper west side",
+    "10025": "upper west side", "10028": "upper east side",
+    "10038": "financial district",
+    # Bronx — South Bronx / Mott Haven (high need area)
+    "10451": "mott haven", "10452": "south bronx", "10453": "south bronx",
+    "10454": "mott haven", "10455": "mott haven", "10456": "morrisania",
+    "10457": "fordham", "10458": "fordham", "10459": "hunts point",
+    "10460": "morrisania", "10462": "bronx", "10463": "bronx",
+    "10467": "bronx", "10468": "fordham", "10472": "hunts point",
+    "10474": "hunts point",
+    # Brooklyn
+    "11201": "brooklyn", "11205": "fort greene", "11206": "williamsburg",
+    "11207": "east new york", "11208": "east new york",
+    "11211": "williamsburg", "11212": "brownsville", "11213": "crown heights",
+    "11215": "park slope", "11216": "bed-stuy", "11217": "park slope",
+    "11221": "bushwick", "11225": "crown heights", "11226": "flatbush",
+    "11231": "red hook", "11232": "sunset park", "11233": "bed-stuy",
+    "11234": "flatbush", "11236": "brownsville", "11237": "bushwick",
+    "11238": "prospect heights", "11249": "williamsburg",
+    # Queens
+    "11101": "long island city", "11102": "astoria", "11103": "astoria",
+    "11104": "sunnyside", "11105": "astoria", "11106": "astoria",
+    "11354": "flushing", "11355": "flushing",
+    "11368": "corona", "11369": "jackson heights",
+    "11372": "jackson heights", "11373": "elmhurst",
+    "11377": "woodside", "11378": "ridgewood",
+    "11432": "jamaica", "11433": "jamaica", "11434": "jamaica",
+    "11691": "far rockaway", "11692": "far rockaway",
+    # Staten Island
+    "10301": "staten island", "10302": "staten island",
+    "10303": "staten island", "10304": "staten island",
+    "10305": "staten island", "10310": "staten island",
+    "10314": "staten island",
+}
+
+# Borough fallback ranges for zips not in the specific lookup.
+# NYC zip code ranges: Manhattan 10001-10282, Bronx 10451-10475,
+# Brooklyn 11201-11256, Queens 11001-11697, Staten Island 10301-10314.
+_NYC_ZIP_BOROUGH_RANGES = [
+    (10301, 10314, "staten island"),  # Check before Manhattan (overlapping range)
+    (10451, 10475, "bronx"),          # Check before Manhattan
+    (10001, 10282, "manhattan"),
+    (11201, 11256, "brooklyn"),
+    (11001, 11109, "queens"),
+    (11351, 11697, "queens"),
+]
+
+_NYC_ZIP_RE = re.compile(r"\b(1[01]\d{3})\b")
+
+
+def _extract_nyc_zip(text: str) -> Optional[str]:
+    """Extract a NYC zip code and map it to a neighborhood or borough.
+
+    Returns a neighborhood name from _KNOWN_LOCATIONS if the zip is
+    recognized, or a borough name as a fallback.
+    Returns None if the zip is not a valid NYC zip code.
+    """
+    match = _NYC_ZIP_RE.search(text)
+    if not match:
+        return None
+
+    zip_code = match.group(1)
+
+    # Specific neighborhood mapping (best results — enables proximity search)
+    neighborhood = _NYC_ZIP_TO_NEIGHBORHOOD.get(zip_code)
+    if neighborhood:
+        return neighborhood
+
+    # Borough fallback based on zip range
+    zip_int = int(zip_code)
+    for low, high, borough in _NYC_ZIP_BOROUGH_RANGES:
+        if low <= zip_int <= high:
+            return borough
+
+    return None
 
 
 def _extract_urgency(text: str) -> Optional[str]:

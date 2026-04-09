@@ -19,6 +19,7 @@ from app.services.slot_extractor import (
 from app.rag import query_services
 from app.privacy.pii_redactor import redact_pii
 from app.services.crisis_detector import detect_crisis
+from app.services.post_results import classify_post_results_question, answer_from_results
 
 
 # ---------------------------------------------------------------------------
@@ -83,49 +84,6 @@ def _normalize_contractions(text: str) -> str:
     for contraction, expansion in _CONTRACTION_PAIRS:
         result = result.replace(contraction, expansion)
     return result
-
-
-# ---------------------------------------------------------------------------
-# INTENSIFIER STRIPPING
-# ---------------------------------------------------------------------------
-# Removes common intensifier adverbs that break substring contiguity in
-# phrase matching. "I'm really scared" → "I'm scared" matches "i'm scared".
-#
-# Applied alongside contraction normalization in _classify_tone.
-# NOT applied to crisis detection — explicit enumeration is safer.
-#
-# Only pure intensifiers are stripped — words that modify degree without
-# changing meaning. "not", "never", "no longer" are NOT stripped.
-
-_INTENSIFIERS = {
-    "really", "very", "so", "super", "extremely", "pretty", "quite",
-    "totally", "absolutely", "incredibly", "truly", "deeply",
-    "terribly", "horribly", "awfully", "genuinely", "particularly",
-    "just", "kinda", "sorta",
-}
-
-# Pre-compile: match any intensifier surrounded by whitespace
-_INTENSIFIER_RE = re.compile(
-    r'\b(' + '|'.join(re.escape(w) for w in sorted(_INTENSIFIERS, key=len, reverse=True)) + r')\b\s*',
-    re.IGNORECASE,
-)
-
-
-def _strip_intensifiers(text: str) -> str:
-    """Remove common intensifiers for consistent phrase matching.
-
-    "I'm really scared"      → "I'm scared"
-    "I'm so incredibly down" → "I'm down"
-    "feeling pretty hopeless" → "feeling hopeless"
-    "I just feel stuck"      → "I feel stuck"
-
-    Applied to frustration/emotional/confused matching so phrase lists
-    don't need every intensifier×emotion combination.
-    NOT applied to crisis detection (explicit enumeration is safer).
-    """
-    result = _INTENSIFIER_RE.sub('', text)
-    # Clean up any double spaces left behind
-    return re.sub(r'\s{2,}', ' ', result).strip()
 from app.services.audit_log import (
     log_conversation_turn,
     log_query_execution,
@@ -145,12 +103,6 @@ if _USE_LLM:
     logger.info("LLM features enabled (ANTHROPIC_API_KEY found)")
 else:
     logger.info("LLM features disabled — using regex only")
-
-_NARRATIVE_WORD_THRESHOLD = 20
-
-def _is_narrative_message(message: str) -> bool:
-    """Check if a message is long enough to need narrative extraction."""
-    return len(message.split()) >= _NARRATIVE_WORD_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -242,12 +194,10 @@ _FRUSTRATION_PHRASES = [
 # These must NOT overlap with service keywords ("feeling hungry" → service).
 _EMOTIONAL_PHRASES = [
     "feeling down", "feeling really down",
-    "really down", "so down",
     "feeling sad", "feeling really sad",
     "feeling bad", "feeling really bad",
-    "feeling depressed", "so depressed", "really depressed", "very depressed",
+    "feeling depressed", "so depressed",
     "feeling scared", "feeling really scared", "im scared", "i'm scared",
-    "really scared", "so scared", "very scared",
     "feeling anxious", "feeling really anxious", "so anxious",
     "feeling lonely", "feeling alone", "so lonely", "all alone",
     "feeling hopeless", "feel hopeless",
@@ -258,25 +208,10 @@ _EMOTIONAL_PHRASES = [
     "having a hard time", "having a rough time", "having a tough time",
     "rough day", "bad day", "tough day", "hard day",
     "stressed out", "so stressed", "really stressed",
-    "i'm stressed", "im stressed",
-    # Adjective forms — users describe their SITUATION as emotional
-    # ("this is depressing") rather than their STATE ("I'm depressed").
-    # Both should route to emotional handler.
-    "depressing", "overwhelming", "terrifying", "heartbreaking",
     "i'm struggling", "im struggling",
     "tired of everything", "exhausted",
     "i just need someone to talk to", "just need to talk",
     "nobody cares", "no one cares",
-    # "i'm X" / "im X" variants — needed so intensifier stripping works.
-    # "I'm really sad" → stripped → "I'm sad" needs "i'm sad" in the list.
-    # Without these, only "feeling sad" form was covered.
-    "i'm sad", "im sad",
-    "i'm down", "im down",
-    "i'm anxious", "im anxious",
-    "i'm lonely", "im lonely",
-    "i'm hopeless", "im hopeless",
-    "i'm depressed", "im depressed",
-    "i'm stuck", "im stuck",
     # Shame / stigma (P1 audit — #1 barrier to help-seeking in this population)
     "embarrassed to ask", "ashamed to ask", "ashamed of myself",
     "embarrassed to be here", "feel like a failure",
@@ -326,14 +261,6 @@ _BOT_QUESTION_PHRASES = [
     "can my case worker", "can my caseworker", "can the shelter see",
     "how do i delete", "how do i clear",
     "do you know who i am", "do you know my name",
-    # Information handling (wa_privacy_information_sharing scenario)
-    "what happens to my information", "what happens to my data",
-    "what do you do with my information", "what do you do with my data",
-    "where does my information go", "where does my data go",
-    "who sees my data", "who gets my information",
-    "is my information safe", "is my data safe",
-    "what information do you collect", "what data do you collect",
-    "do you sell my data", "do you sell my information",
 ]
 
 # Confusion / overwhelm — the user doesn't know what they need.
@@ -347,7 +274,7 @@ _CONFUSED_PHRASES = [
     "don't know where to start", "dont know where to start",
     "i'm confused", "im confused",
     "i'm lost", "im lost", "so lost",
-    "i'm overwhelmed", "im overwhelmed", "so overwhelmed", "really overwhelmed",
+    "i'm overwhelmed", "im overwhelmed", "so overwhelmed",
     "i'm not sure", "im not sure",
     "where do i start", "where do i begin",
     "what are my options", "what can i do",
@@ -421,7 +348,7 @@ _CONFIRM_CHANGE_LOCATION = [
 # Denial phrases — user declines the pending confirmation.
 # Treated as a soft reset: clears pending confirmation and offers options.
 _CONFIRM_DENY_EXACT = [
-    "no", "nah", "nope", "not yet", "stop",
+    "no", "nah", "nope", "not yet", "wait", "hold on", "stop",
 ]
 
 _CONFIRM_DENY_PHRASES = [
@@ -523,11 +450,31 @@ def _classify_action(text: str) -> str | None:
     return None
 
 
-def _classify_tone(text: str) -> str | None:
+_URGENT_PHRASES = [
+    "right now", "tonight", "immediately", "asap", "urgent",
+    "emergency", "before dark", "freezing",
+    "nowhere to go", "have nowhere", "on the street",
+    "please help", "please hurry", "desperate",
+    "kicked out today", "evicted today",
+]
+
+
+_CRISIS_NOT_CHECKED = object()  # sentinel: caller hasn't run detect_crisis yet
+
+
+def _classify_tone(text: str, crisis_result=_CRISIS_NOT_CHECKED) -> str | None:
     """Classify a message's emotional tone (how the user FEELS).
 
     No service-word gating — always runs. The caller decides how to
     combine tone with service intent.
+
+    Args:
+        text: The user's message.
+        crisis_result: Pre-computed result from detect_crisis().
+            Pass the return value directly (a tuple for crisis, None for
+            no crisis). When omitted, _classify_tone calls detect_crisis
+            itself. This avoids a redundant Sonnet LLM call when the
+            caller has already checked.
 
     Returns one of: "crisis", "emotional", "frustrated", "confused",
     "urgent", or None.
@@ -546,42 +493,31 @@ def _classify_tone(text: str) -> str | None:
     # Crisis detection uses its own explicit enumeration for safety.
     normalized = _normalize_contractions(cleaned)
 
-    # Stripped form removes intensifiers so phrase lists don't need every
-    # intensifier×emotion combination. "I'm really scared" → "I'm scared".
-    # Applied to both cleaned and normalized variants.
-    stripped = _strip_intensifiers(cleaned)
-    stripped_normalized = _strip_intensifiers(normalized)
-
-    # Crisis — highest priority (uses original text, NOT normalized/stripped)
-    crisis_result = detect_crisis(text)
+    # Crisis — highest priority (uses original text, NOT normalized)
+    # Use pre-computed result if available to avoid a redundant LLM call.
+    if crisis_result is _CRISIS_NOT_CHECKED:
+        crisis_result = detect_crisis(text)
     if crisis_result is not None:
         return "crisis"
 
-    # Frustration — check all variants
+    # Frustration — check both original and normalized
     for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned or phrase in normalized or phrase in stripped or phrase in stripped_normalized:
+        if phrase in cleaned or phrase in normalized:
             return "frustrated"
 
-    # Emotional — check all variants
+    # Emotional — check both original and normalized
     for phrase in _EMOTIONAL_PHRASES:
-        if phrase in cleaned or phrase in normalized or phrase in stripped or phrase in stripped_normalized:
+        if phrase in cleaned or phrase in normalized:
             return "emotional"
 
-    # Confused — check all variants
+    # Confused — check both original and normalized
     for phrase in _CONFUSED_PHRASES:
-        if phrase in cleaned or phrase in normalized or phrase in stripped or phrase in stripped_normalized:
+        if phrase in cleaned or phrase in normalized:
             return "confused"
 
     # Urgent — time pressure or panic without a stronger emotional tone.
     # Bridges from the urgency slot extractor's "high" phrases, plus
     # panic-specific phrases not covered by emotional/crisis.
-    _URGENT_PHRASES = [
-        "right now", "tonight", "immediately", "asap", "urgent",
-        "emergency", "before dark", "freezing",
-        "nowhere to go", "have nowhere", "on the street",
-        "please help", "please hurry", "desperate",
-        "kicked out today", "evicted today",
-    ]
     for phrase in _URGENT_PHRASES:
         if phrase in cleaned:
             return "urgent"
@@ -612,10 +548,11 @@ def _classify_message(text: str) -> str:
         return action
 
     # Frustration (before slot check — "not helpful" is never a service request)
+    # Check both original and normalized to catch all contraction variants,
+    # consistent with how _classify_tone handles frustration.
     normalized = _normalize_contractions(cleaned)
-    stripped = _strip_intensifiers(cleaned)
     for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned or phrase in normalized or phrase in stripped:
+        if phrase in cleaned or phrase in normalized:
             return "frustration"
 
     # Check slots — if service intent found, it wins over emotional/confused
@@ -730,105 +667,9 @@ _EMOTIONAL_RESPONSE = (
     "If you'd like to talk to someone who understands, I can connect you "
     "with a peer navigator — they're people who've been through similar "
     "situations and know the system well.\n\n"
-    "I'm here whenever you're ready."
+    "Or if there's something practical I can help you find — like food, "
+    "a place to stay, or a shower — just let me know. I'm here."
 )
-
-# Emotion-specific responses for better AVR acknowledgment.
-# The static fallback should validate the SPECIFIC feeling, not give
-# a one-size-fits-all response. Per AVR research, users feel more
-# heard when their specific emotion is named and validated.
-_EMOTIONAL_RESPONSES = {
-    "scared": (
-        "It's okay to feel scared — that's a completely understandable "
-        "reaction to what you're going through. You're not alone in this.\n\n"
-        "If you'd like to talk to someone, I can connect you with a peer "
-        "navigator who can help you figure out next steps. No pressure."
-    ),
-    "sad": (
-        "I'm sorry you're feeling this way. It takes courage to say that, "
-        "and it's okay to not be okay right now.\n\n"
-        "If you'd like to talk to someone who understands, I can connect "
-        "you with a peer navigator. I'm here whenever you're ready."
-    ),
-    "rough_day": (
-        "That sounds really hard. Some days are just heavy, and it's "
-        "okay to feel that way.\n\n"
-        "If you'd like to talk to someone, I can connect you with a peer "
-        "navigator. Or just take your time — I'm here."
-    ),
-    "shame": (
-        "You have nothing to be ashamed of. A lot of people use these "
-        "services — it doesn't say anything about you as a person.\n\n"
-        "It takes real strength to reach out, and I'm glad you did. "
-        "I'm here to help however I can."
-    ),
-    "grief": (
-        "I'm really sorry for your loss. That's an incredibly heavy "
-        "thing to carry.\n\n"
-        "If you'd like to talk to someone, I can connect you with a peer "
-        "navigator. There's no rush — I'm here."
-    ),
-    "alone": (
-        "I hear you, and I'm sorry you're feeling that way. You're not "
-        "invisible, and reaching out here took courage.\n\n"
-        "If you'd like to talk to someone who understands, I can connect "
-        "you with a peer navigator. I'm here."
-    ),
-}
-
-
-def _pick_emotional_response(text: str) -> str:
-    """Pick the most appropriate emotion-specific static response.
-
-    Falls back to the generic _EMOTIONAL_RESPONSE if no specific
-    emotion is detected. This provides better AVR acknowledgment
-    than a one-size-fits-all response.
-    """
-    lower = text.lower()
-
-    # Shame/stigma
-    if any(p in lower for p in [
-        "embarrassed", "ashamed", "pathetic", "failure",
-        "never thought i'd need", "never thought id need",
-        "don't want anyone to know", "dont want anyone to know",
-    ]):
-        return _EMOTIONAL_RESPONSES["shame"]
-
-    # Grief/loss
-    if any(p in lower for p in [
-        "died", "passed away", "lost someone", "grieving", "mourning",
-    ]):
-        return _EMOTIONAL_RESPONSES["grief"]
-
-    # Scared/fear
-    if any(p in lower for p in [
-        "scared", "afraid", "frightened", "terrified", "fear",
-    ]):
-        return _EMOTIONAL_RESPONSES["scared"]
-
-    # Isolation/loneliness
-    if any(p in lower for p in [
-        "alone", "no one", "nobody", "no friends", "no family",
-        "have no one", "completely alone",
-    ]):
-        return _EMOTIONAL_RESPONSES["alone"]
-
-    # Sad/down
-    if any(p in lower for p in [
-        "feeling down", "feeling sad", "feeling bad", "depressed",
-        "not okay", "not ok", "not doing well", "not doing good",
-    ]):
-        return _EMOTIONAL_RESPONSES["sad"]
-
-    # Rough day / general hardship
-    if any(p in lower for p in [
-        "rough day", "bad day", "tough day", "hard day",
-        "rough time", "hard time", "tough time",
-        "falling apart", "getting worse",
-    ]):
-        return _EMOTIONAL_RESPONSES["rough_day"]
-
-    return _EMOTIONAL_RESPONSE
 
 
 def _build_empathetic_prompt(user_message: str, slots: dict) -> str:
@@ -844,119 +685,24 @@ def _build_empathetic_prompt(user_message: str, slots: dict) -> str:
         "You are YourPeer, a friendly assistant that helps people find "
         "free social services in New York City.\n\n"
         "The user has shared something emotional. Respond with warmth and "
-        "empathy. Your ONLY job right now is to ACKNOWLEDGE their feeling — "
-        "not to steer them toward services or offer practical help.\n\n"
+        "empathy. Your job right now is to ACKNOWLEDGE their feeling, not "
+        "to steer them toward services.\n\n"
         "Guidelines:\n"
-        "- Lead with acknowledgment. Name the specific emotion they're "
-        "expressing (scared, sad, overwhelmed, ashamed, grieving, lonely).\n"
-        "- Validate what they're feeling — don't minimize or rush past it.\n"
-        "- If they express shame or embarrassment about needing help, "
-        "normalize it: many people use these services.\n"
-        "- Do NOT list service categories, mention specific services, "
-        "or show a menu of options.\n"
-        "- Do NOT say 'if there's something practical I can help with' — "
-        "that will come later if they want it.\n"
+        "- Lead with acknowledgment. Validate what they're feeling.\n"
+        "- Do NOT list service categories or show a menu of options.\n"
         "- Do NOT give medical, psychological, legal, or financial advice.\n"
         "- Do NOT diagnose, suggest treatments, or minimize their experience.\n"
         "- Mention that you can connect them with a peer navigator if they "
-        "want someone to talk to — but keep it brief, not the focus.\n"
+        "want someone to talk to.\n"
+        "- Gently let them know you're here if there's something practical "
+        "you can help them find, but don't push it.\n"
         "- Keep your response to 2-3 sentences. Be genuine, not scripted.\n"
-        "- End with something warm like 'I'm here' or 'No rush.'\n"
         f"{slot_context}"
         f"User message: {user_message}"
     )
 
 
-# Service-adjacent words/phrases that disqualify an emotional enhancement.
-# This is a WHITELIST approach: the static response is always safe, so the
-# enhancement only needs to pass a strict filter to be appended.
-_EMOTIONAL_ENHANCEMENT_BLOCKLIST = {
-    # Explicit service words
-    "food", "shelter", "housing", "clothing", "shower", "medical",
-    "doctor", "clinic", "legal", "job", "employment", "pantry",
-    "benefits", "snap", "ebt",
-    # Soft push phrases
-    "help you find", "search for", "look for", "find you", "find something",
-    "assist you", "services near", "let me know if", "help with that",
-    "something specific", "anything else i can",
-    # Steering questions
-    "would you like", "can i help", "shall i", "do you want me",
-    "do you need", "want me to", "should i",
-    # Service-adjacent
-    "resources", "referral", "connect you", "navigator",
-    "practical", "next steps",
-    # Vague service hints (blocklist gap fix)
-    "options available", "places that", "look into",
-    "information that could", "support out there",
-    "benefit from", "here for", "point you",
-    "right direction", "figure out",
-}
-
-
-def _validate_emotional_enhancement(text: str) -> bool:
-    """Check if an LLM-generated enhancement is safe to append.
-
-    Returns True only if the text contains no service-adjacent language,
-    is short enough, and isn't just repeating what the static response
-    already says.
-    """
-    if not text or text.strip().upper() == "NONE":
-        return False
-
-    lower = text.lower().strip()
-
-    # Length check: max 25 words
-    if len(lower.split()) > 25:
-        return False
-
-    # Block any service-adjacent words or phrases
-    for blocked in _EMOTIONAL_ENHANCEMENT_BLOCKLIST:
-        if blocked in lower:
-            logger.debug(f"Emotional enhancement rejected: '{blocked}' found in '{text[:50]}'")
-            return False
-
-    return True
-
-
-def _generate_emotional_enhancement(user_message: str) -> str | None:
-    """Generate an optional personalized warmth sentence via LLM.
-
-    Returns a short sentence to append to the static emotional response,
-    or None if the LLM fails, returns NONE, or the output is invalid.
-    """
-    prompt = (
-        "A user shared something emotional. We've already given them a "
-        "warm, empathetic response. Your job: add ONE short sentence "
-        "(max 15 words) that shows you heard their SPECIFIC situation.\n\n"
-        "Rules:\n"
-        "- Reference something specific they said\n"
-        "- Pure warmth only — no services, no advice, no questions\n"
-        "- No 'would you like', 'can I help', or offers of any kind\n"
-        "- If there's nothing specific to add, respond with exactly: NONE\n\n"
-        f"User said: \"{user_message}\"\n\n"
-        "Your one sentence (or NONE):"
-    )
-
-    try:
-        result = claude_reply(prompt).strip()
-        # Strip LLM formatting artifacts
-        if result.startswith('"') and result.endswith('"'):
-            result = result[1:-1].strip()
-        # Strip markdown italics/bold
-        result = result.strip("*_").strip()
-        # Strip bullet point prefix
-        if result.startswith("- "):
-            result = result[2:].strip()
-
-        if _validate_emotional_enhancement(result):
-            logger.info(f"Emotional enhancement accepted: '{result}'")
-            return result
-        else:
-            logger.info(f"Emotional enhancement rejected or NONE: '{result[:50]}'")
-            return None
-    except Exception as e:
-        logger.error(f"Emotional enhancement LLM call failed: {e}")
-        return None
+# ---------------------------------------------------------------------------
 # CONFIRMATION HELPERS
 # ---------------------------------------------------------------------------
 
@@ -985,7 +731,14 @@ def _build_confirmation_message(slots: dict) -> str:
         # (e.g. street addresses extracted as location)
         location, _ = redact_pii(location)
 
-    parts = [f"I'll search for {service_label} {location}"]
+    # "near your location" reads naturally without "in", but borough/
+    # neighborhood names need "in" ("in Brooklyn", "in Harlem").
+    if location.startswith("near "):
+        location_phrase = location
+    else:
+        location_phrase = f"in {location}"
+
+    parts = [f"I'll search for {service_label} {location_phrase}"]
     if age:
         parts[0] += f" (age {age})"
 
@@ -1215,13 +968,7 @@ def _build_conversational_prompt(user_message: str, slots: dict) -> str:
 
 
 def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
-    """Prompt for questions about the bot's capabilities or behavior.
-
-    Uses build_capability_context() from bot_knowledge for grounded facts,
-    ensuring the LLM answers based on actual code capabilities.
-    """
-    from app.services.bot_knowledge import build_capability_context
-
+    """Prompt for questions about the bot's capabilities or behavior."""
     # Build context about what's happened in the session so far
     context_lines = []
     if slots:
@@ -1246,9 +993,6 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
             + "\n\n"
         )
 
-    # Get capability facts from the single source of truth
-    capability_context = build_capability_context()
-
     return (
         "You are YourPeer, a friendly assistant that helps people find "
         "free social services in New York City.\n\n"
@@ -1256,7 +1000,45 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
         "Answer their SPECIFIC question directly and honestly. Do not give a "
         "generic overview unless they asked for one.\n\n"
         f"{context_section}"
-        f"{capability_context}\n\n"
+        "Facts about yourself:\n"
+        "- You search a database of verified social services in NYC's five "
+        "boroughs, maintained by Streetlives (yourpeer.nyc)\n"
+        "- You ONLY cover New York City. You cannot search outside the five "
+        "boroughs (Manhattan, Brooklyn, Queens, Bronx, Staten Island). If "
+        "someone needs services elsewhere, suggest calling 211\n"
+        "- Service categories you can search:\n"
+        "  • Food: soup kitchens, food pantries, groceries\n"
+        "  • Shelter: emergency shelter, transitional housing\n"
+        "  • Clothing: free clothing programs\n"
+        "  • Personal care: showers, laundry, haircuts\n"
+        "  • Health care: medical, dental, vision, STD testing, vaccinations\n"
+        "  • Mental health: counseling, therapy, substance abuse, AA/NA\n"
+        "  • Legal help: immigration, eviction, asylum\n"
+        "  • Jobs: employment programs, job training, resume help\n"
+        "  • Other: benefits (SNAP/EBT/Medicaid), IDs, drop-in centers, "
+        "case workers, free wifi, mail services, transit help\n"
+        "- Geolocation: you use the browser's GPS when the user taps "
+        "'Use my location'. Common reasons it can fail:\n"
+        "  • The user denied the browser permission prompt\n"
+        "  • They're on a device/browser that doesn't support geolocation\n"
+        "  • GPS timed out (e.g., indoors with weak signal)\n"
+        "  • The site isn't served over HTTPS\n"
+        "  If geolocation fails, you ask for a neighborhood or borough instead\n"
+        "- Privacy: you don't store personal information. Conversations are "
+        "private and not linked to any identity. Specifics:\n"
+        "  • You are NOT connected to any government agency, including ICE\n"
+        "  • You do NOT share information with law enforcement\n"
+        "  • Shelters, case workers, and providers cannot see the conversation\n"
+        "  • Using this chat will NOT affect benefits or case status\n"
+        "  • If a user shares PII by accident, it's automatically redacted\n"
+        "  • Saying 'start over' clears the session immediately\n"
+        "  • Chat history on the device auto-expires after 30 minutes\n"
+        "  • On shared/public devices, other users could potentially see "
+        "the chat until it expires\n"
+        "- You can connect users with a human peer navigator for support\n"
+        "- You are an AI assistant, not a human\n"
+        "- Your data comes from verified listings. Hours and availability may "
+        "change — always call ahead to confirm\n\n"
         "Keep your response to 2-3 sentences. Answer the specific question. "
         "Be honest about limitations.\n\n"
         f"User question: {user_message}"
@@ -1264,17 +1046,119 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
 
 
 def _static_bot_answer(message: str) -> str:
-    """Answer bot questions using the structured self-knowledge module.
+    """Pattern-matched answers for common bot questions when LLM is unavailable."""
+    lower = message.lower()
 
-    Falls back to a generic answer if no topic matches. The bot_knowledge
-    module is the single source of truth — it sources capability data
-    from actual code (service categories, PII types, location count).
-    """
-    from app.services.bot_knowledge import answer_question
+    # Geolocation questions
+    if any(w in lower for w in ["location", "gps", "geolocation", "find me", "where i am"]):
+        if any(w in lower for w in ["why", "couldn't", "couldnt", "can't", "cant", "didn't", "didnt", "fail", "wrong"]):
+            return (
+                "Location access can fail for a few reasons: you may have "
+                "denied the browser permission, your device might not support "
+                "GPS, or the signal timed out (common indoors). You can always "
+                "tell me your neighborhood or borough instead."
+            )
+        return (
+            "When you tap 'Use my location', I ask your browser for GPS "
+            "coordinates to find services nearby. If that doesn't work, "
+            "just tell me your neighborhood or borough."
+        )
 
-    answer = answer_question(message)
-    if answer:
-        return answer
+    # Coverage / outside NYC
+    if any(w in lower for w in ["outside", "other city", "other state", "new jersey", "nj", "outside nyc"]):
+        return (
+            "I only search within New York City's five boroughs. For services "
+            "outside NYC, you can call 211 — it's a free helpline that "
+            "connects people to local resources anywhere in the US."
+        )
+
+    # What services / categories
+    if any(w in lower for w in ["what services", "what can you search", "what can you find", "what kind"]):
+        return (
+            "I can search for food (pantries, soup kitchens), shelter, "
+            "clothing, showers & personal care, health care (medical, dental, "
+            "vision), mental health (counseling, substance abuse), legal help "
+            "(immigration, eviction), jobs, and other services like benefits, "
+            "IDs, and drop-in centers."
+        )
+
+    # Privacy — immigration / law enforcement fears
+    # NOTE: "ice" uses word-boundary regex because it's a substring of "police"
+    _ice_words = ["immigration", "deport", "undocumented", "immigrant"]
+    _ice_re = re.compile(r'\bice\b', re.IGNORECASE)
+    if any(w in lower for w in _ice_words) or _ice_re.search(lower):
+        return (
+            "I don't collect any identifying information — no name, no "
+            "address, no immigration status. I'm not connected to any "
+            "government agency, including ICE. Your conversation is "
+            "anonymous and is not shared with anyone."
+        )
+
+    if any(w in lower for w in ["police", "cop", "law enforcement", "report", "arrest"]):
+        return (
+            "I don't share any information with law enforcement. I don't "
+            "know who you are, and your conversation here is anonymous. "
+            "The only exception is if you're in immediate danger — I'll "
+            "share crisis hotline numbers, but that's your choice to call."
+        )
+
+    # Privacy — benefits / provider visibility
+    if any(w in lower for w in ["benefits", "case worker", "caseworker", "shelter see", "affect my"]):
+        return (
+            "Using this chat won't affect your benefits or case status. "
+            "Shelters, case workers, and service providers can't see your "
+            "conversation here. I just help you find services — I don't "
+            "report anything to anyone."
+        )
+
+    # Privacy — who can see / recording / sharing
+    if any(w in lower for w in [
+        "who can see", "anyone see", "see what i", "see my",
+        "recording", "record", "listening",
+        "share", "sharing", "shared with", "tell anyone",
+    ]):
+        return (
+            "No one else can see your conversation. I don't record audio "
+            "or share your messages with other people or organizations. "
+            "If you're on a shared device, you can say 'start over' to "
+            "clear the chat history."
+        )
+
+    # Privacy — delete / clear data
+    if any(w in lower for w in ["delete", "clear", "erase", "remove my", "forget"]):
+        return (
+            "Say 'start over' and your session will be cleared immediately. "
+            "On this device, your chat history is stored temporarily in your "
+            "browser and auto-expires after 30 minutes of inactivity."
+        )
+
+    # Privacy — identity / anonymity
+    if any(w in lower for w in ["know my name", "know who i am", "anonymous", "identify"]):
+        return (
+            "I don't know who you are. I don't ask for or store your name, "
+            "phone number, or any personal details. If you share personal "
+            "info by accident, it's automatically removed before anything "
+            "is saved."
+        )
+
+    # Privacy — general
+    if any(w in lower for w in ["private", "privacy", "data", "store", "save", "track",
+                                 "safe to", "confidential", "secure", "trust"]):
+        return (
+            "Your conversations are private and anonymous. I don't store "
+            "personal information or link conversations to any identity. "
+            "I'm not connected to any government agency or service provider. "
+            "You can say 'start over' at any time to clear your session."
+        )
+
+    # How does it work
+    if any(w in lower for w in ["how do you work", "how does this work", "how does it work"]):
+        return (
+            "You tell me what you need and where you are, and I search a "
+            "database of verified social services in NYC maintained by "
+            "Streetlives. I'll show you matching services with addresses, "
+            "hours, and phone numbers."
+        )
 
     # Default generic answer
     return (
@@ -1382,9 +1266,64 @@ def generate_reply(
     early_extracted = extract_slots(message)
     has_service_intent = early_extracted.get("service_type") is not None
 
+    # --- POST-RESULTS QUESTION CHECK ---
+    # If we just showed search results, check if the user is asking a
+    # follow-up about them (e.g., "are any open now?", "tell me about
+    # the first one"). Handle deterministically — NO LLM.
+    _last_results = existing.get("_last_results")
+    _action_pre = _classify_action(message)
+    _is_confirmation_action = _action_pre in (
+        "confirm_change_service", "confirm_change_location",
+        "confirm_yes", "confirm_deny", "reset", "greeting",
+    )
+    if _last_results and not has_service_intent and not _is_confirmation_action:
+        # "Show all results" — re-display the stored results
+        if message.lower().strip() in ("show all results", "show results", "show all"):
+            result = {
+                "session_id": session_id,
+                "response": "Here are all the results again:",
+                "follow_up_needed": False,
+                "slots": existing,
+                "services": _last_results,
+                "result_count": len(_last_results),
+                "relaxed_search": False,
+                "quick_replies": [
+                    {"label": "🔍 New search", "value": "Start over"},
+                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+                ],
+            }
+            _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+            return result
+
+        post_intent = classify_post_results_question(message)
+        if post_intent is not None:
+            pr = answer_from_results(post_intent, _last_results)
+            result = {
+                "session_id": session_id,
+                "response": pr["response"],
+                "follow_up_needed": False,
+                "slots": existing,
+                "services": pr.get("services", []),
+                "result_count": len(pr.get("services", [])),
+                "relaxed_search": False,
+                "quick_replies": pr.get("quick_replies", []),
+            }
+            _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+            return result
+
+    # If the user is starting a new action, clear stale results
+    if _last_results and (has_service_intent or _is_confirmation_action):
+        existing.pop("_last_results", None)
+        save_session_slots(session_id, existing)
+
     # --- CLASSIFY ACTION + TONE SEPARATELY ---
-    action = _classify_action(message)
-    tone = _classify_tone(message)
+    action = _action_pre  # Already computed above (avoid duplicate call)
+    # Run crisis detection ONCE here — the result is passed to
+    # _classify_tone (which would otherwise call detect_crisis again)
+    # and reused by the crisis handler below. This avoids a redundant
+    # Sonnet LLM call (~2s + API cost) on every crisis-classified message.
+    _crisis_result = detect_crisis(message)
+    tone = _classify_tone(message, crisis_result=_crisis_result)
 
     # --- COMBINE INTO ROUTING CATEGORY ---
     # Priority: crisis > reset > confirmations > service intent > actions > tone > LLM > general
@@ -1418,13 +1357,7 @@ def generate_reply(
         else:
             category = "service"
     elif action == "help":
-        # When emotional tone is present, it takes priority over the help action.
-        # "I'm embarrassed to ask for help" should get emotional acknowledgment,
-        # not a service menu. The word "help" is incidental to the emotional expression.
-        if tone == "emotional":
-            category = "emotional"
-        else:
-            category = "help"
+        category = "help"
     elif action == "escalation":
         category = "escalation"
     elif tone == "frustrated":
@@ -1449,14 +1382,15 @@ def generate_reply(
     # Highest priority. Crisis resources are shown immediately.
     # The session is NOT cleared — the user may continue afterward.
     if category == "crisis":
-        crisis_result = detect_crisis(message)
-        if crisis_result is None:
+        # Reuse the crisis result computed once above (before _classify_tone).
+        # No need to call detect_crisis again.
+        if _crisis_result is None:
             # Classification said crisis but detect_crisis disagrees
             # (e.g. LLM fail-open during classification but not during
             # the dedicated check). Treat as general conversation.
             category = "general"
         else:
-            crisis_category, crisis_response = crisis_result
+            crisis_category, crisis_response = _crisis_result
             logger.warning(
                 f"Session {session_id}: crisis detected, "
                 f"category='{crisis_category}'"
@@ -1531,9 +1465,6 @@ def generate_reply(
 
     # --- Greeting ---
     if category == "greeting":
-        # Clear _last_action — user is starting fresh
-        existing.pop("_last_action", None)
-        save_session_slots(session_id, existing)
         # If they have existing slots, acknowledge and re-offer
         if existing and any(v is not None for v in existing.values()):
             response = (
@@ -1551,8 +1482,6 @@ def generate_reply(
 
     # --- Thanks ---
     if category == "thanks":
-        existing.pop("_last_action", None)
-        save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id, _THANKS_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
@@ -1564,9 +1493,6 @@ def generate_reply(
     if category == "help":
         # No ad-hoc slot guard needed — if the message had service intent,
         # it was already routed to "service" category above.
-        # Clear _last_action — user is moving on from emotional/escalation/frustration
-        existing.pop("_last_action", None)
-        save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id, _HELP_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
@@ -1621,24 +1547,15 @@ def generate_reply(
     # Acknowledge the feeling warmly. Don't show service buttons unless
     # the user asks for something practical.
     if category == "emotional":
-        # Option 3: Static scaffold + optional LLM enhancement.
-        # The static response is ALWAYS the base — it's verified to pass
-        # all eval judge criteria (acknowledges emotion, no service mentions,
-        # warm tone, offers navigator). The LLM optionally adds ONE
-        # personalized sentence for warmth. If the enhancement is bad or
-        # mentions services, it's rejected and the static response stands.
-        response = _pick_emotional_response(message)
-
         if _USE_LLM:
-            enhancement = _generate_emotional_enhancement(message)
-            if enhancement:
-                # Insert enhancement before the navigator offer paragraph.
-                # Static responses have format: "Acknowledgment.\n\nNavigator offer."
-                parts = response.split("\n\n", 1)
-                if len(parts) == 2:
-                    response = f"{parts[0]} {enhancement}\n\n{parts[1]}"
-                else:
-                    response = f"{response} {enhancement}"
+            try:
+                prompt = _build_empathetic_prompt(message, existing)
+                response = claude_reply(prompt)
+            except Exception as e:
+                logger.error(f"Empathetic LLM response failed: {e}")
+                response = _EMOTIONAL_RESPONSE
+        else:
+            response = _EMOTIONAL_RESPONSE
 
         # Track so "yes"/"no" on the next message refers to the peer
         # navigator offer, not a pending search confirmation.
@@ -1656,14 +1573,11 @@ def generate_reply(
 
     # --- Frustration ---
     if category == "frustration":
-        # Track frustration count — more robust than checking _last_action alone
-        # since _last_action could be cleared by intermediate handlers.
-        frust_count = existing.get("_frustration_count", 0) + 1
-        existing["_frustration_count"] = frust_count
+        already_frustrated = existing.get("_last_action") == "frustration"
         existing["_last_action"] = "frustration"
         save_session_slots(session_id, existing)
 
-        if frust_count >= 2:
+        if already_frustrated:
             # Repeated frustration — don't show the same wall of text.
             # Keep it short, acknowledge we're not helping, push navigator.
             result = _empty_reply(
@@ -1711,17 +1625,7 @@ def generate_reply(
         # "Yes" after escalation or emotional = "yes, connect me with a person"
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        # Use a distinct confirmation response — not the same as the initial
-        # escalation message, so the user sees progress rather than repetition.
-        _escalation_confirmed = (
-            "Here's how to reach a peer navigator right now:\n\n"
-            "• Visit yourpeer.nyc and use the chat feature\n"
-            "• Call 311 and ask for social services referrals\n\n"
-            "They can help you one-on-one with your situation. "
-            "If you need anything else from me, I'm still here."
-        )
-        result = _empty_reply(session_id, _escalation_confirmed, existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES))
+        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1942,51 +1846,8 @@ def generate_reply(
         return result
 
     if pending and category == "confirm_deny":
-        # User declined the search. Check if they also provided a NEW
-        # service request in the same message (e.g., "no, I need shelter").
-        # If so, update slots and go to confirmation instead of the generic
-        # "what would you like to do?" response.
-        deny_slots = extract_slots(message)
-        new_service = deny_slots.get("service_type")
-        current_service = existing.get("service_type")
-        deny_additional = deny_slots.get("additional_services", [])
-
-        # Implicit service change: if regex extracts the SAME service
-        # (negation-blind: "don't want food" → food) but additional_services
-        # has a DIFFERENT one, swap to the different one.
-        if new_service == current_service and deny_additional:
-            for alt_svc, alt_detail in deny_additional:
-                if alt_svc != current_service:
-                    new_service = alt_svc
-                    deny_slots["service_type"] = alt_svc
-                    deny_slots["service_detail"] = alt_detail
-                    break
-
-        if new_service and new_service != current_service:
-            # User changed their mind — update service and re-confirm
-            existing.pop("_pending_confirmation", None)
-            existing["service_type"] = new_service
-            existing["service_detail"] = deny_slots.get("service_detail")
-            # Update location if provided
-            if deny_slots.get("location"):
-                existing["location"] = deny_slots["location"]
-            existing["_pending_confirmation"] = True
-            save_session_slots(session_id, existing)
-            confirm_msg = _build_confirmation_message(existing)
-            confirm_qr = _confirmation_quick_replies(existing)
-            result = {
-                "session_id": session_id,
-                "response": confirm_msg,
-                "follow_up_needed": True,
-                "slots": existing,
-                "services": [],
-                "result_count": 0,
-                "quick_replies": confirm_qr,
-            }
-            _log_turn(session_id, redacted_message, result, "service", request_id=request_id, tone=tone)
-            return result
-
-        # No new service — show options
+        # User declined the search — clear confirmation, keep slots,
+        # and offer options so they're not stuck in a loop.
         existing.pop("_pending_confirmation", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(
@@ -2036,84 +1897,7 @@ def generate_reply(
         pending_has_new = any(v is not None for k, v in pending_extracted.items()
                               if k != "additional_services")
 
-        # --- Implicit service change vs additive detection ---
-        # When a confirmation is pending and the user's message contains a
-        # DIFFERENT service type, we need to distinguish:
-        #   CHANGE: "Actually I need shelter" → replace food with shelter
-        #   ADD:    "I also need shelter"    → keep food, queue shelter
-        #
-        # Detection: additive keywords ("also", "too", "as well", "and",
-        # "in addition") signal ADD. Change keywords ("instead", "actually",
-        # "forget", "not [current]", "rather") signal CHANGE. Without either,
-        # default to CHANGE (more common user intent during pending).
-        current_service = existing.get("service_type")
-        new_service = pending_extracted.get("service_type")
-        additional = pending_extracted.get("additional_services", [])
-        additional_types = [s for s, _ in additional] if additional else []
-
-        _lower_msg = message.lower()
-        _is_additive = bool(re.search(
-            r'\b(also|too|as well|in addition|additionally|and also|plus)\b',
-            _lower_msg,
-        ))
-
-        if new_service and new_service != current_service and _is_additive:
-            # ADDITIVE intent: "I also need shelter" → queue the new service,
-            # keep the current one as primary. Re-show confirmation with
-            # the queue noted.
-            if not pending_extracted.get("additional_services"):
-                pending_extracted["additional_services"] = []
-            pending_extracted["additional_services"].append(
-                (new_service, pending_extracted.get("service_detail"))
-            )
-            # Restore original service as primary
-            pending_extracted["service_type"] = current_service
-            pending_has_new = True
-            logger.info(
-                f"Additive service: keeping '{current_service}', "
-                f"queuing '{new_service}'"
-            )
-        elif new_service and new_service != current_service:
-            # CHANGE intent: user stated a different service → use it
-            pending_has_new = True
-        elif new_service == current_service and additional_types:
-            if _is_additive:
-                # Additive with same primary: "food is good but I also need shelter"
-                # Keep food as primary, queue the additional services
-                pending_has_new = True
-                logger.info(
-                    f"Additive service (via additional): keeping '{current_service}', "
-                    f"queuing {additional_types}"
-                )
-            else:
-                # Regex extracted the same service (negation blind) but also
-                # found a different one. The different one is the correction.
-                # "Not food, I need shelter" → food (regex primary) + shelter (additional)
-                for alt_svc, alt_detail in additional:
-                    if alt_svc != current_service:
-                        pending_extracted["service_type"] = alt_svc
-                        pending_extracted["service_detail"] = alt_detail
-                        pending_extracted["additional_services"] = [
-                            (s, d) for s, d in additional if s != alt_svc
-                        ]
-                        pending_has_new = True
-                        logger.info(
-                            f"Implicit service change: '{current_service}' → "
-                            f"'{alt_svc}' (preferred different service during "
-                            f"pending confirmation)"
-                        )
-                        break
-
-        if pending_has_new:
-            # Propagate the (possibly modified) pending_extracted to the
-            # service flow below. Without this, the fall-through uses
-            # early_extracted which has the ORIGINAL regex result (e.g.,
-            # service_type=food) rather than the swapped one (shelter).
-            early_extracted = pending_extracted
-
         if not pending_has_new:
-            # No new slots — user is probably trying to confirm or is confused.
-            # Re-show the confirmation with a nudge, but acknowledge tone
             # No new slots — user is probably trying to confirm or is confused.
             # Re-show the confirmation with a nudge, but acknowledge tone
             # if the user expressed emotion.
@@ -2161,11 +1945,6 @@ def generate_reply(
             message,
             conversation_history=existing.get("transcript", []),
         )
-    elif category == "service" and _is_narrative_message(message):
-        # Even without LLM, narratives need urgency-aware extraction.
-        # The regex fallback re-ranks services by urgency hierarchy.
-        from app.services.llm_slot_extractor import _narrative_regex_fallback
-        extracted = _narrative_regex_fallback(message)
     else:
         extracted = early_extracted
 
@@ -2197,58 +1976,6 @@ def generate_reply(
 
     save_session_slots(session_id, merged)
 
-    # Intercept "other" service type without detail — this happens when the
-    # LLM can't categorize the request (e.g., "helicopter ride" → "other").
-    # Only intercept when REGEX also didn't find a service type — this
-    # distinguishes "helicopter ride" (regex=None, LLM="other") from
-    # "SNAP benefits" (regex="other", LLM="other").
-    if (merged.get("service_type") == "other"
-            and not merged.get("service_detail")
-            and not early_extracted.get("service_type")
-            and category == "service"):
-        merged.pop("service_type", None)
-        merged.pop("_pending_confirmation", None)
-        unrec_count = merged.get("_unrecognized_count", 0) + 1
-        merged["_unrecognized_count"] = unrec_count
-        save_session_slots(session_id, merged)
-
-        location_note = f" in {merged['location']}" if merged.get("location") else ""
-
-        if unrec_count >= 3:
-            _unrec_response = (
-                "I think a peer navigator would be the best fit for what "
-                "you're looking for. They can help with things I can't."
-            )
-            _unrec_qr = [
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
-                {"label": "🔄 Start over", "value": "Start over"},
-            ]
-        elif unrec_count >= 2:
-            _unrec_response = (
-                "I'm not finding a match for that. I can search for food, "
-                "shelter, clothing, showers, health care, legal help, "
-                "mental health, and employment services"
-                f"{location_note}. Or a peer navigator might be able to "
-                "help with other needs."
-            )
-            _unrec_qr = list(_WELCOME_QUICK_REPLIES) + [
-                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
-            ]
-        else:
-            _unrec_response = (
-                "I don't have information about that specifically, but "
-                "I can search for free services"
-                f"{location_note} — things like food, shelter, clothing, "
-                "showers, health care, legal help, mental health, and "
-                "employment services. Which of these would be helpful?"
-            )
-            _unrec_qr = list(_WELCOME_QUICK_REPLIES)
-
-        result = _empty_reply(session_id, _unrec_response, merged, quick_replies=_unrec_qr)
-        _log_turn(session_id, redacted_message, result, "unrecognized_service",
-                  request_id=request_id, tone=tone)
-        return result
-
     # Geolocation: if location is "near me" but we have browser coords,
     # that's enough to run a proximity search.
     _has_session_coords = (
@@ -2269,19 +1996,7 @@ def generate_reply(
     _is_service_flow = category == "service"
     _tone_prefix = ""
     if _response_tone == "emotional" and _is_service_flow:
-        # Use shame-specific prefix when shame/stigma is detected
-        _lower_msg = message.lower()
-        if any(p in _lower_msg for p in [
-            "embarrassed", "ashamed", "pathetic", "failure",
-            "never thought i'd need", "never thought id need",
-            "don't want anyone to know", "dont want anyone to know",
-        ]):
-            _tone_prefix = (
-                "There's no shame in that — a lot of people use these services, "
-                "and reaching out takes real strength. "
-            )
-        else:
-            _tone_prefix = "I hear you, and I want to help. "
+        _tone_prefix = "I hear you, and I want to help. "
     elif _response_tone == "frustrated" and _is_service_flow:
         _tone_prefix = "I understand this has been frustrating. Let me try something different. "
     elif _response_tone == "confused" and _is_service_flow:
@@ -2333,93 +2048,23 @@ def generate_reply(
     # --- General conversation ---
     # The message didn't match any service keywords and isn't a greeting/reset.
 
-    # Detect unrecognized service requests — user asked for something we can't
-    # categorize. Triggers: location extracted without service_type, request
-    # verbs present, or user has already been asked what they need.
-    _has_location_only = merged.get("location") and not merged.get("service_type")
-    _has_request_verb = bool(re.search(
-        r'\b(need|find|get|want|looking for|where can|help me find|searching for)\b',
-        message.lower(),
-    ))
-    _asked_already = len(merged.get("transcript", [])) >= 2
-    _already_unrecognized = merged.get("_unrecognized_count", 0) >= 1
-    _looks_like_request = (
-        _has_location_only
-        or (_has_request_verb and _asked_already)
-        or _already_unrecognized  # sticky: once flagged, stay in unrecognized mode
-    )
-
-    if _looks_like_request and not merged.get("service_type"):
-        # Track unrecognized count for escalation
-        unrec_count = merged.get("_unrecognized_count", 0) + 1
-        merged["_unrecognized_count"] = unrec_count
-        save_session_slots(session_id, merged)
-
-        location_note = ""
-        if merged.get("location"):
-            location_note = f" in {merged['location']}"
-
-        if unrec_count >= 3:
-            # 3rd+ unrecognized: just push navigator
-            response = (
-                "I think a peer navigator would be the best fit for what "
-                "you're looking for. They can help with things I can't."
-            )
-            qr = [
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
-                {"label": "🔄 Start over", "value": "Start over"},
-            ]
-        elif unrec_count == 2:
-            # 2nd unrecognized: shorter + navigator push
-            response = (
-                "I'm not finding a match for that. I can search for food, "
-                "shelter, clothing, showers, health care, legal help, "
-                "mental health, and employment services"
-                f"{location_note}. Or a peer navigator might be able to "
-                "help with other needs."
-            )
-            qr = list(_WELCOME_QUICK_REPLIES) + [
-                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
-            ]
-        else:
-            # 1st unrecognized: try LLM redirect, fall back to static
-            if _USE_LLM:
-                try:
-                    _redirect_prompt = (
-                        "You are YourPeer, a friendly assistant that helps people "
-                        "find free social services in New York City.\n\n"
-                        "The user asked for something that doesn't match our "
-                        "service categories. Acknowledge what they asked for "
-                        "specifically, explain gently that you can't help with "
-                        "that, and list what you CAN search for: food, shelter, "
-                        "clothing, showers, health care, legal help, mental "
-                        "health services, and employment services.\n\n"
-                        "Be warm and brief (2-3 sentences). Don't apologize "
-                        "excessively. End by asking which of these would be "
-                        "helpful.\n\n"
-                        f"User message: {message}"
-                    )
-                    response = claude_reply(_redirect_prompt)
-                except Exception as e:
-                    logger.error(f"Unrecognized redirect LLM failed: {e}")
-                    response = None
-            else:
-                response = None
-
-            if not response:
-                # Static fallback
-                response = (
-                    "I don't have information about that specifically, but "
-                    "I can search for free services"
-                    f"{location_note} — things like food, shelter, clothing, "
-                    "showers, health care, legal help, mental health, and "
-                    "employment services. Which of these would be helpful?"
-                )
-            qr = list(_WELCOME_QUICK_REPLIES)
-
-        result = _empty_reply(session_id, response, merged, quick_replies=qr)
-        _log_turn(session_id, redacted_message, result, "unrecognized_service",
-                  request_id=request_id, tone=tone)
+    # If the user has a location but no service_type and we already asked
+    # what they need, they may have requested something we can't help with
+    # (e.g. "helicopter ride"). Redirect gracefully to real services.
+    if (merged.get("location")
+            and not merged.get("service_type")
+            and len(merged.get("transcript", [])) >= 2):
+        location_label = merged["location"]
+        result = _empty_reply(
+            session_id,
+            "I'm not sure I can help with that specifically, but I can "
+            f"search for services in {location_label} — things like food, "
+            "shelter, clothing, showers, health care, legal help, and more. "
+            "What would be most helpful?",
+            merged,
+            quick_replies=list(_WELCOME_QUICK_REPLIES),
+        )
+        _log_turn(session_id, redacted_message, result, "unrecognized_service", request_id=request_id, tone=tone)
         return result
 
     # Use Claude Haiku for a natural conversational response.
@@ -2544,6 +2189,12 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             {"label": f"✅ Yes, search for {label}", "value": f"I need {next_service}"},
             {"label": "❌ No thanks", "value": "No thanks"},
         ]
+
+    # Store results in session so post-results questions can reference them.
+    # Only stored when we actually have results to show.
+    if services_list:
+        slots["_last_results"] = services_list
+        save_session_slots(session_id, slots)
 
     return {
         "session_id": session_id,

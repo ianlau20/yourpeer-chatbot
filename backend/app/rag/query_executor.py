@@ -123,6 +123,26 @@ def _compute_freshness(rows: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# OPEN-NOW SORT (post-query)
+# ---------------------------------------------------------------------------
+# The SQL ORDER BY already includes an open-now rank, but schedule data is
+# sparse (~40-80% coverage for walk-in services, 0% for others). This
+# Python-side stable sort guarantees "Open now" services float to the top
+# of the final card list regardless of DB-level sort behavior.
+#
+# Sort priority: open (0) > closed (1) > unknown/no data (2)
+# Within each group, the original SQL order (freshness, distance, name)
+# is preserved because Python's sort is stable.
+
+_OPEN_RANK = {"open": 0, "closed": 1}
+
+
+def _sort_open_first(cards: list[dict]) -> list[dict]:
+    """Sort service cards so 'Open now' appear first, preserving order otherwise."""
+    return sorted(cards, key=lambda c: _OPEN_RANK.get(c.get("is_open"), 2))
+
+
+# ---------------------------------------------------------------------------
 # QUERY EXECUTION
 # ---------------------------------------------------------------------------
 
@@ -176,7 +196,7 @@ def execute_service_query(
 
     results = deduplicate_results(rows)
     freshness = _compute_freshness(results)
-    cards = [format_service_card(r) for r in results]
+    cards = _sort_open_first([format_service_card(r) for r in results])
 
     if cards or not allow_relaxed:
         return {
@@ -203,7 +223,7 @@ def execute_service_query(
 
     results_relaxed = deduplicate_results(rows_relaxed)
     freshness = _compute_freshness(results_relaxed)
-    cards_relaxed = [format_service_card(r) for r in results_relaxed]
+    cards_relaxed = _sort_open_first([format_service_card(r) for r in results_relaxed])
 
     return {
         "services": cards_relaxed,
