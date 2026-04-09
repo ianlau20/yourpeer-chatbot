@@ -14,6 +14,8 @@ Every incoming message passes through three stages: slot extraction, classificat
 
 Regex-based slot extraction runs on every message before classification. This extracts service type(s), location, age, urgency, family status, and service detail. The result determines `has_service_intent` — whether the message contains a service request.
 
+**Narrative extraction (20+ words):** Long messages are detected by `_is_narrative()` and routed through `extract_slots_narrative()` with a specialized Sonnet prompt that prioritizes by urgency hierarchy (shelter > medical > food > employment) rather than first-mention. For narratives, the LLM is fully authoritative — regex does NOT override `service_type`. This prevents "I just got out of the hospital and my housing fell through" from extracting "medical" when the user needs shelter. When LLM is unavailable, `_narrative_regex_fallback()` runs standard regex, collects all services, and re-ranks by urgency hierarchy. Context clues ("evicted", "just released", "ran away") automatically set `urgency=high`.
+
 ### Stage 2 — Split Classification
 
 Two independent classifiers run in parallel:
@@ -65,6 +67,7 @@ The routing priority is:
 | 8 | `tone == emotional` | Emotional handler |
 | 9 | `tone == confused` | Confused handler |
 | 10 | LLM classification (>3 words) | LLM-determined category |
+| 10 | Looks like service request but no `service_type` | Unrecognized service redirect (3-tier escalation) |
 | 11 | None of the above | General conversation |
 
 The key insight is **row 4**: when service intent is present, it wins over help/escalation/emotional/confused. Those become tone modifiers on the service flow, not separate routes. This eliminates the ad-hoc guards that previously re-checked slots inside the help and escalation handlers.
@@ -226,7 +229,8 @@ Three LLM-powered features are used in production, each with a specific model as
 | Feature | Model | When It Runs | Output |
 |---|---|---|---|
 | Conversational fallback | Haiku | Message classified as `general` | 1–3 sentence response |
-| Slot extraction | Haiku | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender, family_status |
+| Slot extraction | Sonnet | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender, family_status |
+| Narrative extraction | Sonnet | Long messages (≥20 words) with multiple service needs | Same JSON, urgency-prioritized: shelter > medical > food > employment |
 | Message classification | Haiku | Messages >3 words that regex can't classify | Single category name |
 | Emotional acknowledgment | Haiku | Messages classified as `emotional` | 2–3 sentence empathetic response |
 | Bot question answer | Haiku | Messages classified as `bot_question` | 2–3 sentence factual answer |
@@ -332,6 +336,18 @@ Based on this research, the following principles govern emotional handling in th
 ---
 
 ## Known Limitations
+
+### Unrecognized Service Requests
+
+When the user asks for something that doesn't match any service category (e.g., "helicopter ride", "asdfghjkl"), the handler uses a three-tier escalation pattern:
+
+| Tier | Trigger | Response | Quick Replies |
+|---|---|---|---|
+| 1st | First unrecognized | LLM acknowledges specific request + lists available categories (static fallback: "I don't have information about that specifically, but I can search for...") | Service category buttons |
+| 2nd | Second unrecognized | Shorter + navigator push | Category buttons + navigator |
+| 3rd+ | Third+ unrecognized | Just navigator push | Navigator + start over |
+
+**Detection:** Fires when `service_type` is None AND any of: (a) location extracted without service, (b) request verb + transcript ≥ 2, (c) `_unrecognized_count ≥ 1` (sticky — once flagged, subsequent messages continue incrementing). **Recovery:** User can exit by choosing a real service category at any time. Reset clears the counter. **LLM prompt:** When available, the LLM generates a warm redirect that names the specific thing the user asked for and explains what IS available, rather than a generic "I can't help with that."
 
 ### Conversational
 

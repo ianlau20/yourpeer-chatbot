@@ -253,6 +253,10 @@ _EMOTIONAL_PHRASES = [
     "rough day", "bad day", "tough day", "hard day",
     "stressed out", "so stressed", "really stressed",
     "i'm stressed", "im stressed",
+    # Adjective forms — users describe their SITUATION as emotional
+    # ("this is depressing") rather than their STATE ("I'm depressed").
+    # Both should route to emotional handler.
+    "depressing", "overwhelming", "terrifying", "heartbreaking",
     "i'm struggling", "im struggling",
     "tired of everything", "exhausted",
     "i just need someone to talk to", "just need to talk",
@@ -1555,6 +1559,9 @@ def generate_reply(
 
     # --- Greeting ---
     if category == "greeting":
+        # Clear _last_action — user is starting fresh
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
         # If they have existing slots, acknowledge and re-offer
         if existing and any(v is not None for v in existing.values()):
             response = (
@@ -1572,6 +1579,8 @@ def generate_reply(
 
     # --- Thanks ---
     if category == "thanks":
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id, _THANKS_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
@@ -1583,6 +1592,9 @@ def generate_reply(
     if category == "help":
         # No ad-hoc slot guard needed — if the message had service intent,
         # it was already routed to "service" category above.
+        # Clear _last_action — user is moving on from emotional/escalation/frustration
+        existing.pop("_last_action", None)
+        save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id, _HELP_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES),
@@ -2193,23 +2205,93 @@ def generate_reply(
     # --- General conversation ---
     # The message didn't match any service keywords and isn't a greeting/reset.
 
-    # If the user has a location but no service_type and we already asked
-    # what they need, they may have requested something we can't help with
-    # (e.g. "helicopter ride"). Redirect gracefully to real services.
-    if (merged.get("location")
-            and not merged.get("service_type")
-            and len(merged.get("transcript", [])) >= 2):
-        location_label = merged["location"]
-        result = _empty_reply(
-            session_id,
-            "I'm not sure I can help with that specifically, but I can "
-            f"search for services in {location_label} — things like food, "
-            "shelter, clothing, showers, health care, legal help, and more. "
-            "What would be most helpful?",
-            merged,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
-        )
-        _log_turn(session_id, redacted_message, result, "unrecognized_service", request_id=request_id, tone=tone)
+    # Detect unrecognized service requests — user asked for something we can't
+    # categorize. Triggers: location extracted without service_type, request
+    # verbs present, or user has already been asked what they need.
+    _has_location_only = merged.get("location") and not merged.get("service_type")
+    _has_request_verb = bool(re.search(
+        r'\b(need|find|get|want|looking for|where can|help me find|searching for)\b',
+        message.lower(),
+    ))
+    _asked_already = len(merged.get("transcript", [])) >= 2
+    _already_unrecognized = merged.get("_unrecognized_count", 0) >= 1
+    _looks_like_request = (
+        _has_location_only
+        or (_has_request_verb and _asked_already)
+        or _already_unrecognized  # sticky: once flagged, stay in unrecognized mode
+    )
+
+    if _looks_like_request and not merged.get("service_type"):
+        # Track unrecognized count for escalation
+        unrec_count = merged.get("_unrecognized_count", 0) + 1
+        merged["_unrecognized_count"] = unrec_count
+        save_session_slots(session_id, merged)
+
+        location_note = ""
+        if merged.get("location"):
+            location_note = f" in {merged['location']}"
+
+        if unrec_count >= 3:
+            # 3rd+ unrecognized: just push navigator
+            response = (
+                "I think a peer navigator would be the best fit for what "
+                "you're looking for. They can help with things I can't."
+            )
+            qr = [
+                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🔄 Start over", "value": "Start over"},
+            ]
+        elif unrec_count == 2:
+            # 2nd unrecognized: shorter + navigator push
+            response = (
+                "I'm not finding a match for that. I can search for food, "
+                "shelter, clothing, showers, health care, legal help, "
+                "mental health, and employment services"
+                f"{location_note}. Or a peer navigator might be able to "
+                "help with other needs."
+            )
+            qr = list(_WELCOME_QUICK_REPLIES) + [
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+            ]
+        else:
+            # 1st unrecognized: try LLM redirect, fall back to static
+            if _USE_LLM:
+                try:
+                    _redirect_prompt = (
+                        "You are YourPeer, a friendly assistant that helps people "
+                        "find free social services in New York City.\n\n"
+                        "The user asked for something that doesn't match our "
+                        "service categories. Acknowledge what they asked for "
+                        "specifically, explain gently that you can't help with "
+                        "that, and list what you CAN search for: food, shelter, "
+                        "clothing, showers, health care, legal help, mental "
+                        "health services, and employment services.\n\n"
+                        "Be warm and brief (2-3 sentences). Don't apologize "
+                        "excessively. End by asking which of these would be "
+                        "helpful.\n\n"
+                        f"User message: {message}"
+                    )
+                    response = claude_reply(_redirect_prompt)
+                except Exception as e:
+                    logger.error(f"Unrecognized redirect LLM failed: {e}")
+                    response = None
+            else:
+                response = None
+
+            if not response:
+                # Static fallback
+                response = (
+                    "I don't have information about that specifically, but "
+                    "I can search for free services"
+                    f"{location_note} — things like food, shelter, clothing, "
+                    "showers, health care, legal help, mental health, and "
+                    "employment services. Which of these would be helpful?"
+                )
+            qr = list(_WELCOME_QUICK_REPLIES)
+
+        result = _empty_reply(session_id, response, merged, quick_replies=qr)
+        _log_turn(session_id, redacted_message, result, "unrecognized_service",
+                  request_id=request_id, tone=tone)
         return result
 
     # Use Claude Haiku for a natural conversational response.

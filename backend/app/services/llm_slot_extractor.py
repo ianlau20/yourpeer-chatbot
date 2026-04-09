@@ -165,6 +165,68 @@ _SYSTEM_PROMPT = (
     "Brooklyn?' — but only extract slots from the LATEST user message."
 )
 
+# ---------------------------------------------------------------------------
+# NARRATIVE HANDLING
+# ---------------------------------------------------------------------------
+# Long messages (20+ words) get a specialized prompt that prioritizes
+# by urgency hierarchy rather than first-mention. This prevents
+# "I just got out of the hospital and my housing fell through" from
+# extracting "medical" when the user's primary need is shelter.
+#
+# When LLM is unavailable, a regex fallback uses the same urgency
+# hierarchy to pick the primary service from multiple regex matches.
+
+_NARRATIVE_THRESHOLD = 20  # words
+
+# Urgency hierarchy: higher index = higher priority when multiple
+# services are detected. Safety and shelter trump everything.
+_URGENCY_HIERARCHY = {
+    "other": 0,
+    "employment": 1,
+    "legal": 2,
+    "personal_care": 3,
+    "clothing": 4,
+    "food": 5,
+    "mental_health": 6,
+    "medical": 7,
+    "shelter": 8,
+}
+
+_NARRATIVE_SYSTEM_PROMPT = (
+    "You are a slot extraction engine for a social services chatbot in NYC. "
+    "The user has written a long message describing their situation.\n\n"
+    "Extract structured information using the extract_intake_slots tool. "
+    "CRITICAL: When the user mentions MULTIPLE service needs, choose the "
+    "PRIMARY service_type based on this urgency hierarchy (highest first):\n"
+    "  1. shelter / housing / safety (place to stay, eviction, homelessness)\n"
+    "  2. medical (health emergency, injury, illness)\n"
+    "  3. mental_health (substance use, counseling, crisis)\n"
+    "  4. food (meals, pantries, hunger)\n"
+    "  5. clothing, personal_care, legal, employment, other\n\n"
+    "For example:\n"
+    "  'I just got out of the hospital and my housing fell through'\n"
+    "  → service_type: 'shelter' (NOT medical — housing is more urgent)\n"
+    "  → additional_service_types: ['medical']\n\n"
+    "  'I need a job but I also have nowhere to sleep tonight'\n"
+    "  → service_type: 'shelter' (NOT employment — tonight = urgent)\n"
+    "  → additional_service_types: ['employment']\n\n"
+    "  'I'm 17, I ran away and I need clothes and a place to stay'\n"
+    "  → service_type: 'shelter' (NOT clothing — runaway youth = safety)\n"
+    "  → additional_service_types: ['clothing']\n\n"
+    "  'I was just released from Rikers and need a place to stay and a job'\n"
+    "  → service_type: 'shelter' (re-entry = immediate housing need)\n"
+    "  → additional_service_types: ['employment']\n\n"
+    "Handle negation: 'I don't want food, I need shelter' → shelter only.\n"
+    "Handle context clues: 'just got out of Rikers' = re-entry → shelter urgency. "
+    "'evicted', 'lost my housing', 'kicked out' = housing crisis.\n\n"
+    "Extract ALL slots: service_type, additional_service_types, location, age, "
+    "urgency, gender, family_status. Only extract what is stated or strongly "
+    "implied. If urgency is not explicit but the situation is clearly urgent "
+    "(eviction, re-entry, runaway, tonight, nowhere to go), set urgency='high'.\n\n"
+    "You may receive prior conversation turns for context. Only extract "
+    "slots from the LATEST user message."
+)
+
 
 # ---------------------------------------------------------------------------
 # LLM EXTRACTION
@@ -260,6 +322,141 @@ def _empty_slots() -> dict:
     }
 
 
+def _is_narrative(message: str) -> bool:
+    """Detect if a message is a narrative (long enough to need
+    urgency-aware extraction rather than keyword matching)."""
+    return len(message.split()) >= _NARRATIVE_THRESHOLD
+
+
+def extract_slots_narrative(message: str, conversation_history: list = None) -> dict:
+    """Extract slots from a long narrative using Sonnet with an
+    urgency-aware prompt.
+
+    For narratives, the LLM is FULLY AUTHORITATIVE — regex does not
+    override service_type. This prevents "I just got out of the hospital
+    and my housing fell through" from extracting "medical" (regex keyword
+    for "hospital") when the user's primary need is shelter.
+
+    Falls back to _narrative_regex_fallback() when LLM is unavailable.
+    """
+    try:
+        client = get_client()
+
+        messages = []
+        if conversation_history:
+            recent = conversation_history[-6:]
+            for turn in recent:
+                role = turn.get("role", "user")
+                text = turn.get("text", "")
+                api_role = "user" if role == "user" else "assistant"
+                if messages and messages[-1]["role"] == api_role:
+                    placeholder_role = "assistant" if api_role == "user" else "user"
+                    messages.append({"role": placeholder_role, "content": "(continuing)"})
+                messages.append({"role": api_role, "content": text})
+            if messages and messages[-1]["role"] == "user":
+                messages.append({"role": "assistant", "content": "(listening)"})
+
+        messages.append({"role": "user", "content": message})
+
+        response = client.messages.create(
+            model=SLOT_EXTRACTION_MODEL,
+            max_tokens=256,
+            system=_NARRATIVE_SYSTEM_PROMPT,
+            tools=[_EXTRACT_SLOTS_TOOL],
+            tool_choice={"type": "tool", "name": "extract_intake_slots"},
+            messages=messages,
+        )
+
+        for block in response.content:
+            if block.type == "tool_use" and block.name == "extract_intake_slots":
+                raw = block.input
+                result = {
+                    "service_type": raw.get("service_type"),
+                    "additional_service_types": raw.get("additional_service_types") or [],
+                    "location": raw.get("location"),
+                    "age": raw.get("age"),
+                    "urgency": raw.get("urgency"),
+                    "gender": raw.get("gender"),
+                    "family_status": raw.get("family_status"),
+                }
+                logger.info(
+                    f"Narrative extraction: primary={result['service_type']}, "
+                    f"additional={result['additional_service_types']}, "
+                    f"urgency={result['urgency']}"
+                )
+                return result
+
+        logger.warning("Narrative extraction: Claude did not return tool call")
+        return _narrative_regex_fallback(message)
+
+    except Exception as e:
+        logger.error(f"Narrative LLM extraction failed: {e}")
+        return _narrative_regex_fallback(message)
+
+
+def _narrative_regex_fallback(message: str) -> dict:
+    """Fallback for narrative extraction when LLM is unavailable.
+
+    Uses the standard regex extractor, then re-prioritizes the primary
+    service_type by urgency hierarchy. This prevents first-mentioned
+    from winning over most-urgent.
+
+    Example: "I just got out of the hospital and my housing fell through"
+    Regex extracts: medical (from "hospital"), shelter (from "housing")
+    Fallback selects: shelter (higher urgency than medical)
+    """
+    from app.services.slot_extractor import extract_slots as extract_slots_regex
+
+    regex_result = extract_slots_regex(message)
+
+    # Collect all detected service types (primary + additional)
+    all_services = []
+    primary = regex_result.get("service_type")
+    if primary:
+        detail = regex_result.get("service_detail")
+        all_services.append((primary, detail))
+
+    for svc, detail in regex_result.get("additional_services", []):
+        all_services.append((svc, detail))
+
+    if len(all_services) <= 1:
+        # Single or no service — nothing to re-prioritize
+        return regex_result
+
+    # Re-rank by urgency hierarchy
+    all_services.sort(
+        key=lambda x: _URGENCY_HIERARCHY.get(x[0], 0),
+        reverse=True,
+    )
+
+    # Highest-urgency service becomes primary
+    new_primary, new_detail = all_services[0]
+    remaining = [(s, d) for s, d in all_services[1:] if s != new_primary]
+
+    if new_primary != primary:
+        logger.info(
+            f"Narrative regex fallback: re-prioritized "
+            f"'{primary}' → '{new_primary}' (urgency hierarchy)"
+        )
+
+    regex_result["service_type"] = new_primary
+    regex_result["service_detail"] = new_detail
+    regex_result["additional_services"] = remaining
+
+    # Infer urgency from context clues in the narrative
+    lower = message.lower()
+    urgency_clues = [
+        "tonight", "right now", "nowhere to go", "kicked out",
+        "evicted", "just released", "just got out", "ran away",
+        "runaway", "on the street", "sleeping outside", "emergency",
+        "fleeing", "escaped",
+    ]
+    if not regex_result.get("urgency") and any(c in lower for c in urgency_clues):
+        regex_result["urgency"] = "high"
+
+    return regex_result
+
+
 # ---------------------------------------------------------------------------
 # COMPLEXITY CHECK
 # ---------------------------------------------------------------------------
@@ -347,7 +544,37 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
     # Step 1: Regex extraction (always runs — fast)
     regex_result = extract_slots_regex(message)
 
-    # Step 2: Complexity check
+    # Step 1b: Narrative detection — long messages get urgency-aware
+    # extraction with NO regex override. This is the critical path for
+    # stories like "I just got out of the hospital and my housing fell
+    # through" where regex extracts "medical" but the user needs shelter.
+    if _is_narrative(message):
+        logger.info(
+            f"Narrative detected ({len(message.split())} words) — "
+            f"using urgency-aware extraction"
+        )
+        narrative_result = extract_slots_narrative(
+            message, conversation_history=conversation_history
+        )
+
+        # Supplement with regex for any slots narrative extraction missed
+        # (e.g., regex caught location that LLM missed)
+        for key in regex_result:
+            if key in ("additional_services", "additional_service_types"):
+                continue
+            if narrative_result.get(key) is None and regex_result.get(key) is not None:
+                narrative_result[key] = regex_result[key]
+
+        # If the LLM returned additional_service_types (string list format),
+        # merge with regex additional_services. If the fallback already set
+        # additional_services (tuple format), it already handled merging.
+        if "additional_service_types" in narrative_result:
+            return _merge_additional_services(narrative_result, regex_result)
+
+        # Fallback path: additional_services already set in regex tuple format
+        return narrative_result
+
+    # Step 2: Complexity check (non-narrative messages)
     if _is_simple_message(message, regex_result):
         logger.debug("Simple message — using regex results")
         return regex_result
@@ -387,24 +614,32 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
 
         merged = llm_result
     else:
-        # Step 4: LLM returned nothing — fall back to regex.
-        # regex_result already has correct additional_services — return as-is.
+        # Step 4: LLM returned nothing — fall back to regex
         logger.warning("LLM returned empty — falling back to regex")
-        return regex_result
+        merged = regex_result
 
     # -----------------------------------------------------------------
     # Merge additional services from regex and LLM (PR 4)
     # -----------------------------------------------------------------
+    return _merge_additional_services(merged, regex_result)
+
+
+def _merge_additional_services(primary_result: dict, regex_result: dict) -> dict:
+    """Merge additional services from regex and LLM into a unified list.
+
+    Regex additional_services (tuples with detail) take precedence.
+    LLM additional_service_types (strings) fill in what regex missed.
+    Primary service_type is excluded from additional list.
+    """
     # Regex additional_services: list of (service_type, detail) tuples
     regex_additional = regex_result.get("additional_services", [])
 
     # LLM additional_service_types: list of service_type strings
-    llm_additional = merged.pop("additional_service_types", []) or []
+    llm_additional = primary_result.pop("additional_service_types", []) or []
 
     # Build combined list, deduplicating by service category.
-    # Primary service_type is excluded (no duplication with main slot).
     seen = set()
-    primary = merged.get("service_type")
+    primary = primary_result.get("service_type")
     if primary:
         seen.add(primary)
 
@@ -417,8 +652,6 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
             seen.add(svc)
 
     # LLM additional — only services regex didn't already find.
-    # This is where the LLM adds value: indirect phrasing like
-    # "a place to crash" → shelter, "someone to talk to" → mental_health
     for svc in llm_additional:
         if svc not in seen:
             combined_additional.append((svc, None))
@@ -429,6 +662,6 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
             )
 
     if combined_additional:
-        merged["additional_services"] = combined_additional
+        primary_result["additional_services"] = combined_additional
 
-    return merged
+    return primary_result
