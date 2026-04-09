@@ -1266,71 +1266,91 @@ def generate_reply(
     early_extracted = extract_slots(message)
     has_service_intent = early_extracted.get("service_type") is not None
 
-    # --- POST-RESULTS QUESTION CHECK ---
-    # If we just showed search results, check if the user is asking a
-    # follow-up about them (e.g., "are any open now?", "tell me about
-    # the first one"). Handle deterministically — NO LLM.
-    _last_results = existing.get("_last_results")
+    # --- CLASSIFY ACTION (regex, instant) ---
     _action_pre = _classify_action(message)
-    _is_confirmation_action = _action_pre in (
-        "confirm_change_service", "confirm_change_location",
-        "confirm_yes", "confirm_deny", "reset", "greeting",
+
+    # --- CRISIS DETECTION (always runs before any other handler) ---
+    # Safety: crisis detection MUST run before post-results, confirmation,
+    # or any other handler. Eval scenario "crisis_after_results" (P10) found
+    # that DV disclosures after search results were being missed when crisis
+    # detection didn't run on every turn.
+    #
+    # Performance: for short, unambiguous safe actions ("yes", "start over",
+    # "hello"), we skip the expensive Sonnet LLM call (~2-5s) and only run
+    # the instant regex check. The regex catches explicit crisis language;
+    # the LLM catches indirect phrasing — which doesn't appear in "yes".
+    _is_safe_short = (
+        _action_pre in (
+            "confirm_yes", "confirm_deny", "confirm_change_service",
+            "confirm_change_location", "reset", "greeting", "thanks",
+            "bot_identity",
+        )
+        and len(message.split()) <= 6
     )
-    if _last_results and not has_service_intent and not _is_confirmation_action:
-        # "Show all results" — re-display the stored results
-        if message.lower().strip() in ("show all results", "show results", "show all"):
-            result = {
-                "session_id": session_id,
-                "response": "Here are all the results again:",
-                "follow_up_needed": False,
-                "slots": existing,
-                "services": _last_results,
-                "result_count": len(_last_results),
-                "relaxed_search": False,
-                "quick_replies": [
-                    {"label": "🔍 New search", "value": "Start over"},
-                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
-                ],
-            }
-            _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
-            return result
+    _crisis_result = detect_crisis(message, skip_llm=_is_safe_short)
 
-        post_intent = classify_post_results_question(message)
-        if post_intent is not None:
-            pr = answer_from_results(post_intent, _last_results)
-            result = {
-                "session_id": session_id,
-                "response": pr["response"],
-                "follow_up_needed": False,
-                "slots": existing,
-                "services": pr.get("services", []),
-                "result_count": len(pr.get("services", [])),
-                "relaxed_search": False,
-                "quick_replies": pr.get("quick_replies", []),
-            }
-            _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
-            return result
+    # Crisis takes absolute priority — even over post-results questions
+    if _crisis_result is not None:
+        tone = "crisis"
+    else:
+        tone = _classify_tone(message, crisis_result=_crisis_result)
 
-    # If the user is starting a new action, clear stale results
-    if _last_results and (has_service_intent or _is_confirmation_action):
-        existing.pop("_last_results", None)
-        save_session_slots(session_id, existing)
+    if tone == "crisis":
+        # Jump straight to crisis handling (below in routing section)
+        pass
+    else:
+        # --- POST-RESULTS QUESTION CHECK ---
+        # Only runs when crisis detection cleared the message as safe.
+        # Handles follow-up questions about displayed services
+        # deterministically — NO LLM, no hallucination risk.
+        _last_results = existing.get("_last_results")
+        _is_confirmation_action = _action_pre in (
+            "confirm_change_service", "confirm_change_location",
+            "confirm_yes", "confirm_deny", "reset", "greeting",
+        )
+        if _last_results and not has_service_intent and not _is_confirmation_action:
+            # "Show all results" — re-display the stored results
+            if message.lower().strip() in ("show all results", "show results", "show all"):
+                result = {
+                    "session_id": session_id,
+                    "response": "Here are all the results again:",
+                    "follow_up_needed": False,
+                    "slots": existing,
+                    "services": _last_results,
+                    "result_count": len(_last_results),
+                    "relaxed_search": False,
+                    "quick_replies": [
+                        {"label": "🔍 New search", "value": "Start over"},
+                        {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+                    ],
+                }
+                _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+                return result
 
-    # --- CLASSIFY ACTION + TONE SEPARATELY ---
-    action = _action_pre  # Already computed above (avoid duplicate call)
-    # Run crisis detection ONCE here — the result is passed to
-    # _classify_tone (which would otherwise call detect_crisis again)
-    # and reused by the crisis handler below. This avoids a redundant
-    # Sonnet LLM call (~2s + API cost) on every crisis-classified message.
-    _crisis_result = detect_crisis(message)
-    tone = _classify_tone(message, crisis_result=_crisis_result)
+            post_intent = classify_post_results_question(message)
+            if post_intent is not None:
+                pr = answer_from_results(post_intent, _last_results)
+                result = {
+                    "session_id": session_id,
+                    "response": pr["response"],
+                    "follow_up_needed": False,
+                    "slots": existing,
+                    "services": pr.get("services", []),
+                    "result_count": len(pr.get("services", [])),
+                    "relaxed_search": False,
+                    "quick_replies": pr.get("quick_replies", []),
+                }
+                _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+                return result
+
+        # If the user is starting a new action, clear stale results
+        if _last_results and (has_service_intent or _is_confirmation_action):
+            existing.pop("_last_results", None)
+            save_session_slots(session_id, existing)
 
     # --- COMBINE INTO ROUTING CATEGORY ---
     # Priority: crisis > reset > confirmations > service intent > actions > tone > LLM > general
-    #
-    # The key insight: when service intent is present, it wins over
-    # help/escalation/emotional/confused — those become tone modifiers
-    # on the service flow, not separate routes.
+    action = _action_pre  # Already computed above (avoid duplicate call)
     _response_tone = tone  # stored for use in service flow framing
 
     if tone == "crisis":

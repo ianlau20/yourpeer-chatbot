@@ -401,7 +401,7 @@ def _detect_crisis_llm(text: str) -> Optional[Tuple[str, str]]:
         return ("safety_concern", _FAILOPEN_RESPONSE)
 
 
-def detect_crisis(text: str) -> Optional[Tuple[str, str]]:
+def detect_crisis(text: str, skip_llm: bool = False) -> Optional[Tuple[str, str]]:
     """
     Check if a message contains crisis language. Two-stage detection:
 
@@ -462,8 +462,13 @@ def detect_crisis(text: str) -> Optional[Tuple[str, str]]:
         )
         return None
 
-    if _USE_LLM_DETECTION:
+    if _USE_LLM_DETECTION and not skip_llm:
         return _detect_crisis_llm(text)
+
+    if skip_llm:
+        logger.debug(
+            "Skipping LLM crisis check — message classified as safe short action"
+        )
 
     return None
 

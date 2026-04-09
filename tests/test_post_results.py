@@ -666,3 +666,106 @@ class TestNoCostVariant:
         intent = classify_post_results_question("any with no fee?")
         assert intent is not None
         assert intent["type"] == "filter_free"
+
+
+# -----------------------------------------------------------------------
+# CRITICAL SAFETY: crisis_after_results (eval P10)
+# -----------------------------------------------------------------------
+
+class TestCrisisAfterResultsSafety:
+    """Eval scenario P10: crisis messages after results MUST be caught
+    by crisis detection, not intercepted by the post-results handler.
+
+    These test messages contain result-reference words ('they', 'them',
+    'those') that WOULD match post-results patterns if crisis detection
+    didn't run first."""
+
+    def test_dv_with_result_reference(self):
+        """DV disclosure with 'them' — must trigger crisis, not post-results."""
+        sid = _fresh()
+        _send("food in Harlem", sid)
+        _send("yes", sid)
+        result = _send(
+            "what about them? he said he would kill me tonight",
+            sid,
+            mock_crisis=("domestic_violence", "Your safety matters. Call 911 or the National DV Hotline at 1-800-799-7233."),
+        )
+        assert "safety" in result["response"].lower() or "hotline" in result["response"].lower() \
+            or "911" in result["response"]
+        clear_session(sid)
+
+    def test_suicidal_with_result_reference(self):
+        """Suicidal ideation with 'they' — must trigger crisis."""
+        sid = _fresh()
+        _send("food in Harlem", sid)
+        _send("yes", sid)
+        result = _send(
+            "do they even help people like me? I want to die",
+            sid,
+            mock_crisis=("suicide_self_harm", "You're not alone. Call 988 Suicide & Crisis Lifeline."),
+        )
+        assert "988" in result["response"] or "not alone" in result["response"].lower()
+        clear_session(sid)
+
+    def test_safety_concern_with_those(self):
+        """Safety concern with 'those' — must trigger crisis."""
+        sid = _fresh()
+        _send("food in Harlem", sid)
+        _send("yes", sid)
+        result = _send(
+            "I dont think those places can help, nobody cares if i disappear",
+            sid,
+            mock_crisis=("suicide_self_harm", "Call 988."),
+        )
+        assert "988" in result["response"]
+        clear_session(sid)
+
+    def test_safe_action_skips_llm_but_regex_still_runs(self):
+        """'yes' should skip LLM crisis but regex crisis check still runs."""
+        sid = _fresh()
+        _send("food in Harlem", sid)
+        _send("yes", sid)
+        # Even with _last_results, "yes" should not crash or be caught
+        # by post-results — it's a confirmation action
+        result = _send("yes", sid)
+        assert len(result["response"]) > 0
+        clear_session(sid)
+
+
+class TestSkipLlmPerformance:
+    """Verify that skip_llm parameter works on detect_crisis."""
+
+    def test_skip_llm_still_catches_regex_crisis(self):
+        """Even with skip_llm=True, regex crisis phrases must still be caught."""
+        from app.services.crisis_detector import detect_crisis
+        # "I want to kill myself" matches regex — should be caught
+        # even with skip_llm=True
+        result = detect_crisis("I want to kill myself", skip_llm=True)
+        assert result is not None
+        assert result[0] == "suicide_self_harm"
+
+    def test_skip_llm_returns_none_for_safe_message(self):
+        """With skip_llm=True, non-crisis messages return None without LLM call."""
+        from app.services.crisis_detector import detect_crisis
+        result = detect_crisis("yes", skip_llm=True)
+        assert result is None
+
+    def test_skip_llm_false_default(self):
+        """Default skip_llm=False should call LLM when enabled."""
+        from app.services.crisis_detector import detect_crisis
+        with (
+            patch("app.services.crisis_detector._USE_LLM_DETECTION", True),
+            patch("app.services.crisis_detector._detect_crisis_llm", return_value=None) as mock_llm,
+        ):
+            detect_crisis("some ambiguous message about life")
+            mock_llm.assert_called_once()
+
+    def test_skip_llm_true_no_llm_call(self):
+        """With skip_llm=True, LLM should NOT be called even when enabled."""
+        from app.services.crisis_detector import detect_crisis
+        with (
+            patch("app.services.crisis_detector._USE_LLM_DETECTION", True),
+            patch("app.services.crisis_detector._detect_crisis_llm") as mock_llm,
+        ):
+            detect_crisis("some ambiguous message about life", skip_llm=True)
+            mock_llm.assert_not_called()
