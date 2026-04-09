@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 1234 tests across 26 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 1344 tests across 27 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -47,7 +47,7 @@ Without `ANTHROPIC_API_KEY`, the 5 live LLM tests are automatically skipped.
 
 ## Test Coverage Map
 
-All 16 backend modules and all public functions are covered:
+All 17 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
@@ -67,6 +67,7 @@ All 16 backend modules and all public functions are covered:
 | `admin.py` (routes) | `test_admin.py` | 27 | Full |
 | `chat.py` (route) | `test_chat_route.py` | 24 | Full |
 | `claude_client.py` | `test_claude_client.py` | 19 | Full |
+| `bot_knowledge.py` | `test_bot_knowledge.py` | 62 | Full |
 | `main.py` | `test_main.py` | 14 | Full |
 
 **Not covered:** Frontend TypeScript/React components (`frontend-next/`). There is no frontend test infrastructure in the project yet. See "Known Limitations" section below.
@@ -364,6 +365,98 @@ HTTP-level tests for the FastAPI app configuration (headless API mode).
 | API routing | 3 | `/api/health`, `POST /chat/`, `/admin/api/stats` all routed correctly |
 | CSRF protection | 6 | Valid origin allowed, evil origin → 403, non-browser (no headers) allowed, Sec-Fetch-Site without origin → 403, valid Referer allowed, evil Referer → 403 |
 | CORS | 3 | Headers present for allowed origin, no headers for unknown origin, preflight OPTIONS |
+
+### `test_structural_fixes.py` — 50 tests
+
+Multi-turn conversation flow tests for structural fixes (R1-R8).
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Change mind | 10 | Service change during pending confirmation, implicit denial |
+| Yes-after-escalation | 6 | Distinct response vs escalation repeat |
+| Frustration loop | 8 | Counter increment, shorter second response, navigator push |
+| Context-aware yes/no | 15 | Emotional, escalation, frustrated, confused, crisis step-down |
+| Session isolation | 4 | Emotional state, frustration count don't leak |
+| Unrecognized escalation | 7 | 3-tier redirect, sticky detection |
+
+### `test_context_routing.py` — 101 tests
+
+Context-aware routing, _last_action lifecycle, and implicit service change detection.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| last_action lifecycle | 15 | Set by context handlers, cleared by shifts |
+| Confirm/deny routing | 12 | Re-extraction, service change detection |
+| Yes/no after context | 10 | Emotional, escalation, frustration, confused |
+| Frustration counter | 6 | Increment, escalation, reset |
+| Emotional → service | 5 | Transition from emotional to service flow |
+| Slot persistence | 4 | Slots survive across context changes |
+| Complex flows | 6 | Multi-step conversations |
+| Other-type interception | 2 | service_type="other" without detail |
+| Implicit service change | 21 | Direct change (7), negation swap (3), additive intent (7), edge cases (4) |
+
+### `test_phrase_audit.py` — 68 tests
+
+Phrase list completeness, emotion-specific routing, and emotional enhancement validation.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| P0-P3 phrases | 18 | Frustration, emotional, confused, shame phrases |
+| Emotion-specific | 6 | Scared, sad, rough_day, shame, grief, alone responses |
+| Enhancement validation | 14 | Valid enhancements pass, NONE rejected, service push blocked, too-long rejected |
+| Enhancement scaffold | 11 | Static response always present, no service mentions, navigator offer present |
+| Blocklist gaps | 9 | Vague service hints blocked |
+| Emotional+service collision | 3 | Emotional overrides service intent |
+| Help override | 4 | "help" with emotional context routes to emotional |
+| Shame prefix | 3 | Normalizing prefix on shame+service |
+
+### `test_contraction_normalization.py` — 19 tests
+
+Contraction expansion and intensifier stripping.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Contraction expansion | 10 | 37 contractions, edge cases |
+| Intensifier stripping | 9 | 20 adverbs × emotion matrix |
+
+### `test_narrative_extraction.py` — 17 tests
+
+Narrative detection, urgency hierarchy, and regex fallback.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Detection | 3 | ≥20 words threshold, short messages excluded |
+| Urgency hierarchy | 5 | shelter > medical > food > employment |
+| Regex fallback | 4 | Re-ranking, context clues, urgency inference |
+| Smart routing | 5 | Narrative vs simple in extract_slots_smart |
+
+### `test_integration_scenarios.py` — 29 tests
+
+End-to-end tests through the full `generate_reply` pipeline, reproducing eval scenario messages.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Narrative integration | 7 | Hospital/housing, re-entry, eviction, runaway youth through full flow |
+| Cross-feature | 4 | Emotional+narrative, shame+narrative, intensifiers+narrative, frustration→narrative |
+| PII in narratives | 4 | Phone, name, SSN, multiple PII in long messages |
+| Session isolation | 2 | Two sessions don't leak slots or emotional state |
+| Eval approximations | 12 | Emotional (3), routing (3), narrative (3), adversarial (2), shame (1) |
+
+### `test_bot_knowledge.py` — 62 tests
+
+Bot self-knowledge module: live capability sourcing, topic matching, and LLM context generation.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Live sourcing | 3 | Service categories, PII types, location count from code |
+| Topic matching | 16 | All 15 topics + no-match case |
+| Capability context | 6 | LLM prompt includes services, PII, locations, privacy, crisis, emotional |
+| Static handler | 3 | Routes through bot_knowledge correctly |
+| Phrase classification | 5 | New privacy phrases classify as bot_question |
+| Untested topics | 6 | language, peer_navigator, privacy_delete/identity/police/visibility |
+| Topic collisions | 5 | Priority ordering for multi-match messages |
+| False positives | 10 | Non-questions don't match |
+| Routing integration | 3 | End-to-end through generate_reply |
 
 ## LLM-as-Judge Evaluation (`eval_llm_judge.py`)
 

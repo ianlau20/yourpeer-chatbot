@@ -290,8 +290,10 @@ These would only be added to the crisis regex list to ensure safety coverage. Fu
 | P4 | Contraction normalization | 1 function + 37 mappings | Medium | Eliminates future contraction gaps | ✅ Done |
 | P4b | Intensifier stripping | 1 function + 20 intensifiers | Medium | Eliminates intensifier×emotion gaps (109→0) | ✅ Done |
 | P5 | Spanish crisis phrases | ~5 phrases | Low | Safety for Spanish speakers | Deferred |
+| P6 | Bot question phrase expansion | 13 privacy/info phrases | Medium | Catches "what happens to my information" variants | ✅ Done |
+| P7 | Emotional enhancement blocklist | 56 items (15 service + 11 soft-push + 7 steering + 6 adjacent + 10 vague hints + 7 other) | High | Prevents LLM from inserting service-push into emotional responses | ✅ Done |
 
-**Implementation note:** 120+ phrases added across 6 files. Total phrase inventory: 636 → 770+. Two systematic preprocessing functions eliminate future gaps: contraction normalization (37 mappings) and intensifier stripping (20 adverbs). Zero test regressions (701 passed locally, same 4 pre-existing feature gaps). One collision caught during implementation: "i give up on this" (frustration) collided with "i give up" (suicide) — removed from frustration list.
+**Implementation note:** 130+ phrases added across 7 files. Total phrase inventory: 770 → 850+. Three systematic preprocessing functions eliminate future gaps: contraction normalization (37 mappings), intensifier stripping (20 adverbs), and emotional enhancement validation (56-item blocklist). Bot self-knowledge module (`bot_knowledge.py`) provides 15 topic entries with keyword matching for static bot question answers. Zero test regressions (939 passed locally, same 4 pre-existing feature gaps).
 
 ---
 

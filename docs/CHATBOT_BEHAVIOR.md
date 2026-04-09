@@ -14,7 +14,9 @@ Every incoming message passes through three stages: slot extraction, classificat
 
 Regex-based slot extraction runs on every message before classification. This extracts service type(s), location, age, urgency, family status, and service detail. The result determines `has_service_intent` — whether the message contains a service request.
 
-**Narrative extraction (20+ words):** Long messages are detected by `_is_narrative()` and routed through `extract_slots_narrative()` with a specialized Sonnet prompt that prioritizes by urgency hierarchy (shelter > medical > food > employment) rather than first-mention. For narratives, the LLM is fully authoritative — regex does NOT override `service_type`. This prevents "I just got out of the hospital and my housing fell through" from extracting "medical" when the user needs shelter. When LLM is unavailable, `_narrative_regex_fallback()` runs standard regex, collects all services, and re-ranks by urgency hierarchy. Context clues ("evicted", "just released", "ran away") automatically set `urgency=high`.
+**Narrative extraction (20+ words):** Long messages are detected by `_is_narrative_message()` (≥20 words) and routed through narrative-aware extraction. With LLM enabled, `extract_slots_narrative()` uses a specialized Sonnet prompt that prioritizes by urgency hierarchy (shelter > medical > food > employment) rather than first-mention. For narratives, the LLM is fully authoritative — regex does NOT override `service_type`. This prevents "I just got out of the hospital and my housing fell through" from extracting "medical" when the user needs shelter.
+
+**Regex-only narrative routing:** Even when `_USE_LLM=False`, narratives are routed through `_narrative_regex_fallback()` in `generate_reply`. This was a critical fix — previously, narratives only used urgency-aware extraction when the LLM was available. The fallback runs standard regex, collects all services, and re-ranks by urgency hierarchy. Context clues ("evicted", "just released", "ran away") automatically set `urgency=high`.
 
 ### Stage 2 — Split Classification
 
@@ -113,13 +115,22 @@ Responds honestly that the user is talking to an AI assistant, offers to connect
 
 ### Bot Question
 
-Answers questions about the bot's capabilities directly and honestly. Uses an LLM prompt loaded with detailed factual information about the system, including session context (current search state, whether geolocation is active). The prompt includes specific details about service categories, geolocation failure reasons, NYC-only coverage (suggests 211 for elsewhere), and comprehensive privacy facts (no ICE connection, no law enforcement sharing, no impact on benefits).
+Answers questions about the bot's capabilities using the **`bot_knowledge.py` self-knowledge module** — a single source of truth for both the LLM prompt and static handler.
 
-Privacy questions are specifically classified into this category, including concerns about ICE, police, case workers, benefits impact, anonymity, recording, and data deletion. This ensures the population served — who may avoid seeking help due to surveillance fears — gets direct, reassuring answers.
+**Architecture:** The module sources capability data from actual code at runtime:
+- Service categories from `slot_extractor.SERVICE_KEYWORDS`
+- PII types from `pii_redactor._PLACEHOLDERS`
+- Location count from `slot_extractor._KNOWN_LOCATIONS`
 
-When the LLM is unavailable, `_static_bot_answer()` provides pattern-matched fallbacks for 7 topic areas: geolocation failures, NYC coverage, service categories, immigration/ICE privacy, law enforcement privacy, benefits/provider privacy, identity/anonymity, data deletion, and general privacy. Unknown questions get a useful generic answer rather than silence.
+This prevents drift between what the code does and what the bot tells users it does.
 
-This category catches messages like "why weren't you able to get my location?" that previously misrouted to the frustration handler.
+**15 topics** organized by priority: privacy_ice > privacy_police > privacy_benefits > privacy_visibility > privacy_delete > privacy_identity > privacy_general > location_fail > location_how > coverage > services > how_it_works > crisis_support > peer_navigator > limitations > language. Priority ordering ensures multi-topic collisions resolve correctly (e.g., "Is my location data private?" → privacy, not location).
+
+**LLM path:** `_build_bot_question_prompt()` calls `build_capability_context()` which generates the "Facts about yourself" section from live code data, including service categories, PII redaction types, location count, crisis detection capabilities, and emotional handling.
+
+**Static path:** `_static_bot_answer()` calls `answer_question()` which keyword-matches against topic entries. Unknown questions get a useful generic answer.
+
+**Phrase expansion:** `_BOT_QUESTION_PHRASES` includes 13 privacy/information-handling phrases for the `wa_privacy_information_sharing` eval scenario ("what happens to my information", "what do you do with my data", etc.).
 
 ### Escalation
 
@@ -131,6 +142,14 @@ Four confirmation categories handle the user's response to a pending search conf
 
 - **confirm_yes** — Executes the database query and returns service cards.
 - **confirm_deny** — If the deny message contains a NEW service type different from the current one (e.g., "no, I need shelter instead"), re-extracts slots and shows new confirmation. Otherwise, clears the confirmation, keeps slots, offers options (change service, change location, new search, peer navigator). "wait" and "hold on" are intentionally NOT deny phrases — they're interruptions that would otherwise lose embedded service changes like "wait, I changed my mind, I need shelter."
+
+### Implicit Service Change Detection (Pending Confirmation)
+
+When a confirmation is pending, any message with a DIFFERENT `service_type` from the pending one is treated as an implicit correction — no denial keyword needed. This follows the industry standard (Rasa, Microsoft CLU, Dialogflow) of slot-level conflict detection.
+
+**Change vs Add distinction:** Additive keywords ("also", "too", "as well", "in addition", "plus") signal ADD intent — the new service is queued rather than replacing the current one. Without additive keywords, a different service_type is treated as a CHANGE.
+
+**Negation-blind regex handling:** When the user says "Not food, I need shelter," regex extracts both "food" (primary, from negated mention) and "shelter" (additional). During pending confirmation, if the primary matches the current service but an additional service differs, the system swaps the additional to primary — the user is correcting, not confirming. This swap is also applied in the confirm_deny handler for messages like "I don't want food, shelter please."
 - **confirm_change_service** — Clears the service type slot and asks what they need.
 - **confirm_change_location** — Clears the location slot and offers borough buttons.
 
@@ -325,6 +344,20 @@ Based on this research, the following principles govern emotional handling in th
 
 6. **Always offer human escalation.** Every emotional response includes a path to a peer navigator. This aligns with Wysa's hybrid model and the APA's guidance that AI chatbots should "complement—not replace—human-led" support.
 
+### Implementation: Static Scaffold + LLM Enhancement (Option 3)
+
+The emotional handler uses a **whitelist approach** rather than relying on the LLM to generate the full response. This was adopted after evaluations showed the LLM consistently pushed services despite prompt constraints — the system identity ("helps people find free social services") biased the LLM toward service-finding behavior.
+
+**Flow:**
+1. `_pick_emotional_response(message)` returns a static response matched to one of 6 emotion types (scared, sad, rough_day, shame, grief, alone). This is ALWAYS the base response.
+2. If `_USE_LLM` is True, `_generate_emotional_enhancement(message)` asks the LLM for ONE optional personalized sentence (max 15 words) that references something specific the user said.
+3. The enhancement is validated by `_validate_emotional_enhancement()` against a 56-item blocklist of service words, soft-push phrases, steering questions, and vague service hints.
+4. If valid, the enhancement is inserted between the acknowledgment paragraph and the navigator offer paragraph. If invalid or "NONE", the static response stands alone.
+
+**Why whitelist beats blacklist:** Option 2 (validate-and-reject full LLM response) was rejected because it relies on a blacklist catching every possible service push. The LLM generates novel phrasings ("I'm here to assist you," "there are options available") that pass keyword validation but still score poorly with evaluators. Option 3's static response is guaranteed correct; the enhancement can only improve it.
+
+**Blocklist categories:** `_EMOTIONAL_ENHANCEMENT_BLOCKLIST` contains: explicit service words (15), soft-push phrases (11), steering questions (7), service-adjacent terms (6), vague service hints (10).
+
 ### References
 
 - Chin, H., Song, H., et al. (2025). Chatbots' Empathetic Conversations and Responses: A Qualitative Study of Help-Seeking Queries on Depressive Moods Across 8 Commercial Conversational Agents. *JMIR Formative Research*, 9(1), e71538. https://formative.jmir.org/2025/1/e71538
@@ -347,7 +380,7 @@ When the user asks for something that doesn't match any service category (e.g., 
 | 2nd | Second unrecognized | Shorter + navigator push | Category buttons + navigator |
 | 3rd+ | Third+ unrecognized | Just navigator push | Navigator + start over |
 
-**Detection:** Fires when `service_type` is None AND any of: (a) location extracted without service, (b) request verb + transcript ≥ 2, (c) `_unrecognized_count ≥ 1` (sticky — once flagged, subsequent messages continue incrementing). **Recovery:** User can exit by choosing a real service category at any time. Reset clears the counter. **LLM prompt:** When available, the LLM generates a warm redirect that names the specific thing the user asked for and explains what IS available, rather than a generic "I can't help with that."
+**Detection:** Fires when `service_type` is None AND any of: (a) location extracted without service, (b) request verb + transcript ≥ 2, (c) `_unrecognized_count ≥ 1` (sticky — once flagged, subsequent messages continue incrementing). **LLM "other" interception:** When the LLM extractor returns `service_type="other"` without a `service_detail`, AND the regex extractor also returned None, the system treats it as unrecognized rather than searching for "other services." This distinguishes genuinely unrecognizable requests ("helicopter ride" → regex=None, LLM="other") from legitimate "other" category requests ("SNAP benefits" → regex="other", LLM="other"). **Recovery:** User can exit by choosing a real service category at any time. Reset clears the counter. **LLM prompt:** When available, the LLM generates a warm redirect that names the specific thing the user asked for and explains what IS available, rather than a generic "I can't help with that."
 
 ### Conversational
 
