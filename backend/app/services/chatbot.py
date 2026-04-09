@@ -193,10 +193,12 @@ _FRUSTRATION_PHRASES = [
 # These must NOT overlap with service keywords ("feeling hungry" → service).
 _EMOTIONAL_PHRASES = [
     "feeling down", "feeling really down",
+    "really down", "so down",
     "feeling sad", "feeling really sad",
     "feeling bad", "feeling really bad",
-    "feeling depressed", "so depressed",
+    "feeling depressed", "so depressed", "really depressed", "very depressed",
     "feeling scared", "feeling really scared", "im scared", "i'm scared",
+    "really scared", "so scared", "very scared",
     "feeling anxious", "feeling really anxious", "so anxious",
     "feeling lonely", "feeling alone", "so lonely", "all alone",
     "feeling hopeless", "feel hopeless",
@@ -273,7 +275,7 @@ _CONFUSED_PHRASES = [
     "don't know where to start", "dont know where to start",
     "i'm confused", "im confused",
     "i'm lost", "im lost", "so lost",
-    "i'm overwhelmed", "im overwhelmed", "so overwhelmed",
+    "i'm overwhelmed", "im overwhelmed", "so overwhelmed", "really overwhelmed",
     "i'm not sure", "im not sure",
     "where do i start", "where do i begin",
     "what are my options", "what can i do",
@@ -449,31 +451,11 @@ def _classify_action(text: str) -> str | None:
     return None
 
 
-_URGENT_PHRASES = [
-    "right now", "tonight", "immediately", "asap", "urgent",
-    "emergency", "before dark", "freezing",
-    "nowhere to go", "have nowhere", "on the street",
-    "please help", "please hurry", "desperate",
-    "kicked out today", "evicted today",
-]
-
-
-_CRISIS_NOT_CHECKED = object()  # sentinel: caller hasn't run detect_crisis yet
-
-
-def _classify_tone(text: str, crisis_result=_CRISIS_NOT_CHECKED) -> str | None:
+def _classify_tone(text: str) -> str | None:
     """Classify a message's emotional tone (how the user FEELS).
 
     No service-word gating — always runs. The caller decides how to
     combine tone with service intent.
-
-    Args:
-        text: The user's message.
-        crisis_result: Pre-computed result from detect_crisis().
-            Pass the return value directly (a tuple for crisis, None for
-            no crisis). When omitted, _classify_tone calls detect_crisis
-            itself. This avoids a redundant Sonnet LLM call when the
-            caller has already checked.
 
     Returns one of: "crisis", "emotional", "frustrated", "confused",
     "urgent", or None.
@@ -493,9 +475,7 @@ def _classify_tone(text: str, crisis_result=_CRISIS_NOT_CHECKED) -> str | None:
     normalized = _normalize_contractions(cleaned)
 
     # Crisis — highest priority (uses original text, NOT normalized)
-    # Use pre-computed result if available to avoid a redundant LLM call.
-    if crisis_result is _CRISIS_NOT_CHECKED:
-        crisis_result = detect_crisis(text)
+    crisis_result = detect_crisis(text)
     if crisis_result is not None:
         return "crisis"
 
@@ -517,6 +497,13 @@ def _classify_tone(text: str, crisis_result=_CRISIS_NOT_CHECKED) -> str | None:
     # Urgent — time pressure or panic without a stronger emotional tone.
     # Bridges from the urgency slot extractor's "high" phrases, plus
     # panic-specific phrases not covered by emotional/crisis.
+    _URGENT_PHRASES = [
+        "right now", "tonight", "immediately", "asap", "urgent",
+        "emergency", "before dark", "freezing",
+        "nowhere to go", "have nowhere", "on the street",
+        "please help", "please hurry", "desperate",
+        "kicked out today", "evicted today",
+    ]
     for phrase in _URGENT_PHRASES:
         if phrase in cleaned:
             return "urgent"
@@ -547,11 +534,8 @@ def _classify_message(text: str) -> str:
         return action
 
     # Frustration (before slot check — "not helpful" is never a service request)
-    # Check both original and normalized to catch all contraction variants,
-    # consistent with how _classify_tone handles frustration.
-    normalized = _normalize_contractions(cleaned)
     for phrase in _FRUSTRATION_PHRASES:
-        if phrase in cleaned or phrase in normalized:
+        if phrase in cleaned:
             return "frustration"
 
     # Check slots — if service intent found, it wins over emotional/confused
@@ -666,9 +650,105 @@ _EMOTIONAL_RESPONSE = (
     "If you'd like to talk to someone who understands, I can connect you "
     "with a peer navigator — they're people who've been through similar "
     "situations and know the system well.\n\n"
-    "Or if there's something practical I can help you find — like food, "
-    "a place to stay, or a shower — just let me know. I'm here."
+    "I'm here whenever you're ready."
 )
+
+# Emotion-specific responses for better AVR acknowledgment.
+# The static fallback should validate the SPECIFIC feeling, not give
+# a one-size-fits-all response. Per AVR research, users feel more
+# heard when their specific emotion is named and validated.
+_EMOTIONAL_RESPONSES = {
+    "scared": (
+        "It's okay to feel scared — that's a completely understandable "
+        "reaction to what you're going through. You're not alone in this.\n\n"
+        "If you'd like to talk to someone, I can connect you with a peer "
+        "navigator who can help you figure out next steps. No pressure."
+    ),
+    "sad": (
+        "I'm sorry you're feeling this way. It takes courage to say that, "
+        "and it's okay to not be okay right now.\n\n"
+        "If you'd like to talk to someone who understands, I can connect "
+        "you with a peer navigator. I'm here whenever you're ready."
+    ),
+    "rough_day": (
+        "That sounds really hard. Some days are just heavy, and it's "
+        "okay to feel that way.\n\n"
+        "If you'd like to talk to someone, I can connect you with a peer "
+        "navigator. Or just take your time — I'm here."
+    ),
+    "shame": (
+        "You have nothing to be ashamed of. A lot of people use these "
+        "services — it doesn't say anything about you as a person.\n\n"
+        "It takes real strength to reach out, and I'm glad you did. "
+        "I'm here to help however I can."
+    ),
+    "grief": (
+        "I'm really sorry for your loss. That's an incredibly heavy "
+        "thing to carry.\n\n"
+        "If you'd like to talk to someone, I can connect you with a peer "
+        "navigator. There's no rush — I'm here."
+    ),
+    "alone": (
+        "I hear you, and I'm sorry you're feeling that way. You're not "
+        "invisible, and reaching out here took courage.\n\n"
+        "If you'd like to talk to someone who understands, I can connect "
+        "you with a peer navigator. I'm here."
+    ),
+}
+
+
+def _pick_emotional_response(text: str) -> str:
+    """Pick the most appropriate emotion-specific static response.
+
+    Falls back to the generic _EMOTIONAL_RESPONSE if no specific
+    emotion is detected. This provides better AVR acknowledgment
+    than a one-size-fits-all response.
+    """
+    lower = text.lower()
+
+    # Shame/stigma
+    if any(p in lower for p in [
+        "embarrassed", "ashamed", "pathetic", "failure",
+        "never thought i'd need", "never thought id need",
+        "don't want anyone to know", "dont want anyone to know",
+    ]):
+        return _EMOTIONAL_RESPONSES["shame"]
+
+    # Grief/loss
+    if any(p in lower for p in [
+        "died", "passed away", "lost someone", "grieving", "mourning",
+    ]):
+        return _EMOTIONAL_RESPONSES["grief"]
+
+    # Scared/fear
+    if any(p in lower for p in [
+        "scared", "afraid", "frightened", "terrified", "fear",
+    ]):
+        return _EMOTIONAL_RESPONSES["scared"]
+
+    # Isolation/loneliness
+    if any(p in lower for p in [
+        "alone", "no one", "nobody", "no friends", "no family",
+        "have no one", "completely alone",
+    ]):
+        return _EMOTIONAL_RESPONSES["alone"]
+
+    # Sad/down
+    if any(p in lower for p in [
+        "feeling down", "feeling sad", "feeling bad", "depressed",
+        "not okay", "not ok", "not doing well", "not doing good",
+    ]):
+        return _EMOTIONAL_RESPONSES["sad"]
+
+    # Rough day / general hardship
+    if any(p in lower for p in [
+        "rough day", "bad day", "tough day", "hard day",
+        "rough time", "hard time", "tough time",
+        "falling apart", "getting worse",
+    ]):
+        return _EMOTIONAL_RESPONSES["rough_day"]
+
+    return _EMOTIONAL_RESPONSE
 
 
 def _build_empathetic_prompt(user_message: str, slots: dict) -> str:
@@ -684,18 +764,24 @@ def _build_empathetic_prompt(user_message: str, slots: dict) -> str:
         "You are YourPeer, a friendly assistant that helps people find "
         "free social services in New York City.\n\n"
         "The user has shared something emotional. Respond with warmth and "
-        "empathy. Your job right now is to ACKNOWLEDGE their feeling, not "
-        "to steer them toward services.\n\n"
+        "empathy. Your ONLY job right now is to ACKNOWLEDGE their feeling — "
+        "not to steer them toward services or offer practical help.\n\n"
         "Guidelines:\n"
-        "- Lead with acknowledgment. Validate what they're feeling.\n"
-        "- Do NOT list service categories or show a menu of options.\n"
+        "- Lead with acknowledgment. Name the specific emotion they're "
+        "expressing (scared, sad, overwhelmed, ashamed, grieving, lonely).\n"
+        "- Validate what they're feeling — don't minimize or rush past it.\n"
+        "- If they express shame or embarrassment about needing help, "
+        "normalize it: many people use these services.\n"
+        "- Do NOT list service categories, mention specific services, "
+        "or show a menu of options.\n"
+        "- Do NOT say 'if there's something practical I can help with' — "
+        "that will come later if they want it.\n"
         "- Do NOT give medical, psychological, legal, or financial advice.\n"
         "- Do NOT diagnose, suggest treatments, or minimize their experience.\n"
         "- Mention that you can connect them with a peer navigator if they "
-        "want someone to talk to.\n"
-        "- Gently let them know you're here if there's something practical "
-        "you can help them find, but don't push it.\n"
+        "want someone to talk to — but keep it brief, not the focus.\n"
         "- Keep your response to 2-3 sentences. Be genuine, not scripted.\n"
+        "- End with something warm like 'I'm here' or 'No rush.'\n"
         f"{slot_context}"
         f"User message: {user_message}"
     )
@@ -730,14 +816,7 @@ def _build_confirmation_message(slots: dict) -> str:
         # (e.g. street addresses extracted as location)
         location, _ = redact_pii(location)
 
-    # "near your location" reads naturally without "in", but borough/
-    # neighborhood names need "in" ("in Brooklyn", "in Harlem").
-    if location.startswith("near "):
-        location_phrase = location
-    else:
-        location_phrase = f"in {location}"
-
-    parts = [f"I'll search for {service_label} {location_phrase}"]
+    parts = [f"I'll search for {service_label} {location}"]
     if age:
         parts[0] += f" (age {age})"
 
@@ -1267,12 +1346,7 @@ def generate_reply(
 
     # --- CLASSIFY ACTION + TONE SEPARATELY ---
     action = _classify_action(message)
-    # Run crisis detection ONCE here — the result is passed to
-    # _classify_tone (which would otherwise call detect_crisis again)
-    # and reused by the crisis handler below. This avoids a redundant
-    # Sonnet LLM call (~2s + API cost) on every crisis-classified message.
-    _crisis_result = detect_crisis(message)
-    tone = _classify_tone(message, crisis_result=_crisis_result)
+    tone = _classify_tone(message)
 
     # --- COMBINE INTO ROUTING CATEGORY ---
     # Priority: crisis > reset > confirmations > service intent > actions > tone > LLM > general
@@ -1306,7 +1380,13 @@ def generate_reply(
         else:
             category = "service"
     elif action == "help":
-        category = "help"
+        # When emotional tone is present, it takes priority over the help action.
+        # "I'm embarrassed to ask for help" should get emotional acknowledgment,
+        # not a service menu. The word "help" is incidental to the emotional expression.
+        if tone == "emotional":
+            category = "emotional"
+        else:
+            category = "help"
     elif action == "escalation":
         category = "escalation"
     elif tone == "frustrated":
@@ -1331,15 +1411,14 @@ def generate_reply(
     # Highest priority. Crisis resources are shown immediately.
     # The session is NOT cleared — the user may continue afterward.
     if category == "crisis":
-        # Reuse the crisis result computed once above (before _classify_tone).
-        # No need to call detect_crisis again.
-        if _crisis_result is None:
+        crisis_result = detect_crisis(message)
+        if crisis_result is None:
             # Classification said crisis but detect_crisis disagrees
             # (e.g. LLM fail-open during classification but not during
             # the dedicated check). Treat as general conversation.
             category = "general"
         else:
-            crisis_category, crisis_response = _crisis_result
+            crisis_category, crisis_response = crisis_result
             logger.warning(
                 f"Session {session_id}: crisis detected, "
                 f"category='{crisis_category}'"
@@ -1502,9 +1581,9 @@ def generate_reply(
                 response = claude_reply(prompt)
             except Exception as e:
                 logger.error(f"Empathetic LLM response failed: {e}")
-                response = _EMOTIONAL_RESPONSE
+                response = _pick_emotional_response(message)
         else:
-            response = _EMOTIONAL_RESPONSE
+            response = _pick_emotional_response(message)
 
         # Track so "yes"/"no" on the next message refers to the peer
         # navigator offer, not a pending search confirmation.
@@ -1945,7 +2024,19 @@ def generate_reply(
     _is_service_flow = category == "service"
     _tone_prefix = ""
     if _response_tone == "emotional" and _is_service_flow:
-        _tone_prefix = "I hear you, and I want to help. "
+        # Use shame-specific prefix when shame/stigma is detected
+        _lower_msg = message.lower()
+        if any(p in _lower_msg for p in [
+            "embarrassed", "ashamed", "pathetic", "failure",
+            "never thought i'd need", "never thought id need",
+            "don't want anyone to know", "dont want anyone to know",
+        ]):
+            _tone_prefix = (
+                "There's no shame in that — a lot of people use these services, "
+                "and reaching out takes real strength. "
+            )
+        else:
+            _tone_prefix = "I hear you, and I want to help. "
     elif _response_tone == "frustrated" and _is_service_flow:
         _tone_prefix = "I understand this has been frustrating. Let me try something different. "
     elif _response_tone == "confused" and _is_service_flow:

@@ -58,7 +58,8 @@ The routing priority is:
 | 2 | `action == reset` | Reset handler |
 | 3 | `action` is confirmation/bot/greeting/thanks | Action handler |
 | 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exception: escalation + service without location stays as escalation |
-| 5 | `action == help` | Help handler |
+| 5 | `action == help` AND `tone != emotional` | Help handler |
+| 5b | `action == help` AND `tone == emotional` | Emotional handler (emotional overrides help — "embarrassed to ask for help" is emotional, not a help menu request) |
 | 6 | `action == escalation` | Escalation handler |
 | 7 | `tone == frustrated` | Frustration handler |
 | 8 | `tone == emotional` | Emotional handler |
@@ -75,6 +76,7 @@ The key insight is **row 4**: when service intent is present, it wins over help/
 | Tone | Prefix on confirmation/follow-up |
 |---|---|
 | `emotional` | "I hear you, and I want to help." |
+| `emotional` (shame) | "There's no shame in that — a lot of people use these services, and reaching out takes real strength." |
 | `frustrated` | "I understand this has been frustrating. Let me try something different." |
 | `confused` | "No worries — let me help you with that." |
 | `urgent` | "I can see this is urgent — let me find something right away." |
@@ -147,7 +149,22 @@ Acknowledges the frustration empathetically without being defensive. Offers thre
 
 ### Emotional
 
-Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the clinical chatbot literature (see [Emotional Handling Design](#emotional-handling-design) below). Acknowledges the user's feelings with warmth before doing anything else. Uses an LLM-generated response when available, with a specialized prompt that focuses on empathy and explicitly prohibits listing services, giving advice, or diagnosing. Falls back to a static response that validates the feeling, offers peer navigator, and gently mentions practical help is available.
+Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the clinical chatbot literature (see [Emotional Handling Design](#emotional-handling-design) below). Acknowledges the user's feelings with warmth before doing anything else. Uses an LLM-generated response when available, with a specialized prompt that focuses on empathy and explicitly prohibits listing services, giving advice, or diagnosing. Falls back to emotion-specific static responses that validate the particular feeling expressed.
+
+**Emotion-specific responses:** The static fallback uses `_pick_emotional_response(text)` to select from six tailored responses based on the emotion detected:
+
+| Emotion | Trigger Examples | Response Style |
+|---|---|---|
+| Scared | "I'm scared", "really scared" | Names the fear, normalizes it, offers navigator |
+| Sad | "feeling down", "feeling sad" | Validates not being okay, no rush |
+| Rough day | "rough day", "hard time" | Acknowledges heaviness, gentle presence |
+| Shame | "embarrassed to ask", "never thought I'd need" | Normalizes help-seeking, affirms strength |
+| Grief | "lost someone", "grieving" | Acknowledges loss, no rush |
+| Isolation | "I have no one", "completely alone" | Validates visibility, affirms courage |
+
+If no specific emotion is matched, a warm generic response is used. All responses avoid mentioning specific services — per AVR research, pushing services after emotional disclosure feels dismissive.
+
+**Emotional tone overrides help action:** When the message contains both emotional tone and the word "help" (e.g., "I'm embarrassed to ask for help"), the emotional handler takes priority over the help menu. The word "help" is incidental to the emotional expression, not a request for the service menu.
 
 Only shows a "Talk to a person" quick reply — no service category buttons. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with only a navigator button (not the full service menu — per the AVR principle of not pushing task-oriented responses after emotional distress).
 
@@ -312,7 +329,7 @@ Based on this research, the following principles govern emotional handling in th
 - **English only.** Multi-language support (Spanish minimum) is planned but not implemented.
 - **No memory across sessions.** Each session is independent. The bot cannot reference previous visits.
 - **Emotional detection phrase coverage.** Common emotional phrases ("feeling down", "I'm scared", "rough day") are caught by regex. Indirect or culturally specific expressions fall through to the LLM classifier. Without an API key (regex-only mode), only the explicit phrase list is active. The emotional phrase guard in `crisis_detector.py` prevents known sub-crisis emotional phrases from being over-escalated to crisis by the LLM. Keywords that could collide between emotional expressions and service requests (e.g., "stress" matching "stressed out") use word-boundary matching to prevent false positives.
-- **Shame tone not yet a distinct handler.** Shame/stigma phrases ("embarrassed to ask", "never thought I'd need help") are now detected and routed to the emotional handler with AVR acknowledgment. A dedicated shame handler with normalizing responses (e.g., "Lots of people use these services — there's nothing to be ashamed of") is planned for a future iteration.
+- **Shame tone uses emotional handler with specialization, not a dedicated handler.** Shame phrases ("embarrassed to ask", "never thought I'd need help") are detected and routed to the emotional handler which provides a shame-specific normalizing response ("You have nothing to be ashamed of. A lot of people use these services."). When shame co-occurs with service intent, the tone prefix normalizes instead of the generic "I hear you." A fully dedicated shame handler with specialized follow-up questions is planned for a future iteration.
 
 ### Search & Results
 
@@ -359,7 +376,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 106 phrase audit tests in `test_phrase_audit.py`, 56 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`, and 60 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 106 phrase audit tests in `test_phrase_audit.py`, 56 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`, and 80 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

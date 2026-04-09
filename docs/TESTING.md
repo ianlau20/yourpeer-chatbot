@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 1029 tests across 24 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 1001 tests across 23 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -51,13 +51,13 @@ All 16 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_bug_fixes.py`, `test_edge_cases.py`, `test_chat_route.py` | 198+ | Full |
-| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 148+ | Full |
+| `chatbot.py` | `test_chatbot.py`, `test_edge_cases.py`, `test_chat_route.py` | 168+ | Full |
+| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 147+ | Full |
 | `rag/__init__.py` | `test_query_templates.py`, `test_geolocation.py`, `test_db_integration.py` | 90+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
-| `audit_log.py` | `test_audit_log.py`, `test_bug_fixes.py`, `test_admin.py` | 61+ | Full |
-| `crisis_detector.py` | `test_crisis_detector.py`, `test_bug_fixes.py` | 44 | Full |
+| `audit_log.py` | `test_audit_log.py`, `test_admin.py` | 58+ | Full |
+| `crisis_detector.py` | `test_crisis_detector.py` | 20 | Full |
 | `llm_slot_extractor.py` | `test_llm_slot_extractor.py` | 19 | Full |
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 12+ | Full |
 | `session_store.py` | `test_session_store.py`, `test_chatbot.py`, `test_chat_route.py` | 7+ | Full |
@@ -73,9 +73,9 @@ All 16 backend modules and all public functions are covered:
 
 ## Test Suites
 
-### `test_chatbot.py` — 160 tests
+### `test_chatbot.py` — 140 tests
 
-Validates the main chatbot module — message classification (split classifier), slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, combined action+tone routing, tone prefix assertions, escalation guard, nearby borough suggestions, and LLM fallback. External dependencies are mocked.
+Validates the main chatbot module — message classification (split classifier), slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, combined action+tone routing, tone prefix assertions, escalation guard, and LLM fallback. External dependencies are mocked.
 
 | Category | Tests | What's covered |
 |---|---|---|
@@ -83,7 +83,7 @@ Validates the main chatbot module — message classification (split classifier),
 | `_classify_tone` | 10 | Emotional, frustrated, confused, None for neutral, no service-word gate (detects emotion even with "need"/"food" present), urgent phrases (7 variants), emotional beats urgent, pure urgency |
 | Combined routing | 10 | Emotional+service → service with prefix, help+service → service, escalation+service → service, confused+service → service with prefix, frustrated+service → service with prefix, pure emotional/help/escalation still work, urgent+service gets prefix |
 | Escalation guard | 3 | Escalation+service without location → escalation, escalation+service+location → service, "talk to someone about shelter" → escalation |
-| Message classification | 13 | All 16 routing categories including emotional, bot_question. Long messages not misclassified as greetings. Punctuation handling. Emotional distinct from confused. Bot question distinct from frustration and help. NOTE: these test `_classify_message()` (backward-compat wrapper for LLM fallback path); end-to-end routing uses `_classify_action()` + `_classify_tone()` directly |
+| Message classification | 13 | All 16 routing categories including emotional, bot_question. Long messages not misclassified as greetings. Punctuation handling. Emotional distinct from confused. Bot question distinct from frustration and help |
 | Privacy classification | 2 | 19 privacy phrases (ICE, police, benefits, recording, anonymity) all route to bot_question. Privacy phrasing not misclassified as service request |
 | Routing paths | 12 | Greeting (with and without existing session), reset, thanks, help, bot question (direct answer, no slot extraction), service with results, no results, partial slots trigger follow-up, general conversation |
 | Emotional awareness | 6 | Emotional classification (12 phrases), false negatives (service messages not caught), distinct from confused, peer navigator offered, no confirmation set, static fallback without LLM |
@@ -101,11 +101,10 @@ Validates the main chatbot module — message classification (split classifier),
 | Response structure | 2 | All 8 required keys present. Relaxed search flag |
 | Service detail in confirmation | 3 | Confirmation uses service_detail ("dental care" not "health care"), falls back to generic label, change-service clears detail |
 | Family status in confirmation | 6 | Confirmation mentions "children", "family", "yourself" per status. No mention when not set. Family status extracted during multi-turn shelter flow. family_status reaches query_services via _execute_and_respond |
-| Confirmation & quick replies | 11 | Confirmation triggered, change location/service, greeting/reset/follow-up quick replies, new input re-extracts, results show post-search buttons, exact deny phrases, longer deny phrases |
-| Bug fix regressions | 6 | "No" breaks confirmation loop, cancel variants trigger reset, expanded frustration phrases, thanks-with-continuation falls through, empty/whitespace message guard |
-| Nearby borough suggestions | 8 | Basic no-results message, borough suggestions by service type, different services get different suggestions, neighborhood doesn't suggest boroughs, navigator always offered, all borough+service combos covered, unknown service falls back to default, unknown borough doesn't crash |
+| Confirmation & quick replies | 10 | Confirmation triggered, change location/service, greeting/reset/follow-up quick replies, new input re-extracts, results show post-search buttons |
+| Bug fix regressions | 7 | "No" breaks confirmation loop, deny phrases classified correctly, cancel variants trigger reset, expanded frustration phrases, thanks-with-continuation falls through, empty/whitespace message guard |
 
-### `test_slot_extractor.py` — 103 tests
+### `test_slot_extractor.py` — 102 tests
 
 Validates the regex-based slot extraction pipeline.
 
@@ -366,36 +365,6 @@ HTTP-level tests for the FastAPI app configuration (headless API mode).
 | CSRF protection | 6 | Valid origin allowed, evil origin → 403, non-browser (no headers) allowed, Sec-Fetch-Site without origin → 403, valid Referer allowed, evil Referer → 403 |
 | CORS | 3 | Headers present for allowed origin, no headers for unknown origin, preflight OPTIONS |
 
-### `test_phrase_audit.py` — 106 tests
-
-Validates phrase additions from the P0–P3 audit (see PHRASE_LIST_AUDIT.md). Parametrized tests cover C-SSRS suicide ideation phrases, Joiner IPT burdensomeness markers, DV coercive control, youth safety/runaway, shame/stigma emotional phrases, grief with service routing, expanded frustration phrases, and confused/overwhelmed phrases.
-
-### `test_contraction_normalization.py` — 56 tests
-
-Validates `_normalize_contractions()` and its integration with `_classify_tone()`. Covers individual contraction expansions, full sentences, multiple contractions, non-contraction preservation, frustration/confused/emotional detection via normalization, help-negator handling ("doesn't help" → frustration not help), and confirms normalization does not affect crisis detection (which uses explicit enumeration).
-
-### `test_structural_fixes.py` — 28 tests
-
-Regression tests for the 6 structural fixes targeting Run 16's 25 failing eval scenarios. Covers mental health keyword removal ("struggling" → not a service), crisis emotional guard ("feeling scared" → emotional not crisis), crisis step-down (service intent preserved alongside crisis), context-aware yes/no, frustration loop detection, and emotional phrase detection.
-
-### `test_llm_multi_service.py` — 11 tests
-
-Validates PR 4's LLM multi-service extraction. Covers `additional_service_types` in the LLM tool response, single-service returns empty additional list, multiple additional services, null handling, failure fallback, `extract_slots_smart` merging LLM and regex additional services, deduplication of primary service, and key cleanup.
-
-### `test_bug_fixes.py` — 30 tests
-
-Targeted regression tests for bugs 8–14 identified during PR 19 review. Organized by bug number:
-
-| Bug | Tests | What's covered |
-|---|---|---|
-| Bug 8: `log_feedback` missing | 3 | Importable, stores event, works without optional comment |
-| Bug 9: Confirmation missing "in" | 5 | "in Brooklyn", all 5 boroughs, neighborhoods, "near your location" no "in", end-to-end flow |
-| Bug 10: "nobody cares" over-escalation | 8 | Bare phrase removed from crisis list, specific form retained, `detect_crisis` returns None for bare phrases, specific forms still trigger crisis, `_classify_tone` routes to emotional |
-| Bug 11: Double `detect_crisis` call | 5 | Accepts pre-computed result, skips call when provided, calls when omitted, `generate_reply` calls once for normal messages, once for crisis messages |
-| Bug 12: `_URGENT_PHRASES` module-level | 3 | Importable, identity stable across imports, urgent tone detected |
-| Bug 13: Frustration normalization | 4 | Contraction variants detected by `_classify_message`, consistency with `_classify_tone` |
-| Bug 14: Smart extractor fallback | 2 | Regex additional_services preserved, returned result matches direct regex |
-
 ## LLM-as-Judge Evaluation (`eval_llm_judge.py`)
 
 Beyond unit tests, the system includes an end-to-end evaluation framework that uses Claude as an impartial judge to score full conversations. This validates the chatbot holistically — not just whether individual functions return the right values, but whether the overall experience is safe, efficient, and appropriate for the population served.
@@ -464,45 +433,42 @@ These are documented behaviors, not bugs:
 - **Borough typos (regex only):** Misspellings like "brookyln" are not corrected by regex. LLM extraction handles these.
 - **Two boroughs in one message (regex only):** "I'm in Queens but looking for food in Brooklyn" extracts "Queens" (first preposition match), not Brooklyn. LLM extraction picks the intended location.
 - **Manhattan / "New York" ambiguity:** Manhattan normalizes to DB city value "New York." PostGIS proximity search mitigates this for neighborhood-level queries.
-- **Regex override vs LLM for contextual keywords:** The smart extractor prefers regex `service_type` when regex finds an explicit keyword, even when the LLM disagrees. This is correct for deterministic keywords ("dental" is literally in the text) but incorrect when a keyword appears as context, not the user's need (e.g., "I just got out of the hospital and need somewhere to stay" — "hospital" triggers medical via regex, but the user needs shelter). Two tests are marked `xfail` for this.
 - **Audit log is in-memory:** Staff review console data is lost on server restart. For production, replace with a persistent store.
 - **Frontend untested:** No frontend test infrastructure exists yet. The Next.js components in `frontend-next/` (chat UI, admin console, hooks, Zustand store) have no automated tests. Consider adding Playwright for E2E tests or Vitest for component tests when stabilizing for production.
 
-### Expected Failures (xfail)
-
-4 tests are marked `@pytest.mark.xfail` — they document known limitations, not regressions:
-
-| Test | File | Reason |
-|---|---|---|
-| `test_spoken_number_age_extraction` | `test_slot_extractor.py` | Word-to-number conversion ("seventeen" → 17) not implemented in regex extractor |
-| `test_family_status_with_children_prepositional` | `test_slot_extractor.py` | Prepositional family phrases ("for me and my kids", "I have a baby") not matched by current phrase list |
-| `test_smart_uses_llm_for_long_messages` | `test_llm_slot_extractor.py` | Regex override replaces LLM's correct "shelter" with "medical" because "hospital" matches a medical keyword |
-| `test_smart_regex_does_not_override_when_no_regex_match` | `test_llm_slot_extractor.py` | Same regex override issue — "hospital" is contextual, not the user's need |
-
 ## Adding New Tests
 
-For chatbot tests, prefer the `send()` helper which mocks all external dependencies:
+Follow the existing pattern. For chatbot tests that need external services mocked:
 
 ```python
-from conftest import send, send_multi
-
-def test_your_new_test(fresh_session):
-    result = send("I need food in Brooklyn", session_id=fresh_session)
-    assert result["slots"]["service_type"] == "food"
-    assert result["follow_up_needed"] is True
-
-    # Simulate crisis if needed:
-    result = send("I want to hurt myself", session_id=fresh_session,
-                  mock_crisis_return=("suicide_self_harm", "Call 988."))
-```
-
-For tests that call `generate_reply` directly, always patch `detect_crisis`:
-
-```python
-@patch("app.services.chatbot.detect_crisis", return_value=None)
 @patch("app.services.chatbot.query_services", return_value=MOCK_QUERY_RESULTS)
 @patch("app.services.chatbot.claude_reply")
-def test_your_direct_test(mock_claude, mock_query, mock_crisis):
-    result = generate_reply("your message", session_id="test-id")
-    assert result["services"] == []
+def test_your_new_test(mock_claude, mock_query):
+    clear_session("test-new")
+    result = generate_reply("your test message", session_id="test-new")
+    assert result["response"] == "expected"
+    clear_session("test-new")
+```
+
+For HTTP-level tests using TestClient:
+
+```python
+from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)
+
+def test_your_endpoint():
+    response = client.post("/chat/", json={"message": "hello"})
+    assert response.status_code == 200
+```
+
+For tests that modify shared state (audit log, session store), always call the appropriate `clear` function at the start:
+
+```python
+from app.services.audit_log import clear_audit_log
+
+def test_your_audit_test():
+    clear_audit_log()
+    # ... test logic ...
 ```

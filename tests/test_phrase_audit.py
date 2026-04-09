@@ -308,3 +308,102 @@ class TestFalsePositiveGuards:
         result = detect_crisis("what's the point anymore")
         assert result is not None
         assert result[0] == "suicide_self_harm"
+
+
+# -----------------------------------------------------------------------
+# Emotion-specific responses (Run 18 fixes)
+# -----------------------------------------------------------------------
+
+class TestEmotionSpecificResponses:
+    """Different emotions should get different response text."""
+
+    def test_scared_gets_scared_response(self):
+        r = send("I'm scared")
+        assert "scared" in r["response"].lower()
+        assert "food" not in r["response"].lower()
+        assert "shelter" not in r["response"].lower()
+
+    def test_feeling_down_gets_sad_response(self):
+        r = send("I'm feeling really down")
+        assert "not be okay" in r["response"].lower() or "not okay" in r["response"].lower() \
+            or "difficult time" in r["response"].lower()
+        assert "food" not in r["response"].lower()
+
+    def test_rough_day_gets_rough_day_response(self):
+        r = send("I've been having a rough day")
+        assert "heavy" in r["response"].lower() or "hard" in r["response"].lower()
+        assert "food" not in r["response"].lower()
+
+    def test_shame_gets_normalizing_response(self):
+        r = send("I'm embarrassed to ask for help")
+        assert "ashamed" in r["response"].lower() or "shame" in r["response"].lower() \
+            or "nothing to be" in r["response"].lower()
+        from app.services.session_store import get_session_slots
+        # Should route to emotional, not help
+        assert r["response"] != "How can I help?"
+
+    def test_grief_gets_grief_response(self):
+        r = send("I lost someone close to me")
+        assert "loss" in r["response"].lower() or "sorry" in r["response"].lower()
+
+    def test_alone_gets_isolation_response(self):
+        r = send("I have no one")
+        assert "invisible" in r["response"].lower() or "alone" in r["response"].lower()
+
+    def test_responses_are_different(self):
+        """Each emotion type should produce a DIFFERENT response."""
+        responses = set()
+        for msg in ["I'm scared", "I'm feeling down", "rough day",
+                     "I'm embarrassed", "I lost someone", "I have no one"]:
+            r = send(msg)
+            responses.add(r["response"][:50])
+        # At least 4 distinct responses (some may share the generic)
+        assert len(responses) >= 4, \
+            f"Expected at least 4 distinct responses, got {len(responses)}"
+
+    def test_no_service_mentions_in_emotional_responses(self):
+        """Emotional responses should NEVER mention specific services."""
+        service_words = ["food", "shelter", "shower", "clothing", "pantry"]
+        for msg in ["I'm scared", "I'm feeling down", "rough day",
+                     "I'm embarrassed", "I lost someone", "I have no one",
+                     "I'm struggling"]:
+            r = send(msg)
+            for word in service_words:
+                assert word not in r["response"].lower(), \
+                    f"'{msg}' response should not mention '{word}'"
+
+
+class TestShameTonePrefix:
+    """When shame + service intent co-occur, the tone prefix should normalize."""
+
+    def test_shame_food_bank_gets_normalizing_prefix(self):
+        r = send("I never thought I'd need a food bank")
+        resp = r["response"].lower()
+        assert "shame" in resp or "strength" in resp or "no shame" in resp \
+            or "lot of people" in resp, \
+            f"Shame + service should get normalizing prefix, got: {r['response'][:80]}"
+
+    def test_non_shame_emotional_service_gets_generic_prefix(self):
+        r = send("I'm scared and need shelter in Brooklyn")
+        resp = r["response"].lower()
+        assert "i hear you" in resp or "want to help" in resp
+
+
+class TestHelpEmotionalOverride:
+    """Emotional tone should override the help action."""
+
+    def test_embarrassed_help_routes_to_emotional(self):
+        """'I'm embarrassed to ask for help' → emotional, not help menu."""
+        import uuid
+        sid = f"test-{uuid.uuid4().hex[:8]}"
+        r = send("I'm embarrassed to ask for help", session_id=sid)
+        from app.services.session_store import get_session_slots
+        slots = get_session_slots(sid)
+        assert slots.get("_last_action") == "emotional"
+
+    def test_plain_help_still_works(self):
+        """'help' without emotional tone → help menu as before."""
+        r = send("help")
+        # Should show service categories, not emotional response
+        labels = [qr["label"] for qr in r.get("quick_replies", [])]
+        assert len(labels) >= 5  # service category buttons
