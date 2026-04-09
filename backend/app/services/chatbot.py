@@ -146,6 +146,12 @@ if _USE_LLM:
 else:
     logger.info("LLM features disabled — using regex only")
 
+_NARRATIVE_WORD_THRESHOLD = 20
+
+def _is_narrative_message(message: str) -> bool:
+    """Check if a message is long enough to need narrative extraction."""
+    return len(message.split()) >= _NARRATIVE_WORD_THRESHOLD
+
 
 # ---------------------------------------------------------------------------
 # MESSAGE CLASSIFICATION
@@ -2090,6 +2096,11 @@ def generate_reply(
             message,
             conversation_history=existing.get("transcript", []),
         )
+    elif category == "service" and _is_narrative_message(message):
+        # Even without LLM, narratives need urgency-aware extraction.
+        # The regex fallback re-ranks services by urgency hierarchy.
+        from app.services.llm_slot_extractor import _narrative_regex_fallback
+        extracted = _narrative_regex_fallback(message)
     else:
         extracted = early_extracted
 
