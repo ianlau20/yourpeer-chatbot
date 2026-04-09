@@ -1285,7 +1285,7 @@ def generate_reply(
             "confirm_change_location", "reset", "greeting", "thanks",
             "bot_identity",
         )
-        and len(message.split()) <= 6
+        and len(message.split()) <= 4
     )
     _crisis_result = detect_crisis(message, skip_llm=_is_safe_short)
 
