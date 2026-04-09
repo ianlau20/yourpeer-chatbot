@@ -326,6 +326,14 @@ _BOT_QUESTION_PHRASES = [
     "can my case worker", "can my caseworker", "can the shelter see",
     "how do i delete", "how do i clear",
     "do you know who i am", "do you know my name",
+    # Information handling (wa_privacy_information_sharing scenario)
+    "what happens to my information", "what happens to my data",
+    "what do you do with my information", "what do you do with my data",
+    "where does my information go", "where does my data go",
+    "who sees my data", "who gets my information",
+    "is my information safe", "is my data safe",
+    "what information do you collect", "what data do you collect",
+    "do you sell my data", "do you sell my information",
 ]
 
 # Confusion / overwhelm — the user doesn't know what they need.
@@ -1118,7 +1126,13 @@ def _build_conversational_prompt(user_message: str, slots: dict) -> str:
 
 
 def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
-    """Prompt for questions about the bot's capabilities or behavior."""
+    """Prompt for questions about the bot's capabilities or behavior.
+
+    Uses build_capability_context() from bot_knowledge for grounded facts,
+    ensuring the LLM answers based on actual code capabilities.
+    """
+    from app.services.bot_knowledge import build_capability_context
+
     # Build context about what's happened in the session so far
     context_lines = []
     if slots:
@@ -1143,6 +1157,9 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
             + "\n\n"
         )
 
+    # Get capability facts from the single source of truth
+    capability_context = build_capability_context()
+
     return (
         "You are YourPeer, a friendly assistant that helps people find "
         "free social services in New York City.\n\n"
@@ -1150,45 +1167,7 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
         "Answer their SPECIFIC question directly and honestly. Do not give a "
         "generic overview unless they asked for one.\n\n"
         f"{context_section}"
-        "Facts about yourself:\n"
-        "- You search a database of verified social services in NYC's five "
-        "boroughs, maintained by Streetlives (yourpeer.nyc)\n"
-        "- You ONLY cover New York City. You cannot search outside the five "
-        "boroughs (Manhattan, Brooklyn, Queens, Bronx, Staten Island). If "
-        "someone needs services elsewhere, suggest calling 211\n"
-        "- Service categories you can search:\n"
-        "  • Food: soup kitchens, food pantries, groceries\n"
-        "  • Shelter: emergency shelter, transitional housing\n"
-        "  • Clothing: free clothing programs\n"
-        "  • Personal care: showers, laundry, haircuts\n"
-        "  • Health care: medical, dental, vision, STD testing, vaccinations\n"
-        "  • Mental health: counseling, therapy, substance abuse, AA/NA\n"
-        "  • Legal help: immigration, eviction, asylum\n"
-        "  • Jobs: employment programs, job training, resume help\n"
-        "  • Other: benefits (SNAP/EBT/Medicaid), IDs, drop-in centers, "
-        "case workers, free wifi, mail services, transit help\n"
-        "- Geolocation: you use the browser's GPS when the user taps "
-        "'Use my location'. Common reasons it can fail:\n"
-        "  • The user denied the browser permission prompt\n"
-        "  • They're on a device/browser that doesn't support geolocation\n"
-        "  • GPS timed out (e.g., indoors with weak signal)\n"
-        "  • The site isn't served over HTTPS\n"
-        "  If geolocation fails, you ask for a neighborhood or borough instead\n"
-        "- Privacy: you don't store personal information. Conversations are "
-        "private and not linked to any identity. Specifics:\n"
-        "  • You are NOT connected to any government agency, including ICE\n"
-        "  • You do NOT share information with law enforcement\n"
-        "  • Shelters, case workers, and providers cannot see the conversation\n"
-        "  • Using this chat will NOT affect benefits or case status\n"
-        "  • If a user shares PII by accident, it's automatically redacted\n"
-        "  • Saying 'start over' clears the session immediately\n"
-        "  • Chat history on the device auto-expires after 30 minutes\n"
-        "  • On shared/public devices, other users could potentially see "
-        "the chat until it expires\n"
-        "- You can connect users with a human peer navigator for support\n"
-        "- You are an AI assistant, not a human\n"
-        "- Your data comes from verified listings. Hours and availability may "
-        "change — always call ahead to confirm\n\n"
+        f"{capability_context}\n\n"
         "Keep your response to 2-3 sentences. Answer the specific question. "
         "Be honest about limitations.\n\n"
         f"User question: {user_message}"
@@ -1196,119 +1175,17 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
 
 
 def _static_bot_answer(message: str) -> str:
-    """Pattern-matched answers for common bot questions when LLM is unavailable."""
-    lower = message.lower()
+    """Answer bot questions using the structured self-knowledge module.
 
-    # Geolocation questions
-    if any(w in lower for w in ["location", "gps", "geolocation", "find me", "where i am"]):
-        if any(w in lower for w in ["why", "couldn't", "couldnt", "can't", "cant", "didn't", "didnt", "fail", "wrong"]):
-            return (
-                "Location access can fail for a few reasons: you may have "
-                "denied the browser permission, your device might not support "
-                "GPS, or the signal timed out (common indoors). You can always "
-                "tell me your neighborhood or borough instead."
-            )
-        return (
-            "When you tap 'Use my location', I ask your browser for GPS "
-            "coordinates to find services nearby. If that doesn't work, "
-            "just tell me your neighborhood or borough."
-        )
+    Falls back to a generic answer if no topic matches. The bot_knowledge
+    module is the single source of truth — it sources capability data
+    from actual code (service categories, PII types, location count).
+    """
+    from app.services.bot_knowledge import answer_question
 
-    # Coverage / outside NYC
-    if any(w in lower for w in ["outside", "other city", "other state", "new jersey", "nj", "outside nyc"]):
-        return (
-            "I only search within New York City's five boroughs. For services "
-            "outside NYC, you can call 211 — it's a free helpline that "
-            "connects people to local resources anywhere in the US."
-        )
-
-    # What services / categories
-    if any(w in lower for w in ["what services", "what can you search", "what can you find", "what kind"]):
-        return (
-            "I can search for food (pantries, soup kitchens), shelter, "
-            "clothing, showers & personal care, health care (medical, dental, "
-            "vision), mental health (counseling, substance abuse), legal help "
-            "(immigration, eviction), jobs, and other services like benefits, "
-            "IDs, and drop-in centers."
-        )
-
-    # Privacy — immigration / law enforcement fears
-    # NOTE: "ice" uses word-boundary regex because it's a substring of "police"
-    _ice_words = ["immigration", "deport", "undocumented", "immigrant"]
-    _ice_re = re.compile(r'\bice\b', re.IGNORECASE)
-    if any(w in lower for w in _ice_words) or _ice_re.search(lower):
-        return (
-            "I don't collect any identifying information — no name, no "
-            "address, no immigration status. I'm not connected to any "
-            "government agency, including ICE. Your conversation is "
-            "anonymous and is not shared with anyone."
-        )
-
-    if any(w in lower for w in ["police", "cop", "law enforcement", "report", "arrest"]):
-        return (
-            "I don't share any information with law enforcement. I don't "
-            "know who you are, and your conversation here is anonymous. "
-            "The only exception is if you're in immediate danger — I'll "
-            "share crisis hotline numbers, but that's your choice to call."
-        )
-
-    # Privacy — benefits / provider visibility
-    if any(w in lower for w in ["benefits", "case worker", "caseworker", "shelter see", "affect my"]):
-        return (
-            "Using this chat won't affect your benefits or case status. "
-            "Shelters, case workers, and service providers can't see your "
-            "conversation here. I just help you find services — I don't "
-            "report anything to anyone."
-        )
-
-    # Privacy — who can see / recording / sharing
-    if any(w in lower for w in [
-        "who can see", "anyone see", "see what i", "see my",
-        "recording", "record", "listening",
-        "share", "sharing", "shared with", "tell anyone",
-    ]):
-        return (
-            "No one else can see your conversation. I don't record audio "
-            "or share your messages with other people or organizations. "
-            "If you're on a shared device, you can say 'start over' to "
-            "clear the chat history."
-        )
-
-    # Privacy — delete / clear data
-    if any(w in lower for w in ["delete", "clear", "erase", "remove my", "forget"]):
-        return (
-            "Say 'start over' and your session will be cleared immediately. "
-            "On this device, your chat history is stored temporarily in your "
-            "browser and auto-expires after 30 minutes of inactivity."
-        )
-
-    # Privacy — identity / anonymity
-    if any(w in lower for w in ["know my name", "know who i am", "anonymous", "identify"]):
-        return (
-            "I don't know who you are. I don't ask for or store your name, "
-            "phone number, or any personal details. If you share personal "
-            "info by accident, it's automatically removed before anything "
-            "is saved."
-        )
-
-    # Privacy — general
-    if any(w in lower for w in ["private", "privacy", "data", "store", "save", "track",
-                                 "safe to", "confidential", "secure", "trust"]):
-        return (
-            "Your conversations are private and anonymous. I don't store "
-            "personal information or link conversations to any identity. "
-            "I'm not connected to any government agency or service provider. "
-            "You can say 'start over' at any time to clear your session."
-        )
-
-    # How does it work
-    if any(w in lower for w in ["how do you work", "how does this work", "how does it work"]):
-        return (
-            "You tell me what you need and where you are, and I search a "
-            "database of verified social services in NYC maintained by "
-            "Streetlives. I'll show you matching services with addresses, "
-            "hours, and phone numbers."
-        )
+    answer = answer_question(message)
+    if answer:
+        return answer
 
     # Default generic answer
     return (
