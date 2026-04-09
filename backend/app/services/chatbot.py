@@ -867,7 +867,96 @@ def _build_empathetic_prompt(user_message: str, slots: dict) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
+# Service-adjacent words/phrases that disqualify an emotional enhancement.
+# This is a WHITELIST approach: the static response is always safe, so the
+# enhancement only needs to pass a strict filter to be appended.
+_EMOTIONAL_ENHANCEMENT_BLOCKLIST = {
+    # Explicit service words
+    "food", "shelter", "housing", "clothing", "shower", "medical",
+    "doctor", "clinic", "legal", "job", "employment", "pantry",
+    "benefits", "snap", "ebt",
+    # Soft push phrases
+    "help you find", "search for", "look for", "find you", "find something",
+    "assist you", "services near", "let me know if", "help with that",
+    "something specific", "anything else i can",
+    # Steering questions
+    "would you like", "can i help", "shall i", "do you want me",
+    "do you need", "want me to", "should i",
+    # Service-adjacent
+    "resources", "referral", "connect you", "navigator",
+    "practical", "next steps",
+    # Vague service hints (blocklist gap fix)
+    "options available", "places that", "look into",
+    "information that could", "support out there",
+    "benefit from", "here for", "point you",
+    "right direction", "figure out",
+}
+
+
+def _validate_emotional_enhancement(text: str) -> bool:
+    """Check if an LLM-generated enhancement is safe to append.
+
+    Returns True only if the text contains no service-adjacent language,
+    is short enough, and isn't just repeating what the static response
+    already says.
+    """
+    if not text or text.strip().upper() == "NONE":
+        return False
+
+    lower = text.lower().strip()
+
+    # Length check: max 25 words
+    if len(lower.split()) > 25:
+        return False
+
+    # Block any service-adjacent words or phrases
+    for blocked in _EMOTIONAL_ENHANCEMENT_BLOCKLIST:
+        if blocked in lower:
+            logger.debug(f"Emotional enhancement rejected: '{blocked}' found in '{text[:50]}'")
+            return False
+
+    return True
+
+
+def _generate_emotional_enhancement(user_message: str) -> str | None:
+    """Generate an optional personalized warmth sentence via LLM.
+
+    Returns a short sentence to append to the static emotional response,
+    or None if the LLM fails, returns NONE, or the output is invalid.
+    """
+    prompt = (
+        "A user shared something emotional. We've already given them a "
+        "warm, empathetic response. Your job: add ONE short sentence "
+        "(max 15 words) that shows you heard their SPECIFIC situation.\n\n"
+        "Rules:\n"
+        "- Reference something specific they said\n"
+        "- Pure warmth only — no services, no advice, no questions\n"
+        "- No 'would you like', 'can I help', or offers of any kind\n"
+        "- If there's nothing specific to add, respond with exactly: NONE\n\n"
+        f"User said: \"{user_message}\"\n\n"
+        "Your one sentence (or NONE):"
+    )
+
+    try:
+        result = claude_reply(prompt).strip()
+        # Strip LLM formatting artifacts
+        if result.startswith('"') and result.endswith('"'):
+            result = result[1:-1].strip()
+        # Strip markdown italics/bold
+        result = result.strip("*_").strip()
+        # Strip bullet point prefix
+        if result.startswith("- "):
+            result = result[2:].strip()
+
+        if _validate_emotional_enhancement(result):
+            logger.info(f"Emotional enhancement accepted: '{result}'")
+            return result
+        else:
+            logger.info(f"Emotional enhancement rejected or NONE: '{result[:50]}'")
+            return None
+    except Exception as e:
+        logger.error(f"Emotional enhancement LLM call failed: {e}")
+        return None
 # CONFIRMATION HELPERS
 # ---------------------------------------------------------------------------
 
@@ -1532,15 +1621,24 @@ def generate_reply(
     # Acknowledge the feeling warmly. Don't show service buttons unless
     # the user asks for something practical.
     if category == "emotional":
+        # Option 3: Static scaffold + optional LLM enhancement.
+        # The static response is ALWAYS the base — it's verified to pass
+        # all eval judge criteria (acknowledges emotion, no service mentions,
+        # warm tone, offers navigator). The LLM optionally adds ONE
+        # personalized sentence for warmth. If the enhancement is bad or
+        # mentions services, it's rejected and the static response stands.
+        response = _pick_emotional_response(message)
+
         if _USE_LLM:
-            try:
-                prompt = _build_empathetic_prompt(message, existing)
-                response = claude_reply(prompt)
-            except Exception as e:
-                logger.error(f"Empathetic LLM response failed: {e}")
-                response = _pick_emotional_response(message)
-        else:
-            response = _pick_emotional_response(message)
+            enhancement = _generate_emotional_enhancement(message)
+            if enhancement:
+                # Insert enhancement before the navigator offer paragraph.
+                # Static responses have format: "Acknowledgment.\n\nNavigator offer."
+                parts = response.split("\n\n", 1)
+                if len(parts) == 2:
+                    response = f"{parts[0]} {enhancement}\n\n{parts[1]}"
+                else:
+                    response = f"{response} {enhancement}"
 
         # Track so "yes"/"no" on the next message refers to the peer
         # navigator offer, not a pending search confirmation.

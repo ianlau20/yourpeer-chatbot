@@ -407,3 +407,150 @@ class TestHelpEmotionalOverride:
         # Should show service categories, not emotional response
         labels = [qr["label"] for qr in r.get("quick_replies", [])]
         assert len(labels) >= 5  # service category buttons
+
+
+# =====================================================================
+# Option 3: Emotional enhancement validation
+# =====================================================================
+
+class TestEmotionalEnhancementValidation:
+    """Validate the enhancement filter for Option 3 emotional handling."""
+
+    @pytest.mark.parametrize("text", [
+        "Being in that uncertain space is really hard.",
+        "Today sounds especially heavy.",
+        "That kind of loss leaves a mark.",
+        "It takes courage to reach out like this.",
+    ])
+    def test_valid_enhancements_pass(self, text):
+        from app.services.chatbot import _validate_emotional_enhancement
+        assert _validate_emotional_enhancement(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "",
+        "NONE",
+        "none",
+        "None",
+    ])
+    def test_empty_and_none_rejected(self, text):
+        from app.services.chatbot import _validate_emotional_enhancement
+        assert _validate_emotional_enhancement(text) is False
+
+    @pytest.mark.parametrize("text", [
+        "Let me help you find a shelter.",
+        "I can search for food near you.",
+        "Would you like me to look for housing?",
+        "There are resources available for you.",
+        "I can connect you with a navigator.",
+        "Let me know if there's anything practical I can help with.",
+        "Do you need help finding something specific?",
+        "Shall I search for services near you?",
+        "I can assist you with finding what you need.",
+    ])
+    def test_service_push_rejected(self, text):
+        from app.services.chatbot import _validate_emotional_enhancement
+        assert _validate_emotional_enhancement(text) is False
+
+    def test_too_long_rejected(self):
+        from app.services.chatbot import _validate_emotional_enhancement
+        long = " ".join(["word"] * 26)
+        assert _validate_emotional_enhancement(long) is False
+
+
+class TestEmotionalResponseScaffold:
+    """The emotional handler should ALWAYS include the static response,
+    even when LLM is available (but in our test env, LLM is off)."""
+
+    @pytest.mark.parametrize("msg,expected_phrase", [
+        ("I'm scared", "okay to feel scared"),
+        ("I'm feeling really down", "sorry"),
+        ("I've been having a rough day", "sounds really hard"),
+        ("I'm embarrassed to ask for help", "nothing to be ashamed"),
+        ("I lost someone close to me", "sorry for your loss"),
+        ("I feel like I have no one", "not invisible"),
+    ])
+    def test_static_response_always_present(self, msg, expected_phrase):
+        from conftest import send
+        import uuid
+        sid = f"test-{uuid.uuid4().hex[:8]}"
+        r = send(msg, session_id=sid)
+        assert expected_phrase in r["response"].lower(), \
+            f"Static scaffold missing for '{msg}': {r['response'][:60]}"
+
+    @pytest.mark.parametrize("msg", [
+        "I'm scared",
+        "I'm feeling down",
+        "I've had a rough day",
+    ])
+    def test_no_service_mentions_in_response(self, msg):
+        from conftest import send
+        import uuid
+        sid = f"test-{uuid.uuid4().hex[:8]}"
+        r = send(msg, session_id=sid)
+        resp = r["response"].lower()
+        service_words = ["food", "shelter", "clothing", "shower", "medical",
+                         "job", "employment", "search for", "help you find"]
+        for sw in service_words:
+            assert sw not in resp, \
+                f"Service word '{sw}' found in emotional response: {resp[:60]}"
+
+    @pytest.mark.parametrize("msg", [
+        "I'm scared",
+        "I'm feeling down",
+    ])
+    def test_navigator_offer_present(self, msg):
+        from conftest import send
+        import uuid
+        sid = f"test-{uuid.uuid4().hex[:8]}"
+        r = send(msg, session_id=sid)
+        resp = r["response"].lower()
+        assert "navigator" in resp or "talk to" in resp, \
+            f"Navigator offer missing: {resp[:60]}"
+        # Quick reply should also have navigator
+        qr_labels = [q["label"] for q in r.get("quick_replies", [])]
+        assert any("person" in l.lower() or "navigator" in l.lower() for l in qr_labels)
+
+
+class TestEmotionalEnhancementBlocklistGaps:
+    """Test the blocklist catches vague service-adjacent phrases
+    that were identified in gap analysis."""
+
+    @pytest.mark.parametrize("text", [
+        "there are options available for you",
+        "i know some places that might help",
+        "when you're ready i can look into that",
+        "i have information that could help",
+        "there's support out there for you",
+        "people in your situation often benefit from this",
+        "that's what i'm here for",
+        "i can point you in the right direction",
+        "let's figure out what you need",
+    ])
+    def test_vague_service_hints_blocked(self, text):
+        from app.services.chatbot import _validate_emotional_enhancement
+        assert _validate_emotional_enhancement(text) is False, \
+            f"Should block: '{text}'"
+
+
+class TestEmotionalServiceCollision:
+    """When a message is both emotional AND contains service intent,
+    emotional handling should take priority (no services in response)."""
+
+    @pytest.mark.parametrize("msg", [
+        "I'm scared and I need shelter",
+        "I'm feeling down, can you find me food?",
+        "I'm really sad, I need somewhere to stay tonight",
+    ])
+    def test_emotional_overrides_service(self, msg):
+        from conftest import send
+        import uuid
+        sid = f"test-{uuid.uuid4().hex[:8]}"
+        r = send(msg, session_id=sid)
+        resp = r["response"].lower()
+        # Should have emotional acknowledgment
+        assert any(w in resp for w in [
+            "scared", "hear you", "sorry", "understandable",
+            "okay to feel", "hard", "down",
+        ]), f"No emotional ack in: {resp[:60]}"
+        # Should NOT push services immediately
+        assert "search" not in resp, f"'search' in emotional response: {resp[:60]}"
