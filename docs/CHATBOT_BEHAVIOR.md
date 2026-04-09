@@ -127,11 +127,20 @@ Provides contact information for Streetlives peer navigators and crisis resource
 Four confirmation categories handle the user's response to a pending search confirmation:
 
 - **confirm_yes** — Executes the database query and returns service cards.
-- **confirm_deny** — Clears the confirmation, keeps slots, offers options (change service, change location, new search, peer navigator).
+- **confirm_deny** — If the deny message contains a NEW service type different from the current one (e.g., "no, I need shelter instead"), re-extracts slots and shows new confirmation. Otherwise, clears the confirmation, keeps slots, offers options (change service, change location, new search, peer navigator). "wait" and "hold on" are intentionally NOT deny phrases — they're interruptions that would otherwise lose embedded service changes like "wait, I changed my mind, I need shelter."
 - **confirm_change_service** — Clears the service type slot and asks what they need.
 - **confirm_change_location** — Clears the location slot and offers borough buttons.
 
-Context-aware "yes" and "no": after an escalation or emotional response, "yes" and "no" refer to the peer navigator offer, not to a pending search. "Yes" after escalation or emotional shows the peer navigator contact info. "No" after escalation gives a gentle "I'm here if you change your mind." "No" after emotional gives "That's okay. I'm here whenever you're ready." This prevents a user who just shared something vulnerable from accidentally triggering a search confirmation.
+Context-aware "yes" and "no": after an escalation or emotional response, "yes" and "no" refer to the peer navigator offer, not to a pending search. "Yes" after escalation or emotional shows a distinct confirmation response ("Here's how to reach a peer navigator right now:") with actionable contact details — deliberately different from the initial escalation message so the user sees progress rather than repetition. Also shows service category buttons so the user can continue. "No" after escalation gives a gentle "I'm here if you change your mind." "No" after emotional gives "That's okay. I'm here whenever you're ready." This prevents a user who just shared something vulnerable from accidentally triggering a search confirmation.
+
+**`_last_action` lifecycle rules:** The `_last_action` session variable tracks conversational context so that "yes"/"no" can be interpreted correctly. It follows strict lifecycle rules:
+
+- **Set by context-preserving handlers:** emotional, escalation, frustration, confused, crisis — these create a context where the next "yes"/"no" has a specific meaning.
+- **Cleared by context-shift handlers:** help, greeting, thanks, reset — these represent the user moving on. After these, "yes"/"no" should not connect to a navigator from a previous emotional/escalation context.
+- **Cleared by yes/no handlers themselves:** after interpreting "yes" or "no" in context, the handler clears `_last_action` to prevent stale context.
+- **Not set by service flow:** service confirmations use `_pending_confirmation`, not `_last_action`.
+
+This lifecycle prevents the anti-pattern where emotional→help→"yes" incorrectly connects to a navigator (the user asked for help, not a navigator).
 
 ### Greeting
 
@@ -145,7 +154,7 @@ Returns a brief "you're welcome" message with service buttons in case the user w
 
 Acknowledges the frustration empathetically without being defensive. Offers three options: try a different search, connect with a peer navigator, or call 311 for live social services help. Sets `_last_action = "frustration"` so "yes" connects to a peer navigator (the handler's messaging pushes toward navigator: "I think a peer navigator would be more helpful") and the "Try different search" button sends "Start over" directly via quick reply.
 
-**Repeated frustration detection:** If the user expresses frustration a second time in a row (i.e., `_last_action` is already `"frustration"`), the bot produces a shorter, different response that avoids repeating the same wall of text. The second response acknowledges the bot isn't helping, strongly recommends a peer navigator, and mentions 311 as a backup.
+**Repeated frustration detection:** Uses a `_frustration_count` counter that increments on every frustration message and persists in session. When count ≥ 2, the bot produces a shorter, different response that avoids repeating the same wall of text. The counter is more robust than checking `_last_action` alone, since `_last_action` could be cleared by intermediate handlers (search results, queue offers). The second response acknowledges the bot isn't helping, strongly recommends a peer navigator, and mentions 311 as a backup.
 
 ### Emotional
 
@@ -380,7 +389,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 118 phrase audit tests in `test_phrase_audit.py`, 161 contraction/intensifier normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 80 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 151 tests in `test_chatbot.py`, 39 structural fix tests in `test_structural_fixes.py`, 118 phrase audit tests in `test_phrase_audit.py`, 161 contraction/intensifier normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 80 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

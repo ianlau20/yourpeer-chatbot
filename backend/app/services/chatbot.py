@@ -403,7 +403,7 @@ _CONFIRM_CHANGE_LOCATION = [
 # Denial phrases — user declines the pending confirmation.
 # Treated as a soft reset: clears pending confirmation and offers options.
 _CONFIRM_DENY_EXACT = [
-    "no", "nah", "nope", "not yet", "wait", "hold on", "stop",
+    "no", "nah", "nope", "not yet", "stop",
 ]
 
 _CONFIRM_DENY_PHRASES = [
@@ -1663,11 +1663,14 @@ def generate_reply(
 
     # --- Frustration ---
     if category == "frustration":
-        already_frustrated = existing.get("_last_action") == "frustration"
+        # Track frustration count — more robust than checking _last_action alone
+        # since _last_action could be cleared by intermediate handlers.
+        frust_count = existing.get("_frustration_count", 0) + 1
+        existing["_frustration_count"] = frust_count
         existing["_last_action"] = "frustration"
         save_session_slots(session_id, existing)
 
-        if already_frustrated:
+        if frust_count >= 2:
             # Repeated frustration — don't show the same wall of text.
             # Keep it short, acknowledge we're not helping, push navigator.
             result = _empty_reply(
@@ -1715,7 +1718,17 @@ def generate_reply(
         # "Yes" after escalation or emotional = "yes, connect me with a person"
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        # Use a distinct confirmation response — not the same as the initial
+        # escalation message, so the user sees progress rather than repetition.
+        _escalation_confirmed = (
+            "Here's how to reach a peer navigator right now:\n\n"
+            "• Visit yourpeer.nyc and use the chat feature\n"
+            "• Call 311 and ask for social services referrals\n\n"
+            "They can help you one-on-one with your situation. "
+            "If you need anything else from me, I'm still here."
+        )
+        result = _empty_reply(session_id, _escalation_confirmed, existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES))
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1936,8 +1949,38 @@ def generate_reply(
         return result
 
     if pending and category == "confirm_deny":
-        # User declined the search — clear confirmation, keep slots,
-        # and offer options so they're not stuck in a loop.
+        # User declined the search. Check if they also provided a NEW
+        # service request in the same message (e.g., "no, I need shelter").
+        # If so, update slots and go to confirmation instead of the generic
+        # "what would you like to do?" response.
+        deny_slots = extract_slots(message)
+        new_service = deny_slots.get("service_type")
+        current_service = existing.get("service_type")
+        if new_service and new_service != current_service:
+            # User changed their mind — update service and re-confirm
+            existing.pop("_pending_confirmation", None)
+            existing["service_type"] = new_service
+            existing["service_detail"] = deny_slots.get("service_detail")
+            # Update location if provided
+            if deny_slots.get("location"):
+                existing["location"] = deny_slots["location"]
+            existing["_pending_confirmation"] = True
+            save_session_slots(session_id, existing)
+            confirm_msg = _build_confirmation_message(existing)
+            confirm_qr = _confirmation_quick_replies(existing)
+            result = {
+                "session_id": session_id,
+                "response": confirm_msg,
+                "follow_up_needed": True,
+                "slots": existing,
+                "services": [],
+                "result_count": 0,
+                "quick_replies": confirm_qr,
+            }
+            _log_turn(session_id, redacted_message, result, "service", request_id=request_id, tone=tone)
+            return result
+
+        # No new service — show options
         existing.pop("_pending_confirmation", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(
