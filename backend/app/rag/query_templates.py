@@ -149,6 +149,22 @@ FILTER_BY_TAXONOMY_NAME_IN = (
     ["taxonomy_names"],
 )
 
+# Co-located service filter — finds locations where a DIFFERENT service
+# at the same location matches a second set of taxonomy names.
+# Used when the user asks for multiple services (e.g. "food and clothing").
+FILTER_BY_COLOCATED_TAXONOMY = (
+    """EXISTS (
+        SELECT 1 FROM service_at_locations sal_co
+          JOIN services s_co ON sal_co.service_id = s_co.id
+          JOIN service_taxonomy st_co ON s_co.id = st_co.service_id
+          JOIN taxonomies t_co ON st_co.taxonomy_id = t_co.id
+        WHERE sal_co.location_id = l.id
+          AND s_co.id != s.id
+          AND LOWER(t_co.name) = ANY(:colocated_taxonomy_names)
+    )""",
+    ["colocated_taxonomy_names"],
+)
+
 # Borough filter — uses the physical_addresses.borough column directly.
 # This is the most reliable borough filter: the borough column is clean,
 # consistently populated, and avoids the city-field casing chaos
@@ -627,6 +643,14 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
         if all(k in params for k in required_keys):
             where_clauses.append(sql_fragment)
 
+    # Universal optional filters — apply to any template when params present.
+    # Co-location filter: when user asked for multiple services, restrict
+    # results to locations that also have the additional service(s).
+    _UNIVERSAL_OPTIONAL = [FILTER_BY_COLOCATED_TAXONOMY]
+    for sql_fragment, required_keys in _UNIVERSAL_OPTIONAL:
+        if all(k in params for k in required_keys):
+            where_clauses.append(sql_fragment)
+
     # Assemble the full query
     where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
 
@@ -767,7 +791,11 @@ def format_service_card(row: dict) -> dict:
         "hours_today": schedule_status["hours_today"],
         "is_open": schedule_status["is_open"],
         "requires_membership": bool(row.get("requires_membership")),
-        "last_validated_at": row.get("last_validated_at").isoformat() if row.get("last_validated_at") else None,
+        "last_validated_at": (
+            row["last_validated_at"].isoformat()
+            if row.get("last_validated_at") and hasattr(row["last_validated_at"], "isoformat")
+            else row.get("last_validated_at")  # pass through str or None
+        ),
         "also_available": also_available if also_available else None,
     }
 

@@ -1211,3 +1211,32 @@ def test_format_card_also_available_sorted():
         "also_available": ["Shelter", "Benefits", "Health", "Laundry"],
     })
     assert card["also_available"] == ["Benefits", "Health", "Laundry", "Shelter"]
+
+
+# -----------------------------------------------------------------------
+# CO-LOCATED FILTER
+# -----------------------------------------------------------------------
+
+def test_colocated_filter_fragment_structure():
+    """FILTER_BY_COLOCATED_TAXONOMY should have correct SQL and params."""
+    from app.rag.query_templates import FILTER_BY_COLOCATED_TAXONOMY
+    sql, params = FILTER_BY_COLOCATED_TAXONOMY
+    assert "colocated_taxonomy_names" in sql
+    assert "sal_co.location_id = l.id" in sql
+    assert "s_co.id != s.id" in sql
+    assert params == ["colocated_taxonomy_names"]
+
+
+def test_build_query_includes_colocated_filter():
+    """When colocated_taxonomy_names is provided, the filter should be in the SQL."""
+    from app.rag.query_templates import build_query
+    sql, params = build_query("food", {"colocated_taxonomy_names": ["clothing", "clothing pantry"]})
+    assert "colocated_taxonomy_names" in sql
+    assert params["colocated_taxonomy_names"] == ["clothing", "clothing pantry"]
+
+
+def test_build_query_excludes_colocated_without_param():
+    """Without colocated_taxonomy_names, the filter should not appear."""
+    from app.rag.query_templates import build_query
+    sql, _ = build_query("food", {})
+    assert "colocated_taxonomy_names" not in sql

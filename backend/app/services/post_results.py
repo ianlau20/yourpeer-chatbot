@@ -446,6 +446,11 @@ def _service_detail_response(service: dict, all_services: list[dict]) -> dict:
     if service.get("requires_membership"):
         lines.append("Note: Referral may be required")
 
+    # Co-located services
+    also = service.get("also_available")
+    if also and len(also) > 0:
+        lines.append(f"\nAlso available here: {', '.join(also)}")
+
     lines.append(
         "\nThat's all I have in my records. For anything else, "
         "you could call them directly or connect with a peer navigator."
