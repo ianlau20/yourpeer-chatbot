@@ -50,6 +50,15 @@ def _get_location_count() -> int:
         return 0
 
 
+def _get_zip_code_count() -> int:
+    """Number of NYC zip codes mapped to neighborhoods (live)."""
+    try:
+        from app.services.slot_extractor import _NYC_ZIP_TO_NEIGHBORHOOD
+        return len(_NYC_ZIP_TO_NEIGHBORHOOD)
+    except ImportError:
+        return 0
+
+
 def _get_borough_list() -> list:
     """NYC boroughs (static — these don't change)."""
     return ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"]
@@ -92,9 +101,9 @@ TOPICS = {
         "answer": (
             "When you tap 'Use my location', I ask your browser for GPS "
             "coordinates to find services nearby. If that doesn't work, "
-            "just tell me your neighborhood or borough."
+            "just tell me your neighborhood, borough, or zip code."
         ),
-        "summary": "Uses browser geolocation or user-stated neighborhood/borough",
+        "summary": "Uses browser geolocation or user-stated neighborhood/borough/zip code",
         "source": "chatbot.py → geolocation handling",
     },
 
@@ -111,8 +120,7 @@ TOPICS = {
             "Location access can fail for a few reasons: you may have "
             "denied the browser permission, your device might not support "
             "GPS, or the signal timed out (common indoors). You can always "
-            "tell me your neighborhood or borough instead — I know "
-            "68 NYC neighborhoods."
+            "tell me your neighborhood, borough, or zip code instead."
         ),
         "summary": "Geolocation can fail (permission denied, GPS timeout, indoor signal)",
         "source": "chatbot.py → _build_bot_question_prompt",
@@ -401,6 +409,7 @@ def build_capability_context() -> str:
     service_cats = _get_service_categories()
     pii_types = _get_pii_categories()
     location_count = _get_location_count()
+    zip_count = _get_zip_code_count()
     boroughs = _get_borough_list()
 
     # Format service categories from live data
@@ -429,11 +438,24 @@ def build_capability_context() -> str:
         f"- You ONLY cover New York City. For services outside NYC, suggest calling 211",
         f"- Service categories you can search:",
         *service_lines,
-        f"- You know {location_count} NYC neighborhoods by name",
+        f"- You know {location_count} NYC neighborhoods and {zip_count} NYC zip codes",
         f"- Geolocation: you use the browser's GPS when the user taps 'Use my location'. "
         f"Common reasons it can fail: browser permission denied, device doesn't support GPS, "
         f"GPS timed out (indoors), or site not on HTTPS. If geolocation fails, ask for "
         f"neighborhood or borough instead",
+        f"- If a user says 'I don't know', 'anywhere', or 'here' when asked for location, "
+        f"you offer geolocation and borough buttons — you don't treat it as confusion",
+        f"- Multiple services: you can handle requests like 'food and shelter in Brooklyn'. "
+        f"You search the first service, show results, then offer to search for the next one",
+        f"- Long messages: you understand narrative descriptions of situations and prioritize "
+        f"by urgency (shelter/safety before food before employment)",
+        f"- Follow-up questions: after showing results, you can answer questions like "
+        f"'are any open now?', 'what's the phone number?', or 'tell me about the first one' "
+        f"directly from the displayed results — no extra database query needed",
+        f"- Co-located services: result cards show other services at the same location "
+        f"(e.g., 'Also here: Shower · Clothing')",
+        f"- Family composition: for shelter searches, you ask about family/children to "
+        f"find appropriate sub-category matches (youth, family, single adult)",
         f"- Privacy protections:",
         f"  • Not connected to any government agency, including ICE",
         f"  • No information shared with law enforcement",
@@ -454,7 +476,7 @@ def build_capability_context() -> str:
         f"isolation) before offering services — you don't push services on someone "
         f"who's expressing distress",
         f"- Limitations: you cannot make appointments, verify real-time availability, "
-        f"or provide medical/legal/financial advice",
+        f"or provide medical/legal/financial advice. English only currently",
     ]
 
     return "Facts about yourself:\n" + "\n".join(lines)
