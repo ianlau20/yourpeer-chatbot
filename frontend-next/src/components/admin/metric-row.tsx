@@ -4,7 +4,7 @@
 // license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
 
-type MetricStatus = "on-target" | "warning" | "off-target" | "no-data";
+type MetricStatus = "on-target" | "warning" | "off-target" | "no-data" | "tracking";
 
 interface MetricRowProps {
   name: string;
@@ -14,6 +14,7 @@ interface MetricRowProps {
   status: MetricStatus;
   phase?: "Pilot" | "Post-pilot";
   onClick?: (name: string) => void;
+  statusOverride?: string;
 }
 
 const STATUS_LABELS: Record<MetricStatus, string> = {
@@ -21,6 +22,7 @@ const STATUS_LABELS: Record<MetricStatus, string> = {
   warning: "⚠ Watch",
   "off-target": "✗ Off target",
   "no-data": "— No data",
+  "tracking": "📊 Tracking",
 };
 
 const STATUS_COLORS: Record<MetricStatus, string> = {
@@ -28,6 +30,7 @@ const STATUS_COLORS: Record<MetricStatus, string> = {
   warning: "text-amber-500",
   "off-target": "text-red-600",
   "no-data": "text-neutral-400",
+  "tracking": "text-blue-500",
 };
 
 const PILL_BG: Record<MetricStatus, string> = {
@@ -35,6 +38,7 @@ const PILL_BG: Record<MetricStatus, string> = {
   warning: "bg-amber-50 text-amber-600",
   "off-target": "bg-red-50 text-red-600",
   "no-data": "bg-neutral-100 text-neutral-400",
+  "tracking": "bg-blue-50 text-blue-500",
 };
 
 export function statusClass(
@@ -72,6 +76,7 @@ export function MetricRow({
   status,
   phase = "Pilot",
   onClick,
+  statusOverride,
 }: MetricRowProps) {
   return (
     <div className="grid grid-cols-[240px_1fr_130px_110px_90px] items-center gap-3.5 py-2.5 border-b border-neutral-100 text-sm last:border-b-0">
@@ -95,7 +100,7 @@ export function MetricRow({
         <span
           className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${PILL_BG[status]}`}
         >
-          {STATUS_LABELS[status]}
+          {statusOverride ?? STATUS_LABELS[status]}
         </span>
       </div>
       <div className="text-right">

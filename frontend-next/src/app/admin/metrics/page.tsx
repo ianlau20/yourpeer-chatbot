@@ -160,14 +160,14 @@ export default function MetricsPage() {
           status={statusClass(cb?.abandon_rate ?? null, 0.1, "lte", 0.2)}
         />
         <MetricRow
-          name="Avg Turns to Query"
+          name="Avg Turns to Query" onClick={onMetricClick}
           subtitle="Average turns from session start to first query (completed sessions)"
           target="≤ 5 turns (free-text)"
           value={fmtMetric(avgTurns, false, 1)}
           status={statusClass(avgTurns, 5, "lte", 7)}
         />
         <MetricRow
-          name="Session Abandonment Rate"
+          name="Session Abandonment Rate" onClick={onMetricClick}
           subtitle="% of sessions with no query executed"
           target="≤ 30%"
           value={fmtMetric(abandonRate, true)}
@@ -181,7 +181,7 @@ export default function MetricsPage() {
         description="Quality and usefulness of search results. Low no-result and relaxed rates indicate good query template coverage. Freshness measures how current the underlying service data is."
       >
         <MetricRow
-          name="No-Result Rate"
+          name="No-Result Rate" onClick={onMetricClick}
           subtitle="% of queries returning zero services after relaxed fallback"
           target="≤ 15% overall"
           value={fmtMetric(noResultRate, true)}
@@ -201,7 +201,7 @@ export default function MetricsPage() {
           value={fmtMetric(stats.data_freshness_rate, true)}
           status={statusClass(stats.data_freshness_rate, 0.8, "gte", 0.6)}
         />
-        <MetricRow name="Eligibility Fit Rate" subtitle="% of results matching all stated user criteria" target="≥ 95%" value="By design (canary)" status="no-data" />
+        <MetricRow name="Eligibility Fit Rate" onClick={onMetricClick} subtitle="% of results matching all stated user criteria" target="≥ 95%" value="By design (canary)" status="no-data" />
         <MetricRow
           name="User Feedback Score" onClick={onMetricClick}
           subtitle={`% of post-result feedback that is positive (${fbTotal} response${fbTotal !== 1 ? "s" : ""} so far)`}
@@ -223,9 +223,9 @@ export default function MetricsPage() {
           value={String(stats.total_crises)}
           status={stats.total_crises > 0 ? "on-target" : "no-data"}
         />
-        <MetricRow name="Crisis False Positive Rate" subtitle="% of crisis-flagged sessions that were not genuine crises" target="≤ 5%" value={null} status="no-data" />
-        <MetricRow name="PII Leakage Rate" subtitle="% of stored transcripts with detectable PII after redaction" target="0%" value={null} status="no-data" />
-        <MetricRow name="Hallucination Rate" subtitle="% of bot responses containing fabricated service data" target="< 1% (structural guarantee)" value="~0% by design" status="on-target" />
+        <MetricRow name="Crisis False Positive Rate" onClick={onMetricClick} subtitle="% of crisis-flagged sessions that were not genuine crises" target="≤ 5%" value={null} status="no-data" />
+        <MetricRow name="PII Leakage Rate" onClick={onMetricClick} subtitle="% of stored transcripts with detectable PII after redaction" target="0%" value={null} status="no-data" />
+        <MetricRow name="Hallucination Rate" onClick={onMetricClick} subtitle="% of bot responses containing fabricated service data" target="< 1% (structural guarantee)" value="~0% by design" status="on-target" />
         <MetricRow
           name="Escalation Rate" onClick={onMetricClick}
           subtitle="% of sessions where user requests a human peer navigator"
@@ -248,28 +248,28 @@ export default function MetricsPage() {
           subtitle={`% of sessions with an emotional turn (${stats.conversation_quality?.emotional_sessions || 0} sessions)`}
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.emotional_rate ?? null, true)}
-          status="no-data"
+          status="tracking"
         />
         <MetricRow
           name="Emotional → Escalation Rate" onClick={onMetricClick}
           subtitle="% of emotional sessions where user subsequently asked for a peer navigator"
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.emotional_to_escalation ?? null, true)}
-          status="no-data"
+          status="tracking"
         />
         <MetricRow
           name="Emotional → Service Rate" onClick={onMetricClick}
           subtitle="% of emotional sessions where user eventually reached a service search"
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.emotional_to_service ?? null, true)}
-          status="no-data"
+          status="tracking"
         />
         <MetricRow
           name="Bot Question Rate" onClick={onMetricClick}
           subtitle={`% of turns asking about bot capabilities (${stats.conversation_quality?.bot_question_turns || 0} turns)`}
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.bot_question_rate ?? null, true)}
-          status="no-data"
+          status="tracking"
         />
         <MetricRow
           name="Bot Question → Frustration Rate" onClick={onMetricClick}
@@ -283,7 +283,7 @@ export default function MetricsPage() {
           subtitle={`% of query sessions that included a conversational turn (${stats.conversation_quality?.conversational_discovery || 0} sessions)`}
           target="Baseline tracking"
           value={fmtMetric(stats.conversation_quality?.conversational_discovery_rate ?? null, true)}
-          status="no-data"
+          status="tracking"
         />
       </MetricsSection>
 
@@ -297,35 +297,40 @@ export default function MetricsPage() {
           subtitle="Turns routed to service search, confirmation, or slot-filling"
           target="Largest bucket"
           value={`${routing?.buckets?.service_flow || 0} turns`}
-          status="no-data"
+          status={totalCategorized > 0 ? "tracking" : "no-data"}
+          statusOverride={totalCategorized > 0 ? `${Math.round(((routing?.buckets?.service_flow || 0) / totalCategorized) * 100)}%` : undefined}
         />
         <MetricRow
           name="Conversational (Safe)"
           subtitle="Greetings, thanks, help, bot identity, reset — deterministic handlers"
           target="—"
           value={`${routing?.buckets?.conversational || 0} turns`}
-          status="no-data"
+          status={totalCategorized > 0 ? "tracking" : "no-data"}
+          statusOverride={totalCategorized > 0 ? `${Math.round(((routing?.buckets?.conversational || 0) / totalCategorized) * 100)}%` : undefined}
         />
         <MetricRow
           name="Post-Results Questions"
           subtitle="Follow-up questions about displayed services — answered from card data, no LLM"
           target="Baseline tracking"
           value={`${routing?.category_distribution?.post_results || 0} turns`}
-          status="no-data"
+          status={totalCategorized > 0 ? "tracking" : "no-data"}
+          statusOverride={totalCategorized > 0 ? `${Math.round(((routing?.category_distribution?.post_results || 0) / totalCategorized) * 100)}%` : undefined}
         />
         <MetricRow
           name="Emotional / Frustrated / Confused"
           subtitle="Tone-aware responses with empathetic framing"
           target="—"
           value={`${routing?.buckets?.emotional || 0} turns`}
-          status="no-data"
+          status={totalCategorized > 0 ? "tracking" : "no-data"}
+          statusOverride={totalCategorized > 0 ? `${Math.round(((routing?.buckets?.emotional || 0) / totalCategorized) * 100)}%` : undefined}
         />
         <MetricRow
           name="Safety (Crisis + Escalation)"
           subtitle="Crisis resources shown or peer navigator offered"
           target="—"
           value={`${routing?.buckets?.safety || 0} turns`}
-          status="no-data"
+          status={totalCategorized > 0 ? "tracking" : "no-data"}
+          statusOverride={totalCategorized > 0 ? `${Math.round(((routing?.buckets?.safety || 0) / totalCategorized) * 100)}%` : undefined}
         />
         <MetricRow
           name="⚠ General (LLM-Generated)" onClick={onMetricClick}
@@ -343,7 +348,7 @@ export default function MetricsPage() {
               .join(" · ")}
             target="—"
             value={`${Object.keys(routing.category_distribution).length} categories`}
-            status="no-data"
+            status="tracking"
           />
         )}
       </MetricsSection>
@@ -354,19 +359,23 @@ export default function MetricsPage() {
         description="Detected emotional tones across all turns. Tones are independent of routing — a turn can have both a service intent and an emotional tone."
       >
         {toneEntries.length > 0 ? (
-          toneEntries.map(([tone, count]) => (
-            <MetricRow
-              key={tone}
-              name={tone.charAt(0).toUpperCase() + tone.slice(1)}
-              subtitle={`${count} turn${count !== 1 ? "s" : ""} detected`}
-              target="Baseline tracking"
-              value={fmtMetric(
-                totalTurnsForToneRate > 0 ? count / totalTurnsForToneRate : null,
-                true,
-              )}
-              status="no-data"
-            />
-          ))
+          toneEntries.map(([tone, count]) => {
+            const pct = totalTurnsForToneRate > 0 ? Math.round((count / totalTurnsForToneRate) * 100) : null;
+            return (
+              <MetricRow
+                key={tone}
+                name={tone.charAt(0).toUpperCase() + tone.slice(1)}
+                subtitle={`${count} turn${count !== 1 ? "s" : ""} detected`}
+                target="Baseline tracking"
+                value={fmtMetric(
+                  totalTurnsForToneRate > 0 ? count / totalTurnsForToneRate : null,
+                  true,
+                )}
+                status={pct !== null ? "tracking" : "no-data"}
+                statusOverride={pct !== null ? `${pct}%` : undefined}
+              />
+            );
+          })
         ) : (
           <MetricRow
             name="No tones detected yet"
@@ -381,7 +390,8 @@ export default function MetricsPage() {
           subtitle="Neutral turns — no emotional tone detected"
           target="—"
           value={`${toneDist?.turns_without_tone || 0} turns`}
-          status="no-data"
+          status={totalTurnsForToneRate > 0 ? "tracking" : "no-data"}
+          statusOverride={totalTurnsForToneRate > 0 ? `${Math.round(((toneDist?.turns_without_tone || 0) / totalTurnsForToneRate) * 100)}%` : undefined}
         />
       </MetricsSection>
 
@@ -391,25 +401,28 @@ export default function MetricsPage() {
         description="Tracks how often users request multiple services and whether they accept or decline the queued follow-up offers."
       >
         <MetricRow
-          name="Queue Offers"
+          name="Queue Offers" onClick={onMetricClick}
           subtitle="Times the bot offered a second service after delivering results"
           target="Baseline tracking"
           value={String(queueOffers)}
-          status="no-data"
+          status={queueOffers > 0 ? "tracking" : "no-data"}
+          statusOverride={totalSessions > 0 && queueOffers > 0 ? `${Math.round((queueOffers / totalSessions) * 100)}% of sessions` : undefined}
         />
         <MetricRow
-          name="Queue Declines"
+          name="Queue Declines" onClick={onMetricClick}
           subtitle="Times the user declined a queued service offer"
           target="Baseline tracking"
           value={String(queueDeclines)}
-          status="no-data"
+          status={queueDeclines > 0 ? "tracking" : "no-data"}
+          statusOverride={queueOffers > 0 && queueDeclines > 0 ? `${Math.round((queueDeclines / queueOffers) * 100)}% of offers` : undefined}
         />
         <MetricRow
-          name="Queue Accept Rate"
+          name="Queue Accept Rate" onClick={onMetricClick}
           subtitle="% of queue offers that were accepted (user searched the next service)"
           target="Baseline tracking"
           value={fmtMetric(queueAcceptRate, true)}
-          status="no-data"
+          status={queueAcceptRate !== null ? "tracking" : "no-data"}
+          statusOverride={queueAcceptRate !== null ? `${Math.round(queueAcceptRate * 100)}% accepted` : undefined}
         />
       </MetricsSection>
 
@@ -437,9 +450,9 @@ export default function MetricsPage() {
         title="6 · Closed-Loop Outcomes — Post-Pilot"
         description="These metrics require SMS follow-up infrastructure and privacy review. Not implemented in the pilot."
       >
-        <MetricRow name="Referral Success Rate" subtitle="% of users who confirm visiting the referred service" target="≥ 75% of opt-in users" value={null} status="no-data" phase="Post-pilot" />
-        <MetricRow name="Service Accuracy Rate" subtitle="% of post-visit feedback where details matched reality" target="≥ 85%" value={null} status="no-data" phase="Post-pilot" />
-        <MetricRow name="Outcome Linkage" subtitle="Correlate success rates with user profile and location" target="Baseline established" value={null} status="no-data" phase="Post-pilot" />
+        <MetricRow name="Referral Success Rate" onClick={onMetricClick} subtitle="% of users who confirm visiting the referred service" target="≥ 75% of opt-in users" value={null} status="no-data" phase="Post-pilot" />
+        <MetricRow name="Service Accuracy Rate" onClick={onMetricClick} subtitle="% of post-visit feedback where details matched reality" target="≥ 85%" value={null} status="no-data" phase="Post-pilot" />
+        <MetricRow name="Outcome Linkage" onClick={onMetricClick} subtitle="Correlate success rates with user profile and location" target="Baseline established" value={null} status="no-data" phase="Post-pilot" />
       </MetricsSection>
 
       {/* Metric detail dialog */}
