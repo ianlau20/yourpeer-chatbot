@@ -71,7 +71,7 @@ export function EventFeed({ events }: EventFeedProps) {
         </thead>
         <tbody>
           {sorted.map((e, i) => {
-            const ev = e as AuditEvent;
+            const ev = e as unknown as AuditEvent;
             const time = new Date(ev.timestamp).toLocaleTimeString();
             let detail: React.ReactNode = "";
 

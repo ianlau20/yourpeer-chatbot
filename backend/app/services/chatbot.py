@@ -262,6 +262,11 @@ _BOT_QUESTION_PHRASES = [
     "can my case worker", "can my caseworker", "can the shelter see",
     "how do i delete", "how do i clear",
     "do you know who i am", "do you know my name",
+    # Additional privacy phrases (synced with bot_knowledge topics)
+    "what happens to my", "what do you do with my",
+    "where does my information", "where does my data",
+    "is my information", "is my data",
+    "do you sell", "do you keep",
 ]
 
 # Confusion / overwhelm — the user doesn't know what they need.
@@ -984,6 +989,8 @@ def _build_conversational_prompt(user_message: str, slots: dict) -> str:
 
 def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
     """Prompt for questions about the bot's capabilities or behavior."""
+    from app.services.bot_knowledge import build_capability_context
+
     # Build context about what's happened in the session so far
     context_lines = []
     if slots:
@@ -1008,6 +1015,9 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
             + "\n\n"
         )
 
+    # Facts sourced from live code via bot_knowledge
+    facts = build_capability_context()
+
     return (
         "You are YourPeer, a friendly assistant that helps people find "
         "free social services in New York City.\n\n"
@@ -1015,45 +1025,7 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
         "Answer their SPECIFIC question directly and honestly. Do not give a "
         "generic overview unless they asked for one.\n\n"
         f"{context_section}"
-        "Facts about yourself:\n"
-        "- You search a database of verified social services in NYC's five "
-        "boroughs, maintained by Streetlives (yourpeer.nyc)\n"
-        "- You ONLY cover New York City. You cannot search outside the five "
-        "boroughs (Manhattan, Brooklyn, Queens, Bronx, Staten Island). If "
-        "someone needs services elsewhere, suggest calling 211\n"
-        "- Service categories you can search:\n"
-        "  • Food: soup kitchens, food pantries, groceries\n"
-        "  • Shelter: emergency shelter, transitional housing\n"
-        "  • Clothing: free clothing programs\n"
-        "  • Personal care: showers, laundry, haircuts\n"
-        "  • Health care: medical, dental, vision, STD testing, vaccinations\n"
-        "  • Mental health: counseling, therapy, substance abuse, AA/NA\n"
-        "  • Legal help: immigration, eviction, asylum\n"
-        "  • Jobs: employment programs, job training, resume help\n"
-        "  • Other: benefits (SNAP/EBT/Medicaid), IDs, drop-in centers, "
-        "case workers, free wifi, mail services, transit help\n"
-        "- Geolocation: you use the browser's GPS when the user taps "
-        "'Use my location'. Common reasons it can fail:\n"
-        "  • The user denied the browser permission prompt\n"
-        "  • They're on a device/browser that doesn't support geolocation\n"
-        "  • GPS timed out (e.g., indoors with weak signal)\n"
-        "  • The site isn't served over HTTPS\n"
-        "  If geolocation fails, you ask for a neighborhood or borough instead\n"
-        "- Privacy: you don't store personal information. Conversations are "
-        "private and not linked to any identity. Specifics:\n"
-        "  • You are NOT connected to any government agency, including ICE\n"
-        "  • You do NOT share information with law enforcement\n"
-        "  • Shelters, case workers, and providers cannot see the conversation\n"
-        "  • Using this chat will NOT affect benefits or case status\n"
-        "  • If a user shares PII by accident, it's automatically redacted\n"
-        "  • Saying 'start over' clears the session immediately\n"
-        "  • Chat history on the device auto-expires after 30 minutes\n"
-        "  • On shared/public devices, other users could potentially see "
-        "the chat until it expires\n"
-        "- You can connect users with a human peer navigator for support\n"
-        "- You are an AI assistant, not a human\n"
-        "- Your data comes from verified listings. Hours and availability may "
-        "change — always call ahead to confirm\n\n"
+        f"{facts}\n\n"
         "Keep your response to 2-3 sentences. Answer the specific question. "
         "Be honest about limitations.\n\n"
         f"User question: {user_message}"
@@ -1062,6 +1034,15 @@ def _build_bot_question_prompt(user_message: str, slots: dict = None) -> str:
 
 def _static_bot_answer(message: str) -> str:
     """Pattern-matched answers for common bot questions when LLM is unavailable."""
+    # Try bot_knowledge topic matching first (richer, maintained centrally)
+    try:
+        from app.services.bot_knowledge import answer_question
+        knowledge_answer = answer_question(message)
+        if knowledge_answer:
+            return knowledge_answer
+    except Exception:
+        pass  # Fall through to legacy pattern matching
+
     lower = message.lower()
 
     # Geolocation questions
@@ -1551,7 +1532,12 @@ def generate_reply(
     # "Why couldn't you get my location?", "What can you search for?"
     # Answer directly using LLM with a factual prompt about capabilities.
     if category == "bot_question":
-        if _USE_LLM:
+        # Try bot_knowledge static answer first (topic-matched, no LLM needed)
+        from app.services.bot_knowledge import answer_question, build_capability_context
+        static_answer = answer_question(message)
+        if static_answer:
+            response = static_answer
+        elif _USE_LLM:
             try:
                 prompt = _build_bot_question_prompt(message, slots=existing)
                 response = claude_reply(prompt)
