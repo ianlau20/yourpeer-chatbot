@@ -153,11 +153,22 @@ _SHOW_ALL_QR = {"label": "📋 Show all results", "value": "Show all results"}
 
 
 def _call_qr(service: dict) -> dict:
-    """Build a 'Call [name]' quick reply for a specific service."""
+    """Build a 'Call [name]' quick reply for a specific service.
+
+    Includes an href field with a tel: link so the frontend renders it
+    as an <a> tag that triggers the native phone dialer (mobile) or
+    calling app prompt (desktop).
+    """
     name = service.get("service_name", "the service")
     phone = service.get("phone", "")
     short_name = name[:25] + "…" if len(name) > 25 else name
-    return {"label": f"📞 Call {short_name}", "value": f"Call {phone}"}
+    # Strip non-digits for the tel: href
+    digits = re.sub(r"\D", "", phone)
+    return {
+        "label": f"📞 Call {short_name}",
+        "value": f"Call {phone}",
+        "href": f"tel:{digits}" if digits else None,
+    }
 
 
 def _default_qr(services: list) -> list:
@@ -236,7 +247,7 @@ def _handle_filter_open(services: list[dict]) -> dict:
                 f"I'd recommend calling ahead to check."
             ),
             "services": [],
-            "quick_replies": _call_qrs(services) + [_NAVIGATOR_QR, _NEW_SEARCH_QR],
+            "quick_replies": [_NAVIGATOR_QR, _NEW_SEARCH_QR],
             "category": "post_results",
         }
 
@@ -247,7 +258,7 @@ def _handle_filter_open(services: list[dict]) -> dict:
             "or a peer navigator can help you find out."
         ),
         "services": [],
-        "quick_replies": _call_qrs(services) + [_NAVIGATOR_QR, _NEW_SEARCH_QR],
+        "quick_replies": [_NAVIGATOR_QR, _NEW_SEARCH_QR],
         "category": "post_results",
     }
 
@@ -285,7 +296,7 @@ def _handle_filter_free(services: list[dict]) -> dict:
                 f"You could call to ask, or connect with a peer navigator."
             ),
             "services": [],
-            "quick_replies": _call_qrs(services) + [_NAVIGATOR_QR, _NEW_SEARCH_QR],
+            "quick_replies": [_NAVIGATOR_QR, _NEW_SEARCH_QR],
             "category": "post_results",
         }
 
@@ -296,7 +307,7 @@ def _handle_filter_free(services: list[dict]) -> dict:
             "I'd recommend calling to confirm, or a peer navigator can help."
         ),
         "services": [],
-        "quick_replies": _call_qrs(services) + [_NAVIGATOR_QR, _NEW_SEARCH_QR],
+        "quick_replies": [_NAVIGATOR_QR, _NEW_SEARCH_QR],
         "category": "post_results",
     }
 
@@ -446,6 +457,11 @@ def _service_detail_response(service: dict, all_services: list[dict]) -> dict:
     if service.get("requires_membership"):
         lines.append("Note: Referral may be required")
 
+    # Co-located services
+    also = service.get("also_available")
+    if also and len(also) > 0:
+        lines.append(f"\nAlso available here: {', '.join(also)}")
+
     lines.append(
         "\nThat's all I have in my records. For anything else, "
         "you could call them directly or connect with a peer navigator."
@@ -470,8 +486,7 @@ def _service_detail_response(service: dict, all_services: list[dict]) -> dict:
 
 def _cant_answer(message: str, services: list[dict]) -> dict:
     """Response for questions we can't answer from the data."""
-    qrs = _call_qrs(services) if services else []
-    qrs.extend([_NAVIGATOR_QR, _NEW_SEARCH_QR])
+    qrs = [_NAVIGATOR_QR, _NEW_SEARCH_QR]
     return {
         "response": message,
         "services": [],

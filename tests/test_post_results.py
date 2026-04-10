@@ -769,3 +769,45 @@ class TestSkipLlmPerformance:
         ):
             detect_crisis("some ambiguous message about life", skip_llm=True)
             mock_llm.assert_not_called()
+
+
+# -----------------------------------------------------------------------
+# CALL BUTTON HREF (tel: link)
+# -----------------------------------------------------------------------
+
+class TestCallButtonHref:
+    """Call quick reply buttons should include href for native dialer."""
+
+    def test_call_qr_has_tel_href(self):
+        from app.services.post_results import _call_qr
+        qr = _call_qr({"service_name": "Test Place", "phone": "(555) 123-4567"})
+        assert qr["href"] == "tel:5551234567"
+
+    def test_call_qr_strips_non_digits(self):
+        from app.services.post_results import _call_qr
+        qr = _call_qr({"service_name": "Test", "phone": "+1 (800) 799-7233"})
+        assert qr["href"] == "tel:18007997233"
+
+    def test_call_qr_no_phone_no_href(self):
+        from app.services.post_results import _call_qr
+        qr = _call_qr({"service_name": "Test", "phone": ""})
+        assert qr["href"] is None
+
+    def test_detail_view_has_call_button(self):
+        """Detail view should include call button when service has phone."""
+        result = answer_from_results(
+            {"type": "specific_index", "index": 0},
+            MOCK_SERVICES,
+        )
+        call_qrs = [q for q in result["quick_replies"] if "📞" in q.get("label", "")]
+        assert len(call_qrs) == 1
+        assert call_qrs[0].get("href", "").startswith("tel:")
+
+    def test_detail_view_no_call_without_phone(self):
+        """Detail view should NOT include call button when no phone."""
+        result = answer_from_results(
+            {"type": "specific_index", "index": 2},  # Safe Horizon — no phone
+            MOCK_SERVICES,
+        )
+        call_qrs = [q for q in result["quick_replies"] if "📞" in q.get("label", "")]
+        assert len(call_qrs) == 0

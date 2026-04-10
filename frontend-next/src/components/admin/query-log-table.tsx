@@ -1,79 +1,110 @@
 // Copyright (c) 2024 Streetlives, Inc.
-//
-// Use of this source code is governed by an MIT-style
-// license that can be found in the LICENSE file or at
-// https://opensource.org/licenses/MIT.
+// Use of this source code is governed by an MIT-style license.
 
+"use client";
+
+import { useState } from "react";
 import type { QueryLogEntry } from "@/lib/chat/types";
+import { useSortableTable } from "@/hooks/use-sortable-table";
+import { SortableHeader } from "./sortable-header";
+import { QueryDetailDrawer } from "./query-detail-drawer";
 
 interface QueryLogTableProps {
   queries: QueryLogEntry[];
 }
 
 export function QueryLogTable({ queries }: QueryLogTableProps) {
+  const [selected, setSelected] = useState<QueryLogEntry | null>(null);
+  const { sorted, sortKey, sortDir, onSort } = useSortableTable(
+    queries as unknown as Record<string, unknown>[],
+    "timestamp",
+    "desc",
+  );
+
   if (queries.length === 0) {
     return (
       <div className="text-center py-16 text-neutral-400">
         <div className="text-3xl mb-3">🔍</div>
-        <p>No database queries executed yet. Complete a search to see query logs.</p>
+        <p>No queries executed yet.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-neutral-200 rounded-lg overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr>
-            {["Time", "Template", "Params", "Results", "Latency", "Session"].map(
-              (h) => (
-                <th
-                  key={h}
-                  className="text-left px-4 py-3 text-xs uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-200 whitespace-nowrap"
+    <>
+      <div className="bg-white border border-neutral-200 rounded-lg overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr>
+              <SortableHeader label="Time" field="timestamp" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortableHeader label="Template" field="template_name" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <th className="text-left px-4 py-3 text-xs uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-200">
+                Params
+              </th>
+              <SortableHeader label="Results" field="result_count" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortableHeader label="Duration" field="execution_ms" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <SortableHeader label="Relaxed" field="relaxed" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            </tr>
+          </thead>
+          <tbody>
+            {(sorted as unknown as QueryLogEntry[]).map((q, i) => {
+              const params = Object.entries(q.params || {})
+                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                .join(", ");
+              return (
+                <tr
+                  key={i}
+                  onClick={() => setSelected(q)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelected(q);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`View details for ${q.template_name} query`}
+                  className="cursor-pointer hover:bg-amber-50/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-1"
                 >
-                  {h}
-                </th>
-              ),
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {[...queries].reverse().map((q, i) => {
-            const params = Object.entries(q.params || {})
-              .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-              .join(", ");
-            return (
-              <tr key={i} className="hover:bg-neutral-50/50">
-                <td className="px-4 py-2.5 font-mono text-xs border-b border-neutral-100">
-                  {new Date(q.timestamp).toLocaleTimeString()}
-                </td>
-                <td className="px-4 py-2.5 border-b border-neutral-100">
-                  <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-600">
+                  <td className="px-4 py-2.5 font-mono text-xs border-b border-neutral-100">
+                    {new Date(q.timestamp).toLocaleTimeString()}
+                  </td>
+                  <td className="px-4 py-2.5 font-semibold border-b border-neutral-100">
                     {q.template_name}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 font-mono text-xs border-b border-neutral-100 max-w-[350px] truncate">
-                  {params}
-                </td>
-                <td className="px-4 py-2.5 border-b border-neutral-100">
-                  {q.result_count}
-                  {q.relaxed && (
-                    <span className="ml-1 inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-600">
-                      relaxed
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-neutral-500 max-w-[250px] truncate border-b border-neutral-100" title={params}>
+                    {params || "—"}
+                  </td>
+                  <td className="px-4 py-2.5 border-b border-neutral-100">
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      q.result_count > 0 ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
+                    }`}>
+                      {q.result_count}
                     </span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 font-mono text-xs border-b border-neutral-100">
-                  {q.execution_ms}ms
-                </td>
-                <td className="px-4 py-2.5 font-mono text-xs text-neutral-400 border-b border-neutral-100">
-                  {q.session_id ? `${q.session_id.slice(0, 8)}…` : ""}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-neutral-400 border-b border-neutral-100">
+                    {q.execution_ms}ms
+                  </td>
+                  <td className="px-4 py-2.5 border-b border-neutral-100">
+                    {q.relaxed && (
+                      <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-600">
+                        yes
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {selected && (
+        <QueryDetailDrawer
+          query={selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </>
   );
 }

@@ -292,6 +292,9 @@ def get_stats() -> dict:
     fb_total = fb_up + fb_down
 
     cq = _conversation_quality(turns, queries, sess_cats)
+    routing = _compute_routing(turns, cat_dist)
+    tone_dist = _compute_tone_distribution(turns)
+    multi = _compute_multi_intent(turns, queries, sess_cats)
 
     return {
         "total_events": len(all_events),
@@ -321,6 +324,9 @@ def get_stats() -> dict:
         "feedback_down": fb_down,
         "feedback_score": round(fb_up / fb_total, 2) if fb_total else None,
         "conversation_quality": cq,
+        "routing": routing,
+        "tone_distribution": tone_dist,
+        "multi_intent": multi,
     }
 
 
@@ -353,6 +359,118 @@ def _conversation_quality(turns, queries, sess_cats):
         "bot_question_turns": bq_turns, "bot_question_rate": bq_rate,
         "bot_question_sessions": len(bq_sess), "bot_question_to_frustration": bq_frust,
         "conversational_discovery": len(conv_disc), "conversational_discovery_rate": conv_rate,
+    }
+
+
+# Routing bucket definitions — which categories map to which bucket.
+_ROUTING_SERVICE_FLOW = {
+    "service", "confirmation", "confirmation_nudge", "unrecognized_service",
+    "confirm_yes", "confirm_deny", "confirm_change_service", "confirm_change_location",
+    "queue_decline",
+}
+_ROUTING_CONVERSATIONAL = {
+    "greeting", "thanks", "help", "bot_question", "bot_identity", "reset",
+    "post_results",
+}
+_ROUTING_EMOTIONAL = {"emotional", "frustration", "confused"}
+_ROUTING_SAFETY = {"crisis", "escalation"}
+_ROUTING_GENERAL = {"general"}
+
+
+def _compute_routing(turns: list, cat_dist: dict) -> dict:
+    """Compute routing distribution: how turns are bucketed across handlers."""
+    total = len(turns)
+
+    buckets = {
+        "service_flow": 0,
+        "conversational": 0,
+        "emotional": 0,
+        "safety": 0,
+        "general": 0,
+    }
+    for t in turns:
+        cat = t.get("category", "general")
+        if cat in _ROUTING_SERVICE_FLOW:
+            buckets["service_flow"] += 1
+        elif cat in _ROUTING_CONVERSATIONAL:
+            buckets["conversational"] += 1
+        elif cat in _ROUTING_EMOTIONAL:
+            buckets["emotional"] += 1
+        elif cat in _ROUTING_SAFETY:
+            buckets["safety"] += 1
+        else:
+            buckets["general"] += 1
+
+    general_rate = round(buckets["general"] / total, 2) if total else None
+
+    return {
+        "total_categorized": total,
+        "buckets": buckets,
+        "general_rate": general_rate,
+        "category_distribution": cat_dist,
+    }
+
+
+def _compute_tone_distribution(turns: list) -> dict:
+    """Compute tone distribution across all turns."""
+    tones: dict[str, int] = {}
+    total_with_tone = 0
+    turns_without_tone = 0
+
+    for t in turns:
+        tone = t.get("tone")
+        if tone and tone != "crisis":
+            # "crisis" is a routing category, not a tone for display purposes.
+            # The tone distribution tracks emotional modifiers:
+            # emotional, frustrated, confused, urgent.
+            tones[tone] = tones.get(tone, 0) + 1
+            total_with_tone += 1
+        else:
+            turns_without_tone += 1
+
+    return {
+        "tones": tones,
+        "total_with_tone": total_with_tone,
+        "turns_without_tone": turns_without_tone,
+    }
+
+
+def _compute_multi_intent(turns: list, queries: list, sess_cats: dict) -> dict:
+    """Compute multi-intent queue metrics.
+
+    Queue offers: sessions where 2+ different query templates were executed
+                  OR a queue_decline event occurred (an offer was made).
+    Queue declines: turns with category 'queue_decline'.
+    """
+    # Count explicit queue declines
+    queue_declines = sum(1 for t in turns if t.get("category") == "queue_decline")
+
+    # Sessions with queue declines
+    decline_sessions = {
+        t.get("session_id") for t in turns
+        if t.get("category") == "queue_decline"
+    }
+
+    # Sessions with 2+ query executions (user accepted at least one queue offer)
+    session_queries: dict[str, set] = {}
+    for q in queries:
+        sid = q.get("session_id", "")
+        template = q.get("template_name", "")
+        session_queries.setdefault(sid, set()).add(template)
+
+    multi_query_sessions = {
+        sid for sid, templates in session_queries.items()
+        if len(templates) >= 2
+    }
+
+    # Queue offers = sessions with decline + sessions with multiple queries
+    queue_offer_sessions = decline_sessions | multi_query_sessions
+    queue_offers = len(queue_offer_sessions)
+
+    return {
+        "queue_offers": queue_offers,
+        "queue_declines": queue_declines,
+        "queue_accept_sessions": len(multi_query_sessions),
     }
 
 

@@ -14,6 +14,10 @@ The system uses two sequential stages:
 
 This two-stage approach mirrors the slot extraction architecture: regex handles the common case cheaply and deterministically; the LLM handles the ambiguous case accurately.
 
+**Performance optimization (`skip_llm`):** For short safe actions (≤4 words like "yes", "no", "start over", "hello"), the LLM crisis detection stage is skipped entirely. The regex check still runs on every message regardless. This optimization reduces Sonnet API calls by ~20% without compromising safety — messages short enough to skip are structurally unlikely to contain indirect crisis language. The threshold was tightened from 6 to 4 words after testing revealed that 6-word messages like "start over I cant take this" could contain crisis signals.
+
+**Post-results safety (eval P10):** Crisis detection runs BEFORE the post-results question handler in `generate_reply()`. This is critical because messages like "do they even help people like me? I want to die" contain result-reference words ("they") that would match the post-results classifier. Without this ordering, the user would get "I only have the information shown on the cards" instead of crisis resources. The post-results handler never sees the message if crisis is detected.
+
 ## Categories
 
 | Category | Description | Primary Resources |

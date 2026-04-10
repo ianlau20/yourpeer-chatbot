@@ -444,3 +444,22 @@ def test_health_endpoint():
 
 
 # -----------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------
+# B4: Feedback event filter
+# -----------------------------------------------------------------------
+
+def test_events_filter_by_feedback():
+    """Should be able to filter events by type=feedback."""
+    clear_audit_log()
+    log_conversation_turn("s1", "hi", "hello", {}, "greeting")
+    from app.services.audit_log import log_feedback
+    log_feedback(session_id="s1", rating="up", comment="great")
+
+    response = client.get("/admin/api/events?event_type=feedback")
+    assert response.status_code == 200
+    events = response.json()
+    assert len(events) == 1
+    assert events[0]["type"] == "feedback"
+    assert events[0]["rating"] == "up"

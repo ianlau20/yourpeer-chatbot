@@ -984,3 +984,190 @@ def test_concurrent_logging():
 
 
 # -----------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------
+# ROUTING DISTRIBUTION (B1)
+# -----------------------------------------------------------------------
+
+def test_routing_buckets_basic():
+    """Routing should bucket categories into service_flow, conversational, etc."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_conversation_turn("s1", "t", "t", {}, "confirm_yes")
+    log_conversation_turn("s2", "t", "t", {}, "greeting")
+    log_conversation_turn("s2", "t", "t", {}, "thanks")
+    log_conversation_turn("s3", "t", "t", {}, "emotional")
+    log_conversation_turn("s3", "t", "t", {}, "crisis")
+    log_conversation_turn("s4", "t", "t", {}, "general")
+
+    stats = get_stats()
+    r = stats["routing"]
+    assert r["total_categorized"] == 7
+    assert r["buckets"]["service_flow"] == 2
+    assert r["buckets"]["conversational"] == 2
+    assert r["buckets"]["emotional"] == 1
+    assert r["buckets"]["safety"] == 1
+    assert r["buckets"]["general"] == 1
+
+
+def test_routing_general_rate():
+    """General rate should be the proportion of general turns."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "general")
+    log_conversation_turn("s1", "t", "t", {}, "general")
+    log_conversation_turn("s2", "t", "t", {}, "service")
+    log_conversation_turn("s2", "t", "t", {}, "service")
+
+    stats = get_stats()
+    assert stats["routing"]["general_rate"] == 0.5
+
+
+def test_routing_post_results_in_conversational():
+    """post_results should be bucketed under conversational (deterministic)."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "post_results")
+
+    stats = get_stats()
+    assert stats["routing"]["buckets"]["conversational"] == 1
+
+
+def test_routing_queue_decline_in_service_flow():
+    """queue_decline should be bucketed under service_flow."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "queue_decline")
+
+    stats = get_stats()
+    assert stats["routing"]["buckets"]["service_flow"] == 1
+
+
+def test_routing_category_distribution_included():
+    """Routing should include the full category_distribution dict."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_conversation_turn("s1", "t", "t", {}, "greeting")
+
+    stats = get_stats()
+    cd = stats["routing"]["category_distribution"]
+    assert cd["service"] == 1
+    assert cd["greeting"] == 1
+
+
+def test_routing_empty():
+    """Routing should handle empty log gracefully."""
+    clear_audit_log()
+    stats = get_stats()
+    r = stats["routing"]
+    assert r["total_categorized"] == 0
+    assert r["general_rate"] is None
+    assert all(v == 0 for v in r["buckets"].values())
+
+
+# -----------------------------------------------------------------------
+# TONE DISTRIBUTION (B2)
+# -----------------------------------------------------------------------
+
+def test_tone_distribution_basic():
+    """Tone distribution should count each tone type."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "service", tone="emotional")
+    log_conversation_turn("s1", "t", "t", {}, "service", tone="emotional")
+    log_conversation_turn("s1", "t", "t", {}, "service", tone="frustrated")
+    log_conversation_turn("s2", "t", "t", {}, "service", tone="urgent")
+    log_conversation_turn("s2", "t", "t", {}, "greeting", tone=None)
+
+    stats = get_stats()
+    td = stats["tone_distribution"]
+    assert td["tones"]["emotional"] == 2
+    assert td["tones"]["frustrated"] == 1
+    assert td["tones"]["urgent"] == 1
+    assert td["total_with_tone"] == 4
+    assert td["turns_without_tone"] == 1
+
+
+def test_tone_distribution_excludes_crisis():
+    """Crisis tone should not appear in tone distribution (it's a routing category)."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "crisis", tone="crisis")
+    log_conversation_turn("s1", "t", "t", {}, "service", tone="emotional")
+
+    stats = get_stats()
+    td = stats["tone_distribution"]
+    assert "crisis" not in td["tones"]
+    assert td["total_with_tone"] == 1
+    assert td["turns_without_tone"] == 1
+
+
+def test_tone_distribution_empty():
+    """Tone distribution should handle empty log."""
+    clear_audit_log()
+    stats = get_stats()
+    td = stats["tone_distribution"]
+    assert td["tones"] == {}
+    assert td["total_with_tone"] == 0
+    assert td["turns_without_tone"] == 0
+
+
+def test_tone_distribution_all_neutral():
+    """All turns with no tone should count as turns_without_tone."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "greeting", tone=None)
+    log_conversation_turn("s1", "t", "t", {}, "service", tone=None)
+
+    stats = get_stats()
+    td = stats["tone_distribution"]
+    assert td["total_with_tone"] == 0
+    assert td["turns_without_tone"] == 2
+
+
+# -----------------------------------------------------------------------
+# MULTI-INTENT (B3)
+# -----------------------------------------------------------------------
+
+def test_multi_intent_queue_decline():
+    """Queue decline events should be counted."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_query_execution("s1", "FoodQuery", {}, 3, False, 40)
+    log_conversation_turn("s1", "no thanks", "ok", {}, "queue_decline")
+
+    stats = get_stats()
+    mi = stats["multi_intent"]
+    assert mi["queue_declines"] == 1
+    assert mi["queue_offers"] == 1  # decline implies an offer
+
+
+def test_multi_intent_queue_accept():
+    """Sessions with 2+ different query templates are queue accepts."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_query_execution("s1", "FoodQuery", {}, 3, False, 40)
+    log_conversation_turn("s1", "yes food too", "t", {}, "service")
+    log_query_execution("s1", "ShelterQuery", {}, 2, False, 30)
+
+    stats = get_stats()
+    mi = stats["multi_intent"]
+    assert mi["queue_accept_sessions"] == 1
+    assert mi["queue_offers"] == 1
+
+
+def test_multi_intent_no_queue():
+    """Single-intent sessions should show zero queue metrics."""
+    clear_audit_log()
+    log_conversation_turn("s1", "t", "t", {}, "service")
+    log_query_execution("s1", "FoodQuery", {}, 3, False, 40)
+
+    stats = get_stats()
+    mi = stats["multi_intent"]
+    assert mi["queue_offers"] == 0
+    assert mi["queue_declines"] == 0
+    assert mi["queue_accept_sessions"] == 0
+
+
+def test_multi_intent_empty():
+    """Multi-intent stats should handle empty log."""
+    clear_audit_log()
+    stats = get_stats()
+    mi = stats["multi_intent"]
+    assert mi["queue_offers"] == 0
+    assert mi["queue_declines"] == 0

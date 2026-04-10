@@ -1,12 +1,9 @@
 // Copyright (c) 2024 Streetlives, Inc.
-//
-// Use of this source code is governed by an MIT-style
-// license that can be found in the LICENSE file or at
-// https://opensource.org/licenses/MIT.
+// Use of this source code is governed by an MIT-style license.
 
 "use client";
 
-import { MapPin, Phone, Mail, Clock } from "lucide-react";
+import { MapPin, Phone, Mail, Clock, CheckCircle } from "lucide-react";
 import type { ServiceResult } from "@/lib/chat/types";
 
 interface ServiceCardProps {
@@ -38,6 +35,70 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
+function ValidatedBadge({ dateStr }: { dateStr?: string }) {
+  if (!dateStr) return null;
+
+  const validated = new Date(dateStr);
+  if (isNaN(validated.getTime())) return null;
+
+  const now = new Date();
+  const diffMs = now.getTime() - validated.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  let label: string;
+  if (diffDays === 0) label = "today";
+  else if (diffDays === 1) label = "yesterday";
+  else if (diffDays < 7) label = `${diffDays} days ago`;
+  else if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    label = weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
+  } else if (diffDays < 365) {
+    const months = Math.floor(diffDays / 30);
+    label = months === 1 ? "1 month ago" : `${months} months ago`;
+  } else {
+    label = "over a year ago";
+  }
+
+  const isRecent = diffDays <= 90;
+
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${
+      isRecent ? "text-green-600" : "text-neutral-400"
+    }`}>
+      <CheckCircle size={12} aria-hidden="true" />
+      Validated {label}
+    </span>
+  );
+}
+
+// Emoji map for co-located service categories
+const ALSO_EMOJI: Record<string, string> = {
+  "Shelter": "\u{1F6CF}\uFE0F",
+  "Shower": "\u{1F6BF}",
+  "Clothing Pantry": "\u{1F455}",
+  "Clothing": "\u{1F455}",
+  "Health": "\u{1F3E5}",
+  "General Health": "\u{1F3E5}",
+  "Mental Health": "\u{1F9E0}",
+  "Laundry": "\u{1F9FC}",
+  "Legal Services": "\u2696\uFE0F",
+  "Benefits": "\u{1F4CB}",
+  "Education": "\u{1F4DA}",
+  "Employment": "\u{1F4BC}",
+  "Food": "\u{1F37D}\uFE0F",
+  "Food Pantry": "\u{1F37D}\uFE0F",
+  "Soup Kitchen": "\u{1F372}",
+  "Toiletries": "\u{1F9F4}",
+  "Mail": "\u{1F4EC}",
+  "Free Wifi": "\u{1F4F6}",
+  "Haircut": "\u{1F487}",
+  "Support Groups": "\u{1F91D}",
+  "Drop-in Center": "\u{1F3E0}",
+  "Crisis": "\u{1F198}",
+  "Restrooms": "\u{1F6BB}",
+  "Warming Center": "\u{1F525}",
+};
+
 export function ServiceCard({ service, isActive, index, total }: ServiceCardProps) {
   const name = service.service_name || "Service";
   const cardLabel =
@@ -57,12 +118,15 @@ export function ServiceCard({ service, isActive, index, total }: ServiceCardProp
         {name}
       </div>
 
-      {/* Organization */}
-      {service.organization && (
-        <div className="text-xs text-neutral-500 font-medium -mt-1">
-          {service.organization}
-        </div>
-      )}
+      {/* Organization + Validated */}
+      <div className="flex flex-col gap-0.5 -mt-1">
+        {service.organization && (
+          <div className="text-xs text-neutral-500 font-medium">
+            {service.organization}
+          </div>
+        )}
+        <ValidatedBadge dateStr={service.last_validated_at} />
+      </div>
 
       {/* Hours + status */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -118,6 +182,25 @@ export function ServiceCard({ service, isActive, index, total }: ServiceCardProp
         <span className="self-start inline-block text-xs font-semibold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-lg">
           Referral may be required
         </span>
+      )}
+
+      {/* Also available at this location */}
+      {service.also_available && service.also_available.length > 0 && (
+        <div className="pt-1 border-t border-neutral-100">
+          <div className="text-[0.65rem] font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+            Also here
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {service.also_available.map((cat) => (
+              <span
+                key={cat}
+                className="inline-block text-[0.68rem] font-medium px-2 py-0.5 rounded-md bg-neutral-50 border border-neutral-150 text-neutral-600"
+              >
+                {ALSO_EMOJI[cat] || "\u2022"} {cat}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Learn More */}

@@ -7,6 +7,8 @@
 export interface QuickReply {
   label: string;
   value: string;
+  /** When present, the button renders as a link (e.g. "tel:" for phone calls). */
+  href?: string;
 }
 
 export interface ServiceResult {
@@ -22,6 +24,8 @@ export interface ServiceResult {
   fees?: string;
   requires_membership?: boolean;
   yourpeer_url?: string;
+  last_validated_at?: string;
+  also_available?: string[];
 }
 
 export interface ChatResponse {
@@ -147,7 +151,7 @@ export interface ConversationSummary {
 }
 
 export interface AuditEvent {
-  type: "conversation_turn" | "query_execution" | "crisis_detected" | "session_reset";
+  type: "conversation_turn" | "query_execution" | "crisis_detected" | "session_reset" | "feedback";
   timestamp: string;
   session_id?: string;
   user_message?: string;
@@ -160,6 +164,8 @@ export interface AuditEvent {
   slots?: Record<string, string | null>;
   services_count?: number;
   quick_replies?: string[];
+  rating?: string;
+  comment?: string;
 }
 
 export interface QueryLogEntry {

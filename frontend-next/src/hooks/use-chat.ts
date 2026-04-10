@@ -96,7 +96,7 @@ export function useChat() {
 
         // Got coords — show searching progress, then send API call
         const searchProgressId = nextMsgId();
-        addMessage({ id: searchProgressId, role: "bot", text: "Found where you are you…", transient: true });
+        addMessage({ id: searchProgressId, role: "bot", text: "Finding where you are…", transient: true });
 
         try {
           const data = await withRetry(() => sendChatMessage("near me", sessionId, coords));
@@ -249,7 +249,7 @@ export function useChat() {
         }
 
         const searchProgressId = nextMsgId();
-        addMessage({ id: searchProgressId, role: "bot", text: "Found where you are you…", transient: true });
+        addMessage({ id: searchProgressId, role: "bot", text: "Finding where you are…", transient: true });
 
         try {
           const data = await withRetry(() => sendChatMessage("near me", sessionId, geoResult));

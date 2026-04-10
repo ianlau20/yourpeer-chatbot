@@ -155,7 +155,8 @@ _HELP_WORD_RE = re.compile(r"\bhelp\b", re.IGNORECASE)
 _ESCALATION_PHRASES = [
     "peer navigator", "talk to a person", "talk to someone",
     "speak to someone", "speak to a person", "real person",
-    "human", "connect me", "call someone", "live chat",
+    "human", "connect me", "connect with person",
+    "connect with peer navigator", "call someone", "live chat",
     "case manager", "social worker", "counselor",
 ]
 
@@ -738,6 +739,19 @@ def _build_confirmation_message(slots: dict) -> str:
     else:
         location_phrase = f"in {location}"
 
+    # Build the service label, including co-located services
+    queued = slots.get("_queued_services", [])
+    if queued:
+        co_labels = [
+            detail or _SERVICE_LABELS.get(svc_type, svc_type)
+            for svc_type, detail in queued
+        ]
+        all_labels = [service_label] + co_labels
+        if len(all_labels) == 2:
+            service_label = f"{all_labels[0]} and {all_labels[1]}"
+        else:
+            service_label = ", ".join(all_labels[:-1]) + f", and {all_labels[-1]}"
+
     parts = [f"I'll search for {service_label} {location_phrase}"]
     if age:
         parts[0] += f" (age {age})"
@@ -778,6 +792,7 @@ def _follow_up_quick_replies(slots: dict) -> list:
             {"label": "Brooklyn", "value": "Brooklyn"},
             {"label": "Queens", "value": "Queens"},
             {"label": "Bronx", "value": "Bronx"},
+            {"label": "Staten Island", "value": "Staten Island"},
         ]
 
     return []
@@ -1524,7 +1539,10 @@ def generate_reply(
     if category == "bot_identity":
         result = _empty_reply(
             session_id, _BOT_IDENTITY_RESPONSE, existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+            ],
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
@@ -1556,7 +1574,7 @@ def generate_reply(
         result = _empty_reply(
             session_id, _CONFUSED_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES) + [
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -1585,7 +1603,8 @@ def generate_reply(
         result = _empty_reply(
             session_id, response, existing,
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -1608,7 +1627,7 @@ def generate_reply(
                 "You can also call 311 for live help anytime.",
                 existing,
                 quick_replies=[
-                    {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
                     {"label": "🔄 Start over", "value": "Start over"},
                 ],
             )
@@ -1616,8 +1635,8 @@ def generate_reply(
             result = _empty_reply(
                 session_id, _FRUSTRATION_RESPONSE, existing,
                 quick_replies=[
-                    {"label": "🔍 Try different search", "value": "Start over"},
-                    {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
+                    {"label": "🔍 New search", "value": "Start over"},
+                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
                 ],
             )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -1632,7 +1651,13 @@ def generate_reply(
             existing.pop("_pending_confirmation", None)
         existing["_last_action"] = "escalation"
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
@@ -1645,7 +1670,13 @@ def generate_reply(
         # "Yes" after escalation or emotional = "yes, connect me with a person"
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1672,7 +1703,13 @@ def generate_reply(
         # (the confused handler shows a "Talk to a person" button)
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1684,7 +1721,13 @@ def generate_reply(
         # doesn't need this "yes" shortcut for resetting.
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1696,7 +1739,10 @@ def generate_reply(
             "No problem — I'm here if you change your mind. "
             "Is there anything else I can help you with?",
             existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
@@ -1712,7 +1758,7 @@ def generate_reply(
             # Don't push the full service menu after someone expressed distress
             # and declined support — keep it gentle (AVR pattern).
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
@@ -1727,7 +1773,7 @@ def generate_reply(
             "real person, just let me know.",
             existing,
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
@@ -1742,7 +1788,7 @@ def generate_reply(
             "You can also talk to a real person if that would help.",
             existing,
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
@@ -1855,6 +1901,7 @@ def generate_reply(
             "Sure! What neighborhood or borough should I search in?",
             existing,
             quick_replies=[
+                {"label": "📍 Use my location", "value": "__use_geolocation__"},
                 {"label": "Manhattan", "value": "Manhattan"},
                 {"label": "Brooklyn", "value": "Brooklyn"},
                 {"label": "Queens", "value": "Queens"},
@@ -1885,10 +1932,14 @@ def generate_reply(
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
-    # "No thanks" after a queue offer (no pending confirmation, but queue exists).
-    # The user declined the offered queued service — clear the queue.
-    if not pending and category == "confirm_deny" and existing.get("_queued_services"):
+    # "No thanks" after a queue offer (no pending confirmation, but a queue
+    # offer was shown). Handles both cases: remaining queue items OR a
+    # single-item queue where the item was already popped at offer time.
+    queue_offer_active = existing.get("_queued_services") or existing.get("_queue_offer_pending")
+    if not pending and category == "confirm_deny" and queue_offer_active:
         existing.pop("_queued_services", None)
+        existing.pop("_queue_offer_pending", None)
+        existing.pop("_queued_services_original", None)
         save_session_slots(session_id, existing)
         result = _empty_reply(
             session_id,
@@ -2029,6 +2080,9 @@ def generate_reply(
     if (is_enough_to_answer(merged) or _geolocation_ready) and has_new_slots:
         # Set pending confirmation flag
         merged["_pending_confirmation"] = True
+        # Clear stale queue offer flag from previous search cycle
+        merged.pop("_queue_offer_pending", None)
+        merged.pop("_queued_services_original", None)
         save_session_slots(session_id, merged)
 
         confirm_msg = _tone_prefix + _build_confirmation_message(merged)
@@ -2131,6 +2185,15 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             and slots.get("_longitude") is not None
         )
 
+        # Extract co-located service types from the queue for combined search.
+        # Instead of searching food first then offering shelter, try to find
+        # locations that have BOTH food AND shelter.
+        queued = slots.get("_queued_services", [])
+        colocated_types = [svc_type for svc_type, _ in queued] if queued else None
+        # Save original queue with detail labels before it gets cleared
+        if queued:
+            slots["_queued_services_original"] = list(queued)
+
         results = query_services(
             service_type=slots.get("service_type"),
             location=location,
@@ -2138,7 +2201,20 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             latitude=slots.get("_latitude") if use_coords else None,
             longitude=slots.get("_longitude") if use_coords else None,
             family_status=slots.get("family_status"),
+            colocated_service_types=colocated_types,
         )
+
+        # If co-located search succeeded, clear the queue — no need to offer
+        # the additional services separately since results already have them.
+        colocated_success = (
+            colocated_types
+            and results.get("result_count", 0) > 0
+            and not results.get("colocated_fallback")
+        )
+        if colocated_success:
+            slots.pop("_queued_services", None)
+            slots.pop("_queued_services_original", None)
+            save_session_slots(session_id, slots)
 
         # Log the query execution
         log_query_execution(
@@ -2165,10 +2241,32 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             if relaxed:
                 qualifier = " (I broadened the search a bit)"
 
-            bot_response = (
-                f"I found {result_count} option(s) for you{qualifier}. "
-                f"Here's what's available:"
-            )
+            if colocated_success and colocated_types:
+                # Build a natural label for the combined services
+                primary = _SERVICE_LABELS.get(
+                    slots.get("service_type", ""), slots.get("service_type", "")
+                )
+                # Use the detail label from the queue if available (e.g. "dental care"
+                # instead of "health care"), falling back to the service type label.
+                queued_original = slots.get("_queued_services_original", [])
+                co_labels = []
+                for i, t in enumerate(colocated_types):
+                    detail = queued_original[i][1] if i < len(queued_original) else None
+                    co_labels.append(detail or _SERVICE_LABELS.get(t, t))
+                all_labels = [primary] + co_labels
+                combined = " and ".join(all_labels) if len(all_labels) <= 2 else (
+                    ", ".join(all_labels[:-1]) + ", and " + all_labels[-1]
+                )
+                bot_response = (
+                    f"I found {result_count} location(s) that offer both "
+                    f"{combined.lower()}{qualifier}. "
+                    f"Here's what's available:"
+                )
+            else:
+                bot_response = (
+                    f"I found {result_count} option(s) for you{qualifier}. "
+                    f"Here's what's available:"
+                )
         else:
             bot_response = _no_results_message(slots)
 
@@ -2193,11 +2291,14 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
         next_service, next_detail = queued[0]
         remaining = queued[1:]
 
-        # Update session: pop the offered service, keep remaining
+        # Update session: pop the offered service, keep remaining.
+        # Set _queue_offer_pending so the decline handler fires even
+        # when this was the last queued item.
         if remaining:
             slots["_queued_services"] = remaining
         else:
             slots.pop("_queued_services", None)
+        slots["_queue_offer_pending"] = True
         save_session_slots(session_id, slots)
 
         label = next_detail or _SERVICE_LABELS.get(next_service, next_service)

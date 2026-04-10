@@ -37,6 +37,7 @@ def query_services(
     latitude: float = None,
     longitude: float = None,
     family_status: str = None,
+    colocated_service_types: list = None,
 ) -> dict:
     """
     High-level entry point: go from intake slots to service results.
@@ -52,6 +53,11 @@ def query_services(
         latitude:     User's latitude from browser geolocation
         longitude:    User's longitude from browser geolocation
         family_status: Family composition ('with_children', 'with_family', 'alone')
+        colocated_service_types: Additional service types that should be
+                      co-located at the same location (e.g. ["clothing"]).
+                      If provided, results are restricted to locations that
+                      also have these services. Falls back to unrestricted
+                      query if co-located search returns 0 results.
 
     Returns:
         dict with keys: services, result_count, template_used,
@@ -153,8 +159,39 @@ def query_services(
             enriched.extend(extra_taxonomies)
             user_params["taxonomy_names"] = enriched
 
-    return execute_service_query(
+    # Co-located service filter: restrict results to locations that also
+    # have the additional service types the user asked for.
+    colocated_names = []
+    if colocated_service_types:
+        for co_type in colocated_service_types:
+            co_key = resolve_template_key(co_type)
+            if co_key and co_key in TEMPLATES:
+                co_tax = TEMPLATES[co_key]["default_params"].get("taxonomy_names", [])
+                colocated_names.extend(co_tax)
+        if colocated_names:
+            user_params["colocated_taxonomy_names"] = colocated_names
+
+    result = execute_service_query(
         template_key=template_key,
         user_params=user_params,
         max_results=max_results,
     )
+
+    # If co-located query returned 0 results, retry without the co-location
+    # filter so the user still gets results for their primary service.
+    if colocated_names and result.get("result_count", 0) == 0:
+        user_params.pop("colocated_taxonomy_names", None)
+        result = execute_service_query(
+            template_key=template_key,
+            user_params=user_params,
+            max_results=max_results,
+        )
+        result["colocated_fallback"] = True
+
+    # If co-located types were requested but none could be resolved to
+    # taxonomy names (unrecognized service type), mark as fallback so
+    # the chatbot doesn't claim co-located results were found.
+    if colocated_service_types and not colocated_names:
+        result["colocated_fallback"] = True
+
+    return result

@@ -189,7 +189,7 @@ export const TASKS: TaskDef[] = [
     id: "crisisDetection",
     name: "Crisis detection",
     icon: Shield,
-    desc: "Classify whether a message indicates suicide, DV, trafficking, medical emergency, or safety concern. Only invoked when regex misses.",
+    desc: "Classify whether a message indicates suicide, DV, trafficking, medical emergency, or safety concern. Only invoked when regex misses. LLM call is skipped entirely for short safe actions (\u2264 4 words like \u201Cyes\u201D, \u201Cstart over\u201D) \u2014 the regex check still runs.",
     inputTokens: 350,
     outputTokens: 20,
     requirements: [
@@ -198,10 +198,11 @@ export const TASKS: TaskDef[] = [
       "Handle culturally specific expressions",
       "Simple JSON output: {crisis: true/false, category: string}",
       "Fail-open: if uncertain, classify as crisis",
+      "Always runs before post-results handler (eval P10 safety requirement)",
     ],
     recommendation: "sonnet",
     rationale:
-      "Safety-critical classification where false negatives have real consequences. Sonnet\u2019s deeper reasoning catches indirect crisis language Haiku may miss. Volume is very low (~5% of turns reach LLM stage) so the 3x cost premium adds negligible total cost.",
+      "Safety-critical classification where false negatives have real consequences. Sonnet\u2019s deeper reasoning catches indirect crisis language Haiku may miss. Volume is very low (~3-5% of turns reach LLM stage after the skip_llm optimization for short safe actions) so the 3x cost premium adds negligible total cost.",
   },
   {
     id: "emotionalAck",
