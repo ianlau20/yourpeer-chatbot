@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 1355 tests across 29 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), and database schema/query integration. Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 1,335 tests across 34 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, intensifier stripping, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), database schema/query integration, bot self-knowledge (live capability sourcing, topic matching), boundary drift detection (mock/Pydantic/SQL/format sync), context-aware routing (state transitions, frustration counting, implicit service changes), integration scenarios (narrative flows, cross-feature interactions, eval approximations), and narrative extraction (urgency-aware slot extraction for long messages). Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -47,25 +47,26 @@ Without `ANTHROPIC_API_KEY`, the 5 live LLM tests are automatically skipped.
 
 ## Test Coverage Map
 
-All 16 backend modules and all public functions are covered:
+All 17 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_bug_fixes.py`, `test_edge_cases.py`, `test_chat_route.py` | 198+ | Full |
-| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 148+ | Full |
+| `chatbot.py` | `test_chatbot.py`, `test_bug_fixes.py`, `test_edge_cases.py`, `test_chat_route.py`, `test_context_routing.py`, `test_integration_scenarios.py` | 250+ | Full |
+| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 160+ | Full |
 | `rag/__init__.py` | `test_query_templates.py`, `test_geolocation.py`, `test_db_integration.py` | 90+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
 | `audit_log.py` | `test_audit_log.py`, `test_bug_fixes.py`, `test_admin.py` | 61+ | Full |
-| `crisis_detector.py` | `test_crisis_detector.py`, `test_bug_fixes.py` | 44 | Full |
-| `llm_slot_extractor.py` | `test_llm_slot_extractor.py` | 19 | Full |
-| `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 12+ | Full |
+| `crisis_detector.py` | `test_crisis_detector.py`, `test_bug_fixes.py`, `test_crisis_safety_edges.py` | 60+ | Full |
+| `llm_slot_extractor.py` | `test_llm_slot_extractor.py`, `test_narrative_extraction.py` | 44 | Full |
+| `bot_knowledge.py` | `test_bot_knowledge.py` | 37 | Full |
+| `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 34+ | Full |
 | `session_store.py` | `test_session_store.py`, `test_chatbot.py`, `test_chat_route.py` | 7+ | Full |
 | `session_token.py` | `test_session_token.py`, `test_chat_route.py` | 17 | Full |
 | `rate_limiter.py` | `test_rate_limiter.py`, `test_rate_limit_integration.py` | 24 | Full |
-| `chat_models.py` | `test_chat_route.py` | 27 | Full |
-| `admin.py` (routes) | `test_admin.py` | 27 | Full |
-| `chat.py` (route) | `test_chat_route.py` | 24 | Full |
+| `chat_models.py` | `test_chat_route.py`, `test_boundary_drift.py` | 27+ | Full |
+| `admin.py` (routes) | `test_admin.py` | 28 | Full |
+| `chat.py` (route) | `test_chat_route.py` | 48 | Full |
 | `claude_client.py` | `test_claude_client.py` | 19 | Full |
 | `main.py` | `test_main.py` | 14 | Full |
 
@@ -73,9 +74,9 @@ All 16 backend modules and all public functions are covered:
 
 ## Test Suites
 
-### `test_chatbot.py` — 173 tests
+### `test_chatbot.py` — 180 tests
 
-Validates the main chatbot module — message classification (split classifier), slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, combined action+tone routing, tone prefix assertions, escalation guard, nearby borough suggestions, and LLM fallback. External dependencies are mocked.
+Validates the main chatbot module — message classification (split classifier), slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, combined action+tone routing, tone prefix assertions, escalation guard, nearby borough suggestions, location-unknown interceptor, service flow continuation, and LLM fallback. External dependencies are mocked.
 
 | Category | Tests | What's covered |
 |---|---|---|
@@ -104,8 +105,13 @@ Validates the main chatbot module — message classification (split classifier),
 | Confirmation & quick replies | 11 | Confirmation triggered, change location/service, greeting/reset/follow-up quick replies, new input re-extracts, results show post-search buttons, exact deny phrases, longer deny phrases |
 | Bug fix regressions | 6 | "No" breaks confirmation loop, cancel variants trigger reset, expanded frustration phrases, thanks-with-continuation falls through, empty/whitespace message guard |
 | Nearby borough suggestions | 8 | Basic no-results message, borough suggestions by service type, different services get different suggestions, neighborhood doesn't suggest boroughs, navigator always offered, all borough+service combos covered, unknown service falls back to default, unknown borough doesn't crash |
+| Location-unknown interceptor | 4 | "I don't know" after location ask offers geolocation + boroughs, 10 phrase variants ("anywhere", "here", "idk"), exact-match "here" doesn't false-positive on "here's what I need", guards (no service_type → confused, location already set → confused) |
+| Service flow continuation | 2 | "near me" continues service flow instead of falling to LLM, "close by" continues service flow |
+| Escalation buttons | 4 | Frustration shows correct buttons, escalation shows buttons, "yes" after emotional shows escalation buttons, "no" after escalation shows buttons |
+| Escalation phrase variants | 3 | "connect with a person" routes to escalation, "connect with peer navigator" routes to escalation, peer navigator label standardized |
+| Location change UX | 1 | Location change shows "Use my location" as first option |
 
-### `test_slot_extractor.py` — 103 tests
+### `test_slot_extractor.py` — 111 tests
 
 Validates the regex-based slot extraction pipeline.
 
@@ -127,6 +133,7 @@ Validates the regex-based slot extraction pipeline.
 | Flow control | 5 | `is_enough_to_answer`, follow-up question routing |
 | Word-boundary keywords | 12 | Restored collision-prone keywords (bed, wash, id, eat, hat) match correctly and don't false-positive on location names |
 | New keywords | 10 | Expanded coverage across all 9 categories + urgency terms for target population |
+| NYC zip codes | 7 | Specific zip→neighborhood mapping, borough fallback for unknown zips, non-NYC zip returns None, zip in sentence, zip with service, zip doesn't conflict with age, zip overridden by known location |
 
 ### `test_edge_cases.py` — 29 tests
 
@@ -190,15 +197,16 @@ Validates crisis detection across five categories with correct hotline resources
 | False positive prevention | 3 | Service requests, conversational messages, "hurt" in non-crisis context |
 | Priority / integration | 3 | `is_crisis()` helper, crisis in longer messages, crisis alongside service requests |
 
-### `test_llm_slot_extractor.py` — 19 unit + 5 live tests
+### `test_llm_slot_extractor.py` — 27 unit + 5 live tests
 
-Validates the LLM-based slot extractor. Live tests require `ANTHROPIC_API_KEY` and are automatically skipped without it.
+Validates the LLM-based slot extractor including conversation history passing. Live tests require `ANTHROPIC_API_KEY` and are automatically skipped without it.
 
 | Category | Tests | What's covered |
 |---|---|---|
 | LLM extraction (mocked) | 6 | Service+location, age+gender+urgency, third-person, contradicting locations, empty messages, API failure |
 | Smart extractor (tiered) | 5 | Regex sufficient → LLM skipped, regex partial → LLM called, ambiguous → LLM, merge logic, LLM failure falls back |
 | Complexity routing | 3 | Short messages → simple, long messages → complex, unknown locations → complex |
+| Conversation history | 5 | History passed to LLM, alternating messages enforced, None and empty handled, truncated to six messages, smart extractor passes history |
 | Integration (live) | 5 | End-to-end extraction, skipped without API key |
 
 ### `test_audit_log.py` — 70 tests
@@ -241,7 +249,7 @@ HTTP-level tests for the admin API endpoints using FastAPI TestClient.
 | Admin rate limits | 2 | 429 after exceeding IP limit, stricter eval/run limit |
 | Health | 1 | `GET /api/health` returns ok |
 
-### `test_chat_route.py` — 46 tests
+### `test_chat_route.py` — 48 tests
 
 HTTP-level tests for the chat endpoint and Pydantic model validation.
 
@@ -258,10 +266,11 @@ HTTP-level tests for the chat endpoint and Pydantic model validation.
 | HTTP crisis | 1 | Returns 988 resources, no service cards, query_services not called |
 | HTTP method | 1 | GET /chat/ returns non-200 |
 | Session token validation | 5 | Forged session_id → 403, tampered signature → 403, valid signed token → 200, first message mints signed token, feedback rejects forged token |
+| Serialization drift | 3 | New service card fields survive Pydantic serialization, quick reply href survives serialization, full response preserves new fields through HTTP |
 
-### `test_pii_redactor.py` — 15 tests
+### `test_pii_redactor.py` — 34 tests
 
-Validates PII detection and redaction across six PII types.
+Validates PII detection and redaction across eight PII types plus bot response redaction.
 
 | Category | Tests | What's covered |
 |---|---|---|
@@ -271,10 +280,17 @@ Validates PII detection and redaction across six PII types.
 | Dates of birth | 1 | 4 formats |
 | Street addresses | 2 | Named streets (123 Main Street), numbered streets (456 West 42nd Street, 789 5th Avenue), Broadway. False positive prevention (bare street names without house numbers) |
 | Names | 1 | Intro phrases with blocklist |
+| Expanded names | varies | Extended name detection coverage |
+| Credit card | varies | Credit card number detection |
+| URL | varies | URL detection in messages |
 | False positives | 2 | NYC locations and service keywords not redacted |
 | Multiple PII | 1 | Combined detection |
 | Clean passthrough | 1 | No PII → no changes |
 | Quick check | 1 | `has_pii()` utility |
+| Bot response redaction | varies | PII scrubbed from bot responses before audit log storage |
+| ICE/police routing | varies | ICE and police mentions route correctly without PII false positives |
+| Overlap handling | varies | Overlapping PII patterns handled correctly |
+| Integration | varies | End-to-end PII redaction through the chatbot pipeline |
 
 ### `test_claude_client.py` — 19 tests
 
@@ -343,7 +359,7 @@ HTTP-level tests for rate limiting middleware via FastAPI TestClient.
 | Session tracking | 3 | Session-based vs IP-based limiting |
 | Middleware integration | 3 | Middleware attached to routes, header extraction |
 
-### `test_db_integration.py` — 53 tests
+### `test_db_integration.py` — 27 tests
 
 Database integration tests that run against the real Streetlives PostgreSQL database. Automatically skipped when DATABASE_URL is not set.
 
@@ -366,13 +382,13 @@ HTTP-level tests for the FastAPI app configuration (headless API mode).
 | CSRF protection | 6 | Valid origin allowed, evil origin → 403, non-browser (no headers) allowed, Sec-Fetch-Site without origin → 403, valid Referer allowed, evil Referer → 403 |
 | CORS | 3 | Headers present for allowed origin, no headers for unknown origin, preflight OPTIONS |
 
-### `test_phrase_audit.py` — 106 tests
+### `test_phrase_audit.py` — 41 tests
 
 Validates phrase additions from the P0–P3 audit (see PHRASE_LIST_AUDIT.md). Parametrized tests cover C-SSRS suicide ideation phrases, Joiner IPT burdensomeness markers, DV coercive control, youth safety/runaway, shame/stigma emotional phrases, grief with service routing, expanded frustration phrases, and confused/overwhelmed phrases.
 
-### `test_contraction_normalization.py` — 56 tests
+### `test_contraction_normalization.py` — 19 tests
 
-Validates `_normalize_contractions()` and its integration with `_classify_tone()`. Covers individual contraction expansions, full sentences, multiple contractions, non-contraction preservation, frustration/confused/emotional detection via normalization, help-negator handling ("doesn't help" → frustration not help), and confirms normalization does not affect crisis detection (which uses explicit enumeration).
+Validates `_normalize_contractions()`, `_strip_intensifiers()`, and their integration with `_classify_tone()`. Covers individual contraction expansions, full sentences, multiple contractions, non-contraction preservation, frustration/confused/emotional detection via normalization, help-negator handling ("doesn't help" → frustration not help), intensifier stripping for emotion/frustration/confused classification, and confirms normalization does not affect crisis detection (which uses explicit enumeration).
 
 ### `test_structural_fixes.py` — 28 tests
 
@@ -396,13 +412,13 @@ Targeted regression tests for bugs 8–14 identified during PR 19 review. Organi
 | Bug 13: Frustration normalization | 4 | Contraction variants detected by `_classify_message`, consistency with `_classify_tone` |
 | Bug 14: Smart extractor fallback | 2 | Regex additional_services preserved, returned result matches direct regex |
 
-### `test_post_results.py` — 100 tests
+### `test_post_results.py` — 69 tests
 
-Post-results question handler — answers follow-up questions about displayed services using only stored card data (zero LLM). Covers 7 intent classification types (38 phrases), 6 answer builder handlers, chatbot integration flows, safety (crisis after results), skip_llm optimization, call button `href` with `tel:` links, and detail view with `also_available`.
+Post-results question handler — answers follow-up questions about displayed services using only stored card data (zero LLM). Covers 7 intent classification types, answer builder handlers, chatbot integration flows, safety (crisis after results), skip_llm optimization, call button `href` with `tel:` links, detail view with `also_available`, call QR deduplication, and no-cost variant handling.
 
-### `test_crisis_safety_edges.py` — 108 tests (72 passed, 36 xfailed)
+### `test_crisis_safety_edges.py` — 25 tests (some with parametrized xfails)
 
-Research-sourced crisis detection edge cases from C-SSRS (5 severity levels), HITS/SAFE DV screening, Polaris trafficking indicators, SAMHSA TIP 55 homeless population patterns, and Covenant House/Ali Forney youth research. Tests are organized into regex coverage (what the instant check catches), LLM-dependent gaps (xfailed with research citations), post-results safety (eval P10), skip_llm boundary (≤4 word threshold), false positive guards, cultural/linguistic variations, and full flow integration. The 36 xfails serve as a roadmap: promoting a phrase from xfail to the regex list immediately upgrades it to instant detection.
+Research-sourced crisis detection edge cases from C-SSRS (5 severity levels), HITS/SAFE DV screening, Polaris trafficking indicators, SAMHSA TIP 55 homeless population patterns, and Covenant House/Ali Forney youth research. Tests are organized into regex coverage (what the instant check catches), LLM-dependent gaps (xfailed with research citations), post-results safety (eval P10), and false positive guards. The 34 xfails serve as a roadmap: promoting a phrase from xfail to the regex list immediately upgrades it to instant detection.
 
 ### `test_coverage_gaps.py` — 36 tests
 
@@ -415,6 +431,77 @@ Comprehensive gap coverage for 9 areas identified during audit: `_compute_freshn
 ### `test_persistence.py` — 27 tests
 
 SQLite pilot persistence layer. Tests direct CRUD operations on all 3 tables (events, sessions, eval_data) including ordering, limits, upserts, and clears (12 tests). Disabled mode (PILOT_DB_PATH unset) verifies all operations are safe no-ops (6 tests). Audit log hydration round-trip: write events → clear in-memory → hydrate from SQLite → verify stats (4 tests). Session store hydration: write → clear → hydrate → verify slots (4 tests). Full restart simulation: user interaction → destroy in-memory state → hydrate → verify everything is restored (1 test).
+
+### `test_bot_knowledge.py` — 37 tests
+
+Validates the bot self-knowledge module: live capability sourcing from actual code, topic matching for 12+ question types, LLM context generation, static handler integration, bot question phrase classification, untested topic coverage, topic collision prevention, false positive guards, and full chatbot routing for privacy/location/services questions.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Live capability sourcing | 3 | Service categories sourced from code, PII categories sourced from code, location count sourced from code |
+| Topic matching | 9 | Services, location failure, privacy (general, ICE, benefits), coverage, how-it-works, limitations, no-match returns None |
+| Capability context | 6 | Includes service categories, PII types, location count, privacy, crisis, emotional sections |
+| Static handler integration | 3 | Location question, privacy question, unknown question gets default |
+| Bot question classification | varies | Privacy phrases classify as bot_question |
+| Untested topics | 6 | Language, peer navigator, privacy delete, identity, police, visibility |
+| Topic collisions | 5 | Location/privacy, police/location, ICE/share, delete/privacy, services/coverage collision prevention |
+| False positives | varies | Service and action messages don't match topics |
+| Bot question routing | 3 | Privacy/location/services questions route correctly through chatbot |
+
+### `test_boundary_drift.py` — 20 tests
+
+Prevents silent data loss at serialization boundaries by asserting that mock fixtures, Pydantic models, SQL queries, and format functions all agree on the same field set. Catches the class of bug where new fields are added to one layer but not others.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Mock drift | 3 | Mock service card has all Pydantic fields, no extra fields, required keys present |
+| Format/Pydantic sync | 2 | Format output matches Pydantic fields, survives Pydantic round-trip |
+| SQL/format sync | 1 | Format reads subset of SQL aliases |
+| Reply/response sync | 1 | Reply keys match ChatResponse model |
+| Full pipeline | 2 | Service fields survive full pipeline, quick reply href survives |
+| Admin stats drift | 5 | Top-level keys, confirmation breakdown shape, conversation quality shape, tone distribution shape, multi-intent shape |
+| Persistence failure isolation | 6 | log_conversation_turn, log_query_execution, log_feedback, save/clear session, full generate_reply all survive persistence failures |
+
+### `test_context_routing.py` — 56 tests
+
+Comprehensive regression tests for multi-turn, multi-intent, and context-aware routing. Guards against state transition bugs, _last_action lifecycle issues, frustration counting, and handler interaction patterns found in eval analysis.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| _last_action lifecycle | 4 | Context handlers set _last_action, context shift clears it, help after emotional doesn't leak yes/no, service flow clears it |
+| Confirm deny / service change | 6 | Change mind updates service, no with new service updates, deny with service+location change, plain deny preserves slots, "wait" is not deny, "hold on" lets message through |
+| Yes after context | 5 | Yes after emotional/escalation/frustration/confused connects navigator, escalation shows distinct response with service buttons |
+| No after context | 3 | No after emotional/escalation/frustration is gentle |
+| Frustration counter | 5 | First sets count, second increments, second is shorter, persists across searches, reset clears |
+| Emotional+service transitions | 5 | Emotional then service works, clears emotional state, shame gets normalizing prefix, pending confirmation then emotional, emotional adjective forms |
+| Slot persistence | 4 | Location persists across service change, updates when provided, results then new service, age persists across turns |
+| Complex flows | 5 | Emotional→service→frustration→navigator, escalation decline then service, service change then confirm, double emotional different emotions, frustrated reset clean slate |
+| Unrecognized service escalation | 9 | Tiered responses (first lists categories, second adds navigator, third just navigator), responses differ, recovery after, reset clears count, sticky detection for nonsense, location preserved, no-location first turn |
+| Other service type interception | 2 | "Other" without detail is unrecognized, with detail is legitimate |
+| Implicit service change | 8 | Direct service change, negation with new service, same service different location, confirm_yes unaffected, location carries over, shows new confirmation, additive keeps primary, additive then confirm searches primary |
+
+### `test_integration_scenarios.py` — 29 tests
+
+Integration tests that send messages through the full `generate_reply` pipeline. Reproduces failing eval scenarios and tests cross-feature interactions: narrative + emotional, PII in narratives, shame prefix + narrative extraction, session isolation.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Narrative integration | 7 | Hospital/housing, re-entry, eviction/family, runaway youth, narrative shows confirmation, queues additional services, short message not narrative path |
+| Cross-feature interactions | 4 | Emotional narrative with service, shame narrative normalizing prefix, intensifiers in narrative, frustration then narrative |
+| PII in narratives | 4 | Phone, name, SSN, multiple PII in narrative messages |
+| Session isolation | 2 | Two sessions independent, emotional state doesn't leak |
+| Eval scenario approximations | 12 | Emotional scared/feeling-down/rough-day, change mind, yes after escalation, frustration loop, long story, tell my story, re-entry, fake service, nonsense service, shame shelter stigma |
+
+### `test_narrative_extraction.py` — 17 tests
+
+Validates narrative extraction — urgency-aware slot extraction for long messages (20+ words). Tests both the LLM path (mocked) and the regex fallback path.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Narrative detection | 3 | Short message not narrative, long message is narrative, threshold boundary |
+| Urgency hierarchy | 3 | Shelter highest, medical above food, food above employment |
+| Regex fallback | 7 | Hospital/housing prioritizes shelter, runaway youth, eviction, re-entry all prioritize shelter, urgency inferred from context, single service no change, location preserved |
+| Smart extractor narrative path | 4 | Narrative uses fallback without LLM, doesn't regex-override, short message uses standard path, additional services preserved |
 
 ## LLM-as-Judge Evaluation (`eval_llm_judge.py`)
 
@@ -490,14 +577,15 @@ These are documented behaviors, not bugs:
 
 ### Expected Failures (xfail)
 
-4 tests are marked `@pytest.mark.xfail` — they document known limitations, not regressions:
+38 tests are marked `@pytest.mark.xfail` — they document known limitations, not regressions:
 
-| Test | File | Reason |
+| Tests | File | Reason |
 |---|---|---|
 | `test_spoken_number_age_extraction` | `test_slot_extractor.py` | Word-to-number conversion ("seventeen" → 17) not implemented in regex extractor |
 | `test_family_status_with_children_prepositional` | `test_slot_extractor.py` | Prepositional family phrases ("for me and my kids", "I have a baby") not matched by current phrase list |
 | `test_smart_uses_llm_for_long_messages` | `test_llm_slot_extractor.py` | Regex override replaces LLM's correct "shelter" with "medical" because "hospital" matches a medical keyword |
 | `test_smart_regex_does_not_override_when_no_regex_match` | `test_llm_slot_extractor.py` | Same regex override issue — "hospital" is contextual, not the user's need |
+| 34 parametrized xfails | `test_crisis_safety_edges.py` | LLM-dependent crisis phrases (C-SSRS indirect ideation, euphemistic language, method-specific plans, perceived burdensomeness) that regex can't catch without context. Each xfail has a research citation. Promoting a phrase to the regex list upgrades it to instant detection |
 
 ## Adding New Tests
 

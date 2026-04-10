@@ -58,6 +58,7 @@ The routing priority is:
 | 2 | `action == reset` | Reset handler |
 | 3 | `action` is confirmation/bot/greeting/thanks | Action handler |
 | 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exception: escalation + service without location stays as escalation |
+| 4a | Location-unknown phrases + service_type set + no location | Location-unknown handler (geolocation + borough buttons) |
 | 5 | `action == help` | Help handler |
 | 6 | `action == escalation` | Escalation handler |
 | 7 | `tone == frustrated` | Frustration handler |
@@ -151,6 +152,14 @@ Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the c
 
 Shows only two buttons — "🔍 New search" and "🤝 Peer navigator" — not the full service menu. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with only a navigator button (not the full service menu — per the AVR principle of not pushing task-oriented responses after emotional distress).
 
+### Location-Unknown
+
+When the bot has just asked for the user's location (service_type is set, location is missing, no pending confirmation) and the user responds with uncertainty ("I don't know", "idk", "not sure", "no clue"), indifference ("anywhere", "wherever", "doesn't matter"), or self-location ("where I am", "here", "right here"), the bot offers geolocation and borough buttons instead of falling into the confused handler.
+
+The handler recognizes 19 phrases via substring matching plus 2 exact-match phrases ("here" and "right here" — exact match prevents false positives on "here's what I need" or "there"). Guards ensure this only fires when the user has a service_type set, no location yet, and no pending confirmation. Without those guards, "I don't know" would always be intercepted rather than routing to the confused handler for users who genuinely don't know what they need.
+
+Response: "No problem! You can share your location and I'll find what's nearby, or pick a borough:" with a "📍 Use my location" button followed by the five borough buttons.
+
 ### Confused
 
 Shows gentle guidance for users who don't know what they need. Lists common things people look for in plain language (not service category labels). Shows the full welcome menu plus a "🤝 Peer navigator" option. Sets `_last_action = "confused"` so "yes" connects to a peer navigator and "no" gives gentle encouragement with a navigator button. This handler is intentionally NOT sent to the LLM, which would misinterpret "I don't know what to do" as a mental health service request.
@@ -180,6 +189,10 @@ Extracts structured slots (service type, service detail, location, age, urgency,
 **Family composition:** For shelter searches, the chatbot asks "Are you on your own, or do you have family or children with you?" after collecting age. The `family_status` slot (with_children, with_family, alone) is shown in the confirmation and used to enrich shelter taxonomy queries.
 
 **Multi-service extraction:** The slot extractor detects all service types in a message (e.g., "food and shelter" → both extracted). The primary type drives the current search; additional types are stored in `additional_services` for future queue handling.
+
+**Service flow continuation:** When a user already has a `service_type` in session and their new message extracts fresh slot data (location, age, family_status, etc.) but isn't classified as a "service" message by the classifier, the system treats it as a continuation of the service flow rather than falling through to the LLM. This handles replies like "near me", "close by", "I'm 25", or "with my kids" to follow-up questions — messages that contain slot data but no service keyword. Without this, these messages would route to the general conversation handler and the user would lose their search context.
+
+**Narrative extraction:** Long messages (20+ words) are detected as narratives by the slot extractor and processed with urgency-aware extraction. When multiple service types are mentioned in a narrative (e.g., "I just got out of the hospital and need somewhere to stay and something to eat"), the system prioritizes based on an urgency hierarchy: shelter > medical > food > employment > other. The primary service drives the current search; additional services are queued. Regex fallback handles narrative extraction when the LLM is unavailable.
 
 ### General
 
@@ -380,7 +393,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 151 tests in `test_chatbot.py`, 28 structural fix tests in `test_structural_fixes.py`, 106 phrase audit tests in `test_phrase_audit.py`, 56 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, and 36 crisis detection tests in `test_crisis_detector.py`, and 60 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 180 tests in `test_chatbot.py`, 56 context routing tests in `test_context_routing.py`, 29 integration scenario tests in `test_integration_scenarios.py`, 28 structural fix tests in `test_structural_fixes.py`, 41 phrase audit tests in `test_phrase_audit.py`, 19 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 34 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

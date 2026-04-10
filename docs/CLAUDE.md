@@ -61,6 +61,7 @@ information, preventing hallucination.
 | `backend/app/routes/chat.py` | `POST /chat/` and `/chat/feedback` endpoints |
 | `backend/app/routes/admin.py` | Admin API: conversations, events, stats, eval runner |
 | `backend/app/services/chatbot.py` | Core conversation engine: classification, slot merging, routing, confirmation flow |
+| `backend/app/services/bot_knowledge.py` | Bot self-knowledge: live capability sourcing, topic matching, LLM context generation |
 | `backend/app/services/crisis_detector.py` | Two-stage crisis detection (regex + Sonnet LLM), category-specific hotlines |
 | `backend/app/services/slot_extractor.py` | Regex-based slot extraction with keyword matching |
 | `backend/app/services/llm_slot_extractor.py` | LLM slot extraction via Claude Haiku tool calling |
@@ -78,7 +79,7 @@ information, preventing hallucination.
 | `frontend-next/src/app/admin/` | Staff console pages (overview, conversations, metrics, queries, evals, models) |
 | `frontend-next/next.config.js` | CSP + HSTS headers, security config |
 | `tests/conftest.py` | Pytest fixtures, mock data, test helpers |
-| `tests/eval_llm_judge.py` | LLM-as-judge evaluation (102 scenarios, 8 dimensions) |
+| `tests/eval_llm_judge.py` | LLM-as-judge evaluation (142 scenarios, 8 dimensions) |
 
 ## What's Working
 
@@ -94,10 +95,14 @@ information, preventing hallucination.
 - **Crisis detection**: regex + Sonnet LLM, covers suicide/self-harm, DV, trafficking, medical emergency, violence, youth runaway; fail-open policy returns safety response if LLM unavailable
 - **PII redaction**: phone, SSN, email, DOB, address, name detection/redaction on every message
 - **Service cards**: structured results with name, org, address, phone, hours, fees, open/closed status, referral badges, action links
-- **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, bot identity, confusion
+- **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, bot identity, confusion, location-unknown
+- **Location-unknown interceptor**: when the bot asks for location and the user says "I don't know" / "anywhere" / "here", offers geolocation and borough buttons instead of falling into the confused handler. Guards: only fires when service_type is set, location is missing, and no pending confirmation
+- **Service flow continuation**: when a user already has a service_type and provides new slot data (e.g., "near me", "close by", "I'm 25", "with my kids") in a message not classified as "service", the system treats it as a service flow continuation rather than falling through to the LLM
+- **Narrative extraction**: long messages (20+ words) are detected as narratives and processed with urgency-aware slot extraction that prioritizes shelter/safety over food/employment. Regex fallback handles narrative extraction when LLM is unavailable
+- **Bot self-knowledge**: live capability sourcing from actual code (service categories, PII types, location count) rather than hardcoded facts. Topic matching for 12+ question types with LLM context generation
 - **LLM conversational fallback**: Haiku handles general/off-topic messages
 - **Admin console**: conversation viewer, event log, metrics dashboard, in-browser eval runner
-- **LLM-as-judge eval**: 102 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
+- **LLM-as-judge eval**: 142 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
 - **Accessibility**: screen reader support, keyboard navigation, voice input (Web Speech API)
 - **Anonymized audit logging**: conversation turns, query executions, crisis events
 - **In-memory sessions**: no persistent conversation storage, 30-min TTL, LRU eviction at 500-session cap
@@ -108,7 +113,7 @@ information, preventing hallucination.
 - **Stability**: 1,000-char message length limit (frontend + backend), coordinate validation (lat ±90, lng ±180), 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
 - **Observability**: `X-Request-ID` correlation IDs flow from frontend → Next.js proxy → FastAPI backend → audit log, enabling end-to-end request tracing
 - **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
-- **Test suite**: 29 pytest files (1355 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
+- **Test suite**: 34 pytest files (1,335 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
 
 ## Known Gaps / In Progress
 
