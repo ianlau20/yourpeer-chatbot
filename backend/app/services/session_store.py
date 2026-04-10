@@ -1,10 +1,18 @@
+"""
+Session Store — in-memory session state with optional SQLite persistence.
+
+When PILOT_DB_PATH is set, sessions are written through to SQLite so they
+survive server restarts. On startup, call hydrate_from_db() to reload.
+"""
+
 import time
 import threading
 from copy import deepcopy
 from typing import Dict, Tuple
 
+from app.services import persistence
 
-# In-memory only (demo).
+# In-memory store.
 # session_id -> (slot_dict, last_accessed_timestamp)
 _SESSION_STATE: Dict[str, Tuple[dict, float]] = {}
 
@@ -12,12 +20,8 @@ _SESSION_STATE: Dict[str, Tuple[dict, float]] = {}
 SESSION_TTL_SECONDS = 30 * 60
 
 # Maximum number of sessions to keep in memory.
-# If exceeded, the least-recently-used sessions are evicted.
 MAX_SESSIONS = 500
 
-# Thread safety — FastAPI can serve concurrent requests that read/write
-# the session dict simultaneously. Without a lock, _evict_expired() can
-# delete keys while another thread is iterating or reading.
 _lock = threading.Lock()
 
 
@@ -28,33 +32,32 @@ def get_session_slots(session_id: str) -> dict:
         if entry is None:
             return {}
         slots, _ = entry
-        # Update last-accessed time
-        _SESSION_STATE[session_id] = (slots, time.monotonic())
+        now = time.monotonic()
+        _SESSION_STATE[session_id] = (slots, now)
+        persistence.persist_session(session_id, slots, now)
         return deepcopy(slots)
 
 
 def save_session_slots(session_id: str, slots: dict) -> None:
     with _lock:
         _evict_expired()
-        _SESSION_STATE[session_id] = (deepcopy(slots), time.monotonic())
+        now = time.monotonic()
+        _SESSION_STATE[session_id] = (deepcopy(slots), now)
 
-        # Hard cap: if we're over the limit, drop the least-recently-used
-        # sessions.  The sort key is the last-accessed timestamp, which is
-        # updated on every get and save — so active sessions are safe.
         if len(_SESSION_STATE) > MAX_SESSIONS:
             sorted_keys = sorted(
                 _SESSION_STATE.keys(),
                 key=lambda k: _SESSION_STATE[k][1],
             )
-            # Remove the oldest 10% to avoid evicting on every request
             to_remove = max(1, len(sorted_keys) // 10)
             for key in sorted_keys[:to_remove]:
                 del _SESSION_STATE[key]
+                persistence.delete_session(key)
+    persistence.persist_session(session_id, slots, time.monotonic())
 
 
 def _evict_expired() -> None:
     """Remove sessions that haven't been accessed within the TTL.
-
     MUST be called with _lock held.
     """
     now = time.monotonic()
@@ -64,6 +67,7 @@ def _evict_expired() -> None:
     ]
     for sid in expired:
         del _SESSION_STATE[sid]
+        persistence.delete_session(sid)
 
 
 def session_exists(session_id: str) -> bool:
@@ -77,3 +81,31 @@ def clear_session(session_id: str) -> None:
     """Remove all slot data for a session (used for 'start over')."""
     with _lock:
         _SESSION_STATE.pop(session_id, None)
+    persistence.delete_session(session_id)
+
+
+# ---------------------------------------------------------------------------
+# HYDRATION — load persisted sessions on startup
+# ---------------------------------------------------------------------------
+
+def hydrate_from_db() -> int:
+    """Load persisted sessions from SQLite into in-memory store.
+
+    Returns the number of sessions loaded. Call once at startup.
+    """
+    if not persistence.is_enabled():
+        return 0
+
+    sessions = persistence.load_all_sessions(SESSION_TTL_SECONDS)
+    if not sessions:
+        return 0
+
+    with _lock:
+        for session_id, (slots, last_accessed) in sessions.items():
+            if len(_SESSION_STATE) >= MAX_SESSIONS:
+                break
+            _SESSION_STATE[session_id] = (slots, last_accessed)
+
+    from app.services.persistence import logger
+    logger.info(f"Hydrated session store from SQLite: {len(sessions)} sessions")
+    return len(sessions)

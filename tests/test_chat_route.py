@@ -212,7 +212,7 @@ def test_service_card_serialization():
     assert "service_name" in data
     assert "phone" in data
     assert "organization" in data  # None but present
-    assert len(data) == 13  # all 13 fields
+    assert len(data) == 17  # all 17 fields
 
 
 # -----------------------------------------------------------------------
@@ -608,3 +608,85 @@ def test_feedback_rejects_forged_session_id():
 
 
 # -----------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------
+# SERIALIZATION BOUNDARY — fields must survive Pydantic round-trip
+# -----------------------------------------------------------------------
+
+def test_new_service_card_fields_survive_serialization():
+    """ServiceCard new fields (also_available, last_validated_at, etc.)
+    must not be stripped by Pydantic model_dump().
+
+    This test exists because Pydantic v2 silently drops unknown fields.
+    When new fields are added to format_service_card() but not to the
+    ServiceCard model, the data flows correctly through generate_reply()
+    (raw dict) but is stripped at the HTTP boundary (ChatResponse.model_dump()).
+    All chatbot tests use generate_reply() directly and never catch this.
+    """
+    card = ServiceCard(
+        service_name="Test Pantry",
+        service_id="svc-123",
+        also_available=["Shower", "Clothing Pantry"],
+        last_validated_at="2026-04-08T10:00:00",
+        requires_membership=True,
+    )
+    data = card.model_dump()
+    assert data["service_id"] == "svc-123", "service_id stripped by Pydantic"
+    assert data["also_available"] == ["Shower", "Clothing Pantry"], "also_available stripped by Pydantic"
+    assert data["last_validated_at"] == "2026-04-08T10:00:00", "last_validated_at stripped by Pydantic"
+    assert data["requires_membership"] is True, "requires_membership stripped by Pydantic"
+
+
+def test_quick_reply_href_survives_serialization():
+    """QuickReply.href must not be stripped by Pydantic model_dump().
+
+    Without this field, call buttons render as regular buttons instead of
+    <a href="tel:..."> links that trigger the native phone dialer.
+    """
+    qr = QuickReply(label="📞 Call", value="Call 555-1234", href="tel:5551234")
+    data = qr.model_dump()
+    assert data["href"] == "tel:5551234", "href stripped by Pydantic"
+
+
+def test_full_response_preserves_new_fields_through_http():
+    """End-to-end: new fields must survive ChatResponse serialization.
+
+    This is the actual code path in app/routes/chat.py — if this test
+    fails, the frontend will never receive the field.
+    """
+    result = {
+        "session_id": "test-123",
+        "response": "Found results",
+        "follow_up_needed": False,
+        "slots": {},
+        "services": [{
+            "service_name": "The Door",
+            "service_id": "svc-456",
+            "also_available": ["Health", "Laundry"],
+            "last_validated_at": "2026-04-01",
+            "requires_membership": False,
+            "phone": "555-1234",
+        }],
+        "result_count": 1,
+        "relaxed_search": False,
+        "quick_replies": [
+            {"label": "📞 Call", "value": "Call 555", "href": "tel:555"},
+            {"label": "🔍 New search", "value": "Start over"},
+        ],
+    }
+    # This is the exact code path from app/routes/chat.py:
+    serialized = ChatResponse(**result).model_dump()
+
+    svc = serialized["services"][0]
+    assert svc["service_id"] == "svc-456"
+    assert svc["also_available"] == ["Health", "Laundry"]
+    assert svc["last_validated_at"] == "2026-04-01"
+    assert svc["requires_membership"] is False
+
+    call_qr = serialized["quick_replies"][0]
+    assert call_qr["href"] == "tel:555"
+
+    # Regular QR without href should have None
+    regular_qr = serialized["quick_replies"][1]
+    assert regular_qr["href"] is None

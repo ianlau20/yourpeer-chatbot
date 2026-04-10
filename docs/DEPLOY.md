@@ -62,7 +62,7 @@ Render automatically redeploys both services when you push to the branch configu
 
 - Both services run on Render's Starter plan ($7/month each) — always-on, no cold starts
 - The backend is a private service — not reachable from the public internet
-- The audit log (staff console data) is in-memory and resets on each deploy (persistent storage is a planned improvement)
+- Set `PILOT_DB_PATH=data/pilot.db` to persist audit log and session data across deploys. When unset, data is in-memory only and resets on each deploy
 - Rate limiting runs at two layers: the Next.js frontend (per-IP) and the FastAPI backend (per-session + per-IP)
 
 ### Environment variables reference

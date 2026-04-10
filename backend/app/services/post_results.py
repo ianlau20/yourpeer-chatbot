@@ -512,9 +512,19 @@ def _format_hours_summary(services: list[dict]) -> str:
 
 
 def _call_qrs(services: list[dict], max_buttons: int = 2) -> list[dict]:
-    """Build 'Call X' quick replies for services with phone numbers."""
-    with_phone = [s for s in services if s.get("phone")]
-    return [_call_qr(s) for s in with_phone[:max_buttons]]
+    """Build 'Call X' quick replies for services with phone numbers.
+
+    Deduplicates by phone number — if two services share a number,
+    only one call button is shown.
+    """
+    seen_phones: set[str] = set()
+    unique: list[dict] = []
+    for s in services:
+        phone = s.get("phone")
+        if phone and phone not in seen_phones:
+            seen_phones.add(phone)
+            unique.append(s)
+    return [_call_qr(s) for s in unique[:max_buttons]]
 
 
 def _numbered_qrs(services: list[dict], max_buttons: int = 5) -> list[dict]:

@@ -4,6 +4,7 @@ const nextConfig = {
   // Allow both localhost and 127.0.0.1 during local dev
   allowedDevOrigins: ["localhost", "127.0.0.1"],
   async headers() {
+    const isDev = process.env.NODE_ENV === "development";
     return [
       {
         source: "/:path*",
@@ -12,21 +13,20 @@ const nextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              // Remove 'unsafe-eval' — it was here but is not needed by Next.js
-              // in production and significantly widens the attack surface.
-              // Keep 'unsafe-inline' for Next.js hydration scripts.
-              "script-src 'self' 'unsafe-inline'",
+              // 'unsafe-eval' is required by Turbopack/webpack in dev for
+              // source maps. Never included in production builds.
+              `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "font-src 'self'",
               // All API calls go through Next.js route handlers (relative paths),
               // so 'self' is sufficient in production. Local dev needs the
               // backend directly for hot-reload proxying.
-              `connect-src 'self' ${
-                process.env.NODE_ENV === "development"
-                  ? "http://localhost:8000 http://127.0.0.1:8000"
+              `connect-src 'self'${
+                isDev
+                  ? " http://localhost:8000 http://127.0.0.1:8000"
                   : ""
-              }`.trim(),
+              }`,
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",
@@ -45,14 +45,6 @@ const nextConfig = {
     ];
   },
   async rewrites() {
-    // Chat and feedback routes are handled by the route handlers at
-    // app/api/chat/route.ts and app/api/chat/feedback/route.ts, which
-    // add IP-based rate limiting before proxying to the backend.
-    //
-    // Admin routes are handled by app/api/admin/[...slug]/route.ts,
-    // which adds the Authorization header before proxying.
-    //
-    // No rewrites needed — all API proxying is done in route handlers.
     return { beforeFiles: [] };
   },
 };

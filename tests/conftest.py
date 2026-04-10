@@ -65,6 +65,8 @@ MOCK_SERVICE_CARD = {
     "is_open": "open",
     "service_id": "svc-001",
     "requires_membership": False,
+    "last_validated_at": "2026-04-01T10:00:00",
+    "also_available": ["Shower", "Clothing Pantry"],
 }
 
 MOCK_QUERY_RESULTS = {
@@ -74,6 +76,7 @@ MOCK_QUERY_RESULTS = {
     "params_applied": {"taxonomy_name": "Food", "city": "Brooklyn"},
     "relaxed": False,
     "execution_ms": 50,
+    "freshness": {"fresh": 1, "total": 1, "total_with_date": 1},
 }
 
 MOCK_EMPTY_RESULTS = {

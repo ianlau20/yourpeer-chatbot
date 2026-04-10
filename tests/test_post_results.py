@@ -811,3 +811,25 @@ class TestCallButtonHref:
         )
         call_qrs = [q for q in result["quick_replies"] if "📞" in q.get("label", "")]
         assert len(call_qrs) == 0
+
+
+class TestCallQrDeduplication:
+    """Call buttons should deduplicate by phone number."""
+
+    def test_same_phone_produces_one_button(self):
+        from app.services.post_results import _call_qrs
+        services = [
+            {"service_name": "Service A", "phone": "212-828-8464"},
+            {"service_name": "Service B", "phone": "212-828-8464"},
+        ]
+        qrs = _call_qrs(services)
+        assert len(qrs) == 1
+
+    def test_different_phones_produce_two_buttons(self):
+        from app.services.post_results import _call_qrs
+        services = [
+            {"service_name": "Service A", "phone": "212-828-8464"},
+            {"service_name": "Service B", "phone": "212-555-1234"},
+        ]
+        qrs = _call_qrs(services)
+        assert len(qrs) == 2

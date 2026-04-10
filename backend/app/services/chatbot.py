@@ -1564,6 +1564,49 @@ def generate_reply(
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
+    # --- Location unknown ---
+    # When the bot just asked for location (service_type set, location missing)
+    # and the user says "I don't know" / "not sure" / "idk", offer geolocation
+    # and borough buttons instead of falling into the confused handler.
+    _LOCATION_UNKNOWN_PHRASES = [
+        "i don't know", "i dont know", "idk", "not sure", "i'm not sure",
+        "im not sure", "no idea", "don't know", "dont know",
+        "i don't know where i am", "i dont know where i am",
+        "not sure where i am", "don't know where i am",
+        "dont know where i am", "no clue",
+        "anywhere", "wherever", "doesn't matter", "doesnt matter",
+        "it doesn't matter", "it doesnt matter",
+        "where i am",
+    ]
+    # Short phrases that need exact match to avoid substring collisions
+    # (e.g., "here" inside "there", "nowhere", "here's what I need")
+    _LOCATION_UNKNOWN_EXACT = ["here", "right here"]
+    _msg_lower = message.lower().strip()
+    _is_location_unknown = (
+        any(p in _msg_lower for p in _LOCATION_UNKNOWN_PHRASES)
+        or _msg_lower in _LOCATION_UNKNOWN_EXACT
+    )
+    if (existing.get("service_type")
+            and not existing.get("location")
+            and not existing.get("_pending_confirmation")
+            and _is_location_unknown):
+        result = _empty_reply(
+            session_id,
+            "No problem! You can share your location and I'll find what's "
+            "nearby, or pick a borough:",
+            existing,
+            quick_replies=[
+                {"label": "📍 Use my location", "value": "__use_geolocation__"},
+                {"label": "Manhattan", "value": "Manhattan"},
+                {"label": "Brooklyn", "value": "Brooklyn"},
+                {"label": "Queens", "value": "Queens"},
+                {"label": "Bronx", "value": "Bronx"},
+                {"label": "Staten Island", "value": "Staten Island"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, "location_unknown", request_id=request_id, tone=tone)
+        return result
+
     # --- Confused / Overwhelmed ---
     # "I don't know what to do", "I'm lost", "I'm overwhelmed"
     # Show gentle guidance with category buttons — do NOT send to LLM
@@ -2117,6 +2160,26 @@ def generate_reply(
             "quick_replies": follow_up_qr,
         }
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+        return result
+
+    # Service flow continuation: the user already has a service_type and
+    # just provided new info (location, age, etc.) that wasn't classified
+    # as a "service" message. For example, replying "near me" or "25" to
+    # a follow-up question. Treat as service flow, not general conversation.
+    if has_new_slots and existing.get("service_type") and not existing.get("_pending_confirmation"):
+        follow_up = next_follow_up_question(merged)
+        follow_up_qr = _follow_up_quick_replies(merged)
+        result = {
+            "session_id": session_id,
+            "response": follow_up,
+            "follow_up_needed": True,
+            "slots": merged,
+            "services": [],
+            "result_count": 0,
+            "relaxed_search": False,
+            "quick_replies": follow_up_qr,
+        }
+        _log_turn(session_id, redacted_message, result, "service", request_id=request_id, tone=tone)
         return result
 
     # --- General conversation ---

@@ -48,7 +48,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-xl font-bold tracking-tight text-amber-500">
-            YourPeer
+            YourPeer AI
           </h1>
           <p className="text-sm text-neutral-400 mt-1">Staff Review Console</p>
         </div>

@@ -1841,3 +1841,69 @@ def test_location_change_has_use_my_location_first(fresh_session):
     assert "📍 Use my location" in labels, f"Missing Use my location, got {labels}"
     assert labels[0] == "📍 Use my location", f"Should be first, got {labels}"
     assert "Staten Island" in labels, "Should include Staten Island"
+
+
+# -----------------------------------------------------------------------
+# LOCATION UNKNOWN — "I don't know" when bot asks for location
+# -----------------------------------------------------------------------
+
+def test_idk_after_location_ask_offers_geolocation(fresh_session):
+    """'I don't know' after location prompt should offer Use my location."""
+    send("I need shelter", session_id=fresh_session)
+    result = send("I don't know", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "📍 Use my location" in labels
+    assert "Manhattan" in labels
+    assert "🍽️ Food" not in labels, "Should NOT show welcome menu"
+
+
+def test_idk_variants_after_location_ask(fresh_session):
+    """Multiple 'I don't know' variants should all offer geolocation."""
+    for phrase in ["idk", "not sure", "I'm not sure", "no idea",
+                   "I don't know where I am", "anywhere", "wherever",
+                   "doesn't matter", "here", "right here"]:
+        from app.services.session_store import clear_session
+        clear_session(fresh_session)
+        send("I need food", session_id=fresh_session)
+        result = send(phrase, session_id=fresh_session)
+        labels = [qr["label"] for qr in result.get("quick_replies", [])]
+        assert "📍 Use my location" in labels, f"'{phrase}' should offer geolocation"
+
+
+def test_here_exact_match_no_false_positive(fresh_session):
+    """'here' inside longer phrases should NOT trigger location-unknown."""
+    send("I need food", session_id=fresh_session)
+    result = send("here's what I need", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "📍 Use my location" not in labels or "🍽️ Food" in labels
+
+
+def test_service_flow_continuation_near_me(fresh_session):
+    """'near me' after location ask should show geolocation buttons."""
+    send("I need shelter", session_id=fresh_session)
+    result = send("near me", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "📍 Use my location" in labels, "'near me' should offer geolocation"
+
+
+def test_service_flow_continuation_close_by(fresh_session):
+    """'close by' after location ask should show geolocation buttons."""
+    send("I need food", session_id=fresh_session)
+    result = send("close by", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "📍 Use my location" in labels, "'close by' should offer geolocation"
+
+
+def test_idk_without_service_type_is_confused(fresh_session):
+    """'I don't know' without prior service should NOT offer geolocation."""
+    result = send("I don't know", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "📍 Use my location" not in labels
+
+
+def test_idk_with_location_set_is_confused(fresh_session):
+    """'I don't know' when location is already set should NOT offer geolocation."""
+    send("I need food in Brooklyn", session_id=fresh_session)
+    result = send("I don't know", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "📍 Use my location" not in labels

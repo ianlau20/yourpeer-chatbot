@@ -105,8 +105,8 @@ export default function MetricsPage() {
   return (
     <>
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-3.5 py-2.5 text-sm text-neutral-500 mb-6">
-        Metrics are computed from the in-memory audit log. Data resets on server
-        restart. <strong>n/a</strong> = not yet measurable.{" "}
+        Metrics are computed from the audit log. When PILOT_DB_PATH is set, data
+        persists across server restarts. <strong>n/a</strong> = not yet measurable.{" "}
         <strong>Click any metric name</strong> for a detailed explanation with
         formula and target rationale from{" "}
         <a

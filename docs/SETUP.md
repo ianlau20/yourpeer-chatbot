@@ -82,6 +82,9 @@ ANTHROPIC_API_KEY="your-anthropic-api-key"
 # SESSION_SECRET — signs session tokens. Unset = unsigned tokens (dev only).
 # ADMIN_API_KEY — protects /admin/ endpoints. Unset = open access (dev only).
 # CORS_ALLOWED_ORIGINS — defaults to localhost:3000 for local dev.
+# PILOT_DB_PATH — SQLite path for pilot data persistence (e.g., data/pilot.db).
+#   When set, audit events and sessions survive server restarts.
+#   When unset (default), all data is in-memory only.
 ```
 
 ### Run the backend

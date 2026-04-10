@@ -12,13 +12,16 @@ export interface QuickReply {
 }
 
 export interface ServiceResult {
+  service_id?: string;
   service_name?: string;
   organization?: string;
   address?: string;
+  city?: string;
   phone?: string;
   email?: string;
   website?: string;
   description?: string;
+  additional_info?: string;
   hours_today?: string;
   is_open?: "open" | "closed" | "unknown";
   fees?: string;
