@@ -178,7 +178,7 @@ These metrics assess how well the chatbot handles emotional and conversational i
 **Definition:** Distribution of all conversation turns across routing categories (service, general, emotional, crisis, escalation, greeting, thanks, help, bot_question, etc.).
 **Why it matters:** Shows where user messages are actually going. The `general` category is the highest-risk route because the LLM fully generates the response with no template grounding — any increase should be investigated.
 **Target:** General (LLM) ≤ 15% of total turns. Service flow should be the largest bucket.
-**Measurement:** Audit log — `category` field on each `conversation_turn` event, grouped into five buckets: service flow (service + confirmation categories), conversational safe (greeting, thanks, help, bot_identity, reset), emotional (emotional, frustration, confused), safety (crisis, escalation), and general (LLM-generated). ✅ Tracked in admin dashboard.
+**Measurement:** Audit log — `category` field on each `conversation_turn` event, grouped into five buckets: service flow (service + confirmation categories + queue_decline), conversational safe (greeting, thanks, help, bot_identity, reset, post_results), emotional (emotional, frustration, confused), safety (crisis, escalation), and general (LLM-generated). Post-results questions are deterministic (zero LLM) and tracked separately in the admin dashboard. ✅ Tracked in admin dashboard.
 **Phase:** Pilot.
 
 ### 4.8 General (LLM-Generated) Rate

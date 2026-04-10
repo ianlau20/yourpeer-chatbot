@@ -12,6 +12,7 @@ The chatbot originally assumed one service type per message. Classification gate
 | PR 2 | ✅ Done | Split classifier, extract-first routing, tone prefixes, bug fixes |
 | PR 3 | ✅ Done | Service queue — offer queued services after results |
 | PR 4 | ✅ Done | LLM extractor — update schema for multi-service |
+| PR 5 | ✅ Done | Co-located queries — prioritize locations with all requested services |
 
 ---
 
@@ -343,6 +344,47 @@ User: "I'm struggling and need food and shelter in Brooklyn"
       → Location "Brooklyn" already in session
       → Confirm → execute → shelter results
 ```
+
+---
+
+## Completed: PR 5 — Co-Located Multi-Service Queries
+
+Instead of always searching the primary service first and then offering queued services sequentially, PR 5 tries to find **locations that have all requested services** at the same address.
+
+### How it works
+
+1. **Confirmation lists all services:** "I'll search for food and clothing in Brooklyn." (not "food" with clothing mentioned later)
+
+2. **Co-located SQL filter:** A new `FILTER_BY_COLOCATED_TAXONOMY` is added as a universal optional filter in `build_query()`. When `colocated_taxonomy_names` is in params, it adds an EXISTS subquery checking for other services at the same location matching the secondary taxonomy names.
+
+3. **Taxonomy resolution:** `query_services()` resolves each co-located service type to its template's `default_params.taxonomy_names`. For "clothing", this becomes `["clothing", "clothing pantry", "interview-ready clothing", ...]`.
+
+4. **Smart fallback:** If the co-located query returns 0 results, `query_services()` retries without the filter and sets `colocated_fallback=True`. The chatbot then falls back to the original sequential queue-offer behavior.
+
+5. **Response messaging:**
+   - Co-located success: "I found 3 location(s) that offer both food and clothing."
+   - Fallback: "I found 3 option(s) for you. ... You also mentioned clothing — would you like me to search for that too?"
+
+### Data validation
+
+SQL analysis of the Streetlives database confirms the value:
+- **535 locations (30%)** have 2+ services
+- Top locations like The Door have 19 different offerings (food, clothing, health, laundry, showers, etc.)
+- Food search: 15/15 tested locations had co-located services users would never see without this feature
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `query_templates.py` | New `FILTER_BY_COLOCATED_TAXONOMY` filter, universal optional filter in `build_query()` |
+| `app/rag/__init__.py` | `colocated_service_types` param, taxonomy resolution, fallback retry |
+| `chatbot.py` | Confirmation lists all services, co-located response message, queue cleared on success |
+
+### Bug fixes during implementation
+
+- **Single-item queue decline silently dropped:** Added `_queue_offer_pending` flag so decline handler fires even when the queue was popped at offer time
+- **Unrecognized co-located service type claimed success:** Added `colocated_fallback=True` when no taxonomy names could be resolved
+- **`_queued_services_original` leaked across sessions:** Cleaned up in decline handler and new confirmation setup
 
 ---
 
