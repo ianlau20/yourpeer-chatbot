@@ -42,7 +42,7 @@ interface EventFeedProps {
 
 export function EventFeed({ events }: EventFeedProps) {
   const { sorted, sortKey, sortDir, onSort } = useSortableTable(
-    events as Record<string, unknown>[],
+    events as unknown as Record<string, unknown>[],
     "timestamp",
     "desc",
   );
