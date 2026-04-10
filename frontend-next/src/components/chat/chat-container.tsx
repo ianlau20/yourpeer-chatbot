@@ -53,7 +53,7 @@ export function ChatContainer() {
         <span
           title={isOnline ? "Connected" : "Offline"}
           aria-label={isOnline ? "Connected" : "Offline"}
-          className={`inline-block w-2 h-2 rounded-full shrink-0 ${isOnline ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
+          className={`inline-block w-2 h-2 rounded-full shrink-0 ${isOnline ? "bg-green-500 animate-glow-pulse" : "bg-red-500 animate-pulse"}`}
         />
         <span className="text-sm text-neutral-400">
           Find services near you

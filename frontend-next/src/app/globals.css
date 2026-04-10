@@ -11,3 +11,18 @@
     --radius: 0.5rem;
   }
 }
+
+@layer utilities {
+  .animate-glow-pulse {
+    animation: glow-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes glow-pulse {
+    0%, 100% {
+      box-shadow: 0 0 3px 1px rgba(34, 197, 94, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 8px 3px rgba(34, 197, 94, 0.6);
+    }
+  }
+}

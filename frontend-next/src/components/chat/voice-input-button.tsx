@@ -6,20 +6,24 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type MutableRefObject } from "react";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { Mic, Square } from "lucide-react";
 
 interface VoiceInputButtonProps {
   onTranscript: (transcript: string) => void;
+  onError: (error: string) => void;
+  onListeningChange: (listening: boolean) => void;
+  stopRef?: MutableRefObject<(() => void) | null>;
   disabled: boolean;
 }
 
-export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonProps) {
+export function VoiceInputButton({ onTranscript, onError, onListeningChange, stopRef, disabled }: VoiceInputButtonProps) {
   const {
     isSupported,
     isListening,
     transcript,
+    error,
     startListening,
     stopListening,
   } = useSpeechRecognition();
@@ -28,6 +32,22 @@ export function VoiceInputButton({ onTranscript, disabled }: VoiceInputButtonPro
   useEffect(() => {
     if (transcript) onTranscript(transcript);
   }, [transcript, onTranscript]);
+
+  // Forward error to parent
+  useEffect(() => {
+    if (error) onError(error);
+  }, [error, onError]);
+
+  // Notify parent of listening state changes
+  useEffect(() => {
+    onListeningChange(isListening);
+  }, [isListening, onListeningChange]);
+
+  // Expose stopListening to parent via ref
+  useEffect(() => {
+    if (stopRef) stopRef.current = stopListening;
+    return () => { if (stopRef) stopRef.current = null; };
+  }, [stopRef, stopListening]);
 
   if (!isSupported) return null;
 

@@ -6,7 +6,7 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { VoiceInputButton } from "./voice-input-button";
 import { Send } from "lucide-react";
 
@@ -19,13 +19,18 @@ const MAX_MESSAGE_LENGTH = 1000;
 
 export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const [value, setValue] = useState("");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const stopListeningRef = useRef<(() => void) | null>(null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Stop voice input if active
+    stopListeningRef.current?.();
     const text = value.trim();
     if (!text) return;
     setValue("");
+    setVoiceError(null);
     onSend(text);
   }
 
@@ -34,44 +39,64 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
     if (!disabled) inputRef.current?.focus();
   }, [disabled]);
 
-  function handleTranscript(transcript: string) {
+  const handleTranscript = useCallback((transcript: string) => {
+    setVoiceError(null);
     setValue((prev) => {
       const sep = prev.length > 0 ? " " : "";
       return (prev + sep + transcript).slice(0, MAX_MESSAGE_LENGTH);
     });
-  }
+  }, []);
+
+  const handleVoiceError = useCallback((error: string) => {
+    setVoiceError(error);
+  }, []);
+
+  const handleListeningChange = useCallback((listening: boolean) => {
+    if (listening) setVoiceError(null);
+  }, []);
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2" aria-label="Chat input">
-      <label htmlFor="chat-message-input" className="sr-only">
-        Message
-      </label>
-      <input
-        ref={inputRef}
-        id="chat-message-input"
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        maxLength={MAX_MESSAGE_LENGTH}
-        placeholder="What do you need help with?"
-        autoComplete="off"
-        disabled={disabled}
-        className="flex-1 px-4 py-3 border border-neutral-200 rounded-xl bg-white text-neutral-900 text-[0.94rem] outline-none transition-all focus:border-neutral-300 focus:ring-2 focus:ring-amber-300/30 placeholder:text-neutral-400 disabled:opacity-50"
-      />
+    <div className="flex flex-col gap-1.5">
+      <form onSubmit={handleSubmit} className="flex gap-2" aria-label="Chat input">
+        <label htmlFor="chat-message-input" className="sr-only">
+          Message
+        </label>
+        <input
+          ref={inputRef}
+          id="chat-message-input"
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          maxLength={MAX_MESSAGE_LENGTH}
+          placeholder="What do you need help with?"
+          autoComplete="off"
+          disabled={disabled}
+          className="flex-1 px-4 py-3 border border-neutral-200 rounded-xl bg-white text-neutral-900 text-[0.94rem] outline-none transition-all focus:border-neutral-300 focus:ring-2 focus:ring-amber-300/30 placeholder:text-neutral-400 disabled:opacity-50"
+        />
 
-      <VoiceInputButton
-        onTranscript={handleTranscript}
-        disabled={disabled}
-      />
+        <VoiceInputButton
+          onTranscript={handleTranscript}
+          onError={handleVoiceError}
+          onListeningChange={handleListeningChange}
+          stopRef={stopListeningRef}
+          disabled={disabled}
+        />
 
-      <button
-        type="submit"
-        disabled={disabled || !value.trim()}
-        aria-label="Send message"
-        className="w-12 h-12 border-none rounded-xl bg-neutral-900 text-white flex items-center justify-center transition-transform hover:scale-[1.04] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
-      >
-        <Send size={18} strokeWidth={2.5} />
-      </button>
-    </form>
+        <button
+          type="submit"
+          disabled={disabled || !value.trim()}
+          aria-label="Send message"
+          className="w-12 h-12 border-none rounded-xl bg-neutral-900 text-white flex items-center justify-center transition-transform hover:scale-[1.04] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
+        >
+          <Send size={18} strokeWidth={2.5} />
+        </button>
+      </form>
+
+      {voiceError && (
+        <p role="alert" className="text-xs text-red-600 px-1">
+          {voiceError}
+        </p>
+      )}
+    </div>
   );
 }
