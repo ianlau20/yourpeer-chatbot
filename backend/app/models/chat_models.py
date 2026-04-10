@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
 
 class ServiceCard(BaseModel):
     """Structured service result for frontend rendering."""
+    service_id: Optional[str] = None
     service_name: str
     organization: Optional[str] = None
     description: Optional[str] = None
@@ -24,12 +25,16 @@ class ServiceCard(BaseModel):
     yourpeer_url: Optional[str] = None
     hours_today: Optional[str] = None
     is_open: Optional[str] = None
+    requires_membership: Optional[bool] = None
+    last_validated_at: Optional[str] = None
+    also_available: Optional[List[str]] = None
 
 
 class QuickReply(BaseModel):
     """A tappable button option shown below a bot message."""
     label: str
     value: str  # the text sent as a user message when tapped
+    href: Optional[str] = None  # when present, renders as <a> (e.g. tel: links)
 
 
 class ChatResponse(BaseModel):

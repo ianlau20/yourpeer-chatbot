@@ -1,12 +1,34 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.chat import router as chat_router
 from app.routes.admin import router as admin_router
 from app.dependencies import RateLimitMiddleware, CSRFMiddleware, get_allowed_origins
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Startup/shutdown lifecycle. Hydrates persisted data on boot."""
+    from app.services import persistence
+    if persistence.is_enabled():
+        from app.services.audit_log import hydrate_from_db as hydrate_audit
+        from app.services.session_store import hydrate_from_db as hydrate_sessions
+        events = hydrate_audit()
+        sessions = hydrate_sessions()
+        logger.info(f"Startup hydration: {events} events, {sessions} sessions from SQLite")
+    yield
+    # Shutdown: close SQLite connection
+    from app.services import persistence as p
+    p.close()
+
 
 app = FastAPI(
     title="YourPeer Chatbot API",
     description="A chatbot for the YourPeer network by Streetlives.",
+    lifespan=lifespan,
 )
 
 # --- CORS ---

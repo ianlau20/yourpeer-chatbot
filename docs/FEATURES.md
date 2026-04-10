@@ -136,6 +136,18 @@ See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for architecture, phrase list des
 
 ---
 
+## Pilot Data Persistence
+
+- **SQLite write-through** — when `PILOT_DB_PATH` is set (e.g., `data/pilot.db`), all audit events and session state are written to SQLite in addition to the in-memory stores. Reads remain in-memory for performance. When unset (default), the system is in-memory only with zero behavior change
+- **Startup hydration** — on server boot, the `lifespan` context manager loads persisted events and sessions from SQLite back into the in-memory deques/dicts. Audit log stats, conversation summaries, and query logs are fully restored. Session slots are reloaded with fresh monotonic timestamps
+- **WAL journal mode** — SQLite uses Write-Ahead Logging for concurrent read safety. Busy timeout of 3 seconds handles brief contention
+- **Three tables** — `events` (all audit events as JSON, indexed by session_id, type, and timestamp), `sessions` (session_id → JSON slots + last_accessed), `eval_data` (singleton row for LLM-as-judge results)
+- **Clean shutdown** — SQLite connection is closed on server shutdown via the lifespan context manager
+- **Disabled by default** — no SQLite file is created or accessed unless `PILOT_DB_PATH` is explicitly set. All persistence operations are safe no-ops when disabled
+- **Eviction propagation** — when sessions are evicted from memory (TTL expiry or LRU cap), they are also deleted from SQLite. `clear_audit_log()` and `clear_session()` propagate to SQLite
+
+---
+
 ## Accessibility
 
 The frontend is designed for the population served — people who may be using screen readers, keyboard-only navigation, or voice input on shared or low-end devices.
@@ -178,4 +190,4 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 - `additional_info` field is effectively empty (99.7% null)
 - Schedule data is sparse for most categories — open/closed filtering intentionally disabled
 - Shame tone not yet implemented — emotional expressions involving embarrassment are handled by the generic emotional handler rather than a normalizing response
-- In-memory audit log and session store reset on server restart — persistent storage deferred to post-pilot
+- When `PILOT_DB_PATH` is unset (default), audit log and session store are in-memory only and reset on server restart. Set `PILOT_DB_PATH=data/pilot.db` to enable SQLite persistence for pilot testing

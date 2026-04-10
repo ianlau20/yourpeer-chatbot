@@ -1,12 +1,13 @@
 """
-Audit Log — in-memory event store for the staff review console.
+Audit Log — event store for the staff review console.
 
 Stores conversation turns, query executions, crisis events, session resets,
 and user feedback in ring buffers. Provides aggregation functions for the
 admin dashboard (stats, conversation summaries, query log).
 
-All data is lost on server restart. For production, replace with a
-persistent store (PostgreSQL, Redis, or a dedicated logging service).
+Primary storage is in-memory for fast reads. When PILOT_DB_PATH is set,
+events are also written to SQLite for persistence across server restarts.
+On startup, call hydrate_from_db() to reload persisted data.
 
 Thread-safe: all mutations and reads acquire _lock. FastAPI serves
 concurrent requests, so unguarded dict/deque mutations would corrupt state.
@@ -19,6 +20,8 @@ from collections import deque, OrderedDict
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Optional
+
+from app.services import persistence
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +103,7 @@ def log_conversation_turn(
     with _lock:
         _events.append(event)
         _register_conversation(session_id, event)
+    persistence.persist_event(event)
 
 
 def log_query_execution(
@@ -125,6 +129,7 @@ def log_query_execution(
         _events.append(event)
         _query_log.append(event)
         _register_conversation(session_id, event)
+    persistence.persist_event(event)
 
 
 def log_crisis_detected(
@@ -142,6 +147,7 @@ def log_crisis_detected(
     with _lock:
         _events.append(event)
         _register_conversation(session_id, event)
+    persistence.persist_event(event)
 
 
 def log_session_reset(session_id="", **kwargs):
@@ -153,6 +159,7 @@ def log_session_reset(session_id="", **kwargs):
     with _lock:
         _events.append(event)
         _register_conversation(session_id, event)
+    persistence.persist_event(event)
 
 
 def log_feedback(session_id="", rating="", comment=None, **kwargs):
@@ -166,6 +173,7 @@ def log_feedback(session_id="", rating="", comment=None, **kwargs):
     with _lock:
         _events.append(event)
         _register_conversation(session_id, event)
+    persistence.persist_event(event)
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +490,7 @@ def set_eval_results(data: dict) -> None:
     global _eval_results
     with _lock:
         _eval_results = deepcopy(data)
+    persistence.persist_eval_results(data)
 
 
 def get_eval_results() -> Optional[dict]:
@@ -511,3 +520,40 @@ def clear_audit_log() -> None:
         _conversations.clear()
         _query_log.clear()
         _eval_results = None
+    persistence.clear_events()
+
+
+# ---------------------------------------------------------------------------
+# HYDRATION — load persisted data on startup
+# ---------------------------------------------------------------------------
+
+def hydrate_from_db() -> int:
+    """Load persisted events from SQLite into in-memory stores.
+
+    Returns the number of events loaded. Call once at startup.
+    """
+    if not persistence.is_enabled():
+        return 0
+
+    events = persistence.load_all_events(MAX_EVENTS)
+    if not events:
+        return 0
+
+    with _lock:
+        for event in events:
+            _events.append(event)
+            sid = event.get("session_id", "")
+            if sid:
+                _register_conversation(sid, event)
+            if event.get("type") == "query_execution":
+                _query_log.append(event)
+
+    # Also load eval results
+    eval_data = persistence.load_eval_results()
+    if eval_data:
+        global _eval_results
+        with _lock:
+            _eval_results = eval_data
+
+    logger.info(f"Hydrated audit log from SQLite: {len(events)} events")
+    return len(events)

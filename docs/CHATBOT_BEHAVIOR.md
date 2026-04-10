@@ -224,7 +224,7 @@ See the Model Analysis tab in the admin console for cost/capability analysis and
 
 - **Share personal opinions or take sides.** The bot is neutral and supportive. It does not comment on a user's situation, judge their choices, or express opinions.
 
-- **Store personally identifiable information.** PII (names, phone numbers, SSNs, emails, addresses) is redacted from all stored transcripts before they reach the audit log. Session state is ephemeral (30-minute TTL, in-memory only).
+- **Store personally identifiable information.** PII (names, phone numbers, SSNs, emails, addresses) is redacted from all stored transcripts before they reach the audit log. Session state has a 30-minute TTL. When `PILOT_DB_PATH` is set, sessions and audit events are persisted to SQLite and survive server restarts.
 
 - **Generate crisis resources from the LLM.** All crisis hotline numbers and resources are static strings embedded in the code, never LLM-generated. This ensures they are accurate, reviewed, and consistent.
 
@@ -345,8 +345,7 @@ Based on this research, the following principles govern emotional handling in th
 
 ### Technical
 
-- **In-memory session store.** Sessions are lost on server restart. Chat history persistence (localStorage) mitigates this for the user's message display, but the backend slots are gone.
-- **In-memory audit log.** All metrics data resets on server restart. Persistent storage is planned for post-pilot.
+- **Session and audit persistence.** When `PILOT_DB_PATH` is set, sessions and audit events are persisted to SQLite and survive server restarts. When unset (default), data is in-memory only and resets on restart. Chat history persistence (localStorage) mitigates display loss for the user regardless of backend mode.
 - **LLM dependency for nuanced cases.** When `ANTHROPIC_API_KEY` is not set, the bot runs in regex-only mode: no LLM classification, no LLM slot extraction, no LLM conversational responses, and crisis detection is limited to regex patterns only.
 
 ---
