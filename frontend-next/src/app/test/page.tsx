@@ -7,7 +7,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "YourPeer Chatbot — How to Test",
+  title: "YourPeer AI Chatbot — How to Test",
   description: "Testing guide for the Streetlives team",
 };
 
@@ -259,24 +259,24 @@ export default function TestGuidePage() {
             <h1 className="text-[22px] font-semibold tracking-tight text-slate-900">
               YourPeer Chatbot — How to Test
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-sm text-slate-500 mt-0.5">
               A guide for the Streetlives team — what to try, what to watch for,
               and what to flag
             </p>
           </div>
-          <div className="text-right text-[11px] text-slate-400 leading-relaxed pt-0.5 shrink-0">
+          <div className="text-right text-xs text-slate-400 leading-relaxed pt-0.5 shrink-0">
             April 2026
             <br />
             <a
               href="/chat"
-              className="text-teal-600 font-mono text-[10.5px] hover:underline"
+              className="text-teal-600 font-mono text-xs hover:underline"
             >
               /chat
             </a>
             {" · "}
             <a
               href="/admin"
-              className="text-teal-600 font-mono text-[10.5px] hover:underline"
+              className="text-teal-600 font-mono text-xs hover:underline"
             >
               /admin
             </a>
@@ -284,7 +284,7 @@ export default function TestGuidePage() {
         </header>
 
         {/* Intro strip */}
-        <div className="bg-slate-900 text-slate-300 rounded-lg px-4 py-3 text-xs leading-relaxed mb-5">
+        <div className="bg-slate-900 text-slate-300 rounded-lg px-4 py-3 text-sm leading-relaxed mb-5">
           <strong className="text-white font-medium">
             How it works in one sentence:
           </strong>{" "}
@@ -328,21 +328,21 @@ export default function TestGuidePage() {
 
         {/* Scenarios table */}
         <div className="border border-slate-200 rounded-lg overflow-hidden mb-5">
-          <div className="flex items-center gap-2 px-3.5 py-2.5 bg-teal-50 text-teal-900 text-xs font-semibold">
+          <div className="flex items-center gap-2 px-3.5 py-2.5 bg-teal-50 text-teal-900 text-sm font-semibold">
             <span className="w-2 h-2 rounded-full bg-teal-600 shrink-0" />
             Test scenarios — try these, check the expected response
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-[11.5px] border-collapse">
+            <table className="w-full text-[13px] border-collapse">
               <thead>
                 <tr className="bg-slate-900">
-                  <th className="text-white font-medium px-2.5 py-2 text-left text-[11px] tracking-wide w-[26%]">
+                  <th className="text-white font-medium px-2.5 py-2 text-left text-xs tracking-wide w-[26%]">
                     What to type
                   </th>
-                  <th className="text-white font-medium px-2.5 py-2 text-left text-[11px] tracking-wide w-[37%]">
+                  <th className="text-white font-medium px-2.5 py-2 text-left text-xs tracking-wide w-[37%]">
                     What should happen
                   </th>
-                  <th className="text-white font-medium px-2.5 py-2 text-left text-[11px] tracking-wide w-[37%]">
+                  <th className="text-white font-medium px-2.5 py-2 text-left text-xs tracking-wide w-[37%]">
                     What to flag
                   </th>
                 </tr>
@@ -353,7 +353,7 @@ export default function TestGuidePage() {
                     key={i}
                     className={i % 2 === 1 ? "bg-slate-50" : "bg-white"}
                   >
-                    <td className="px-2.5 py-1.5 align-top text-slate-900 font-mono text-[10.5px] border-b border-slate-200">
+                    <td className="px-2.5 py-1.5 align-top text-slate-900 font-mono text-xs border-b border-slate-200">
                       {s.input}
                     </td>
                     <td className="px-2.5 py-1.5 align-top text-slate-500 border-b border-slate-200">
@@ -375,11 +375,11 @@ export default function TestGuidePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 mb-5">
           {/* Admin console */}
           <div className="border border-slate-200 rounded-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-3.5 py-2.5 bg-teal-50 text-teal-900 text-xs font-semibold">
+            <div className="flex items-center gap-2 px-3.5 py-2.5 bg-teal-50 text-teal-900 text-sm font-semibold">
               <span className="w-2 h-2 rounded-full bg-teal-600 shrink-0" />
               Reviewing results — admin console
             </div>
-            <div className="px-3.5 py-3 text-xs text-slate-500 space-y-2">
+            <div className="px-3.5 py-3 text-sm text-slate-500 space-y-2">
               <p>
                 <span className="text-slate-400 mr-1.5">→</span>
                 Go to{" "}
@@ -395,11 +395,11 @@ export default function TestGuidePage() {
                 </strong>{" "}
                 Review anonymized transcripts. Check that PII is replaced with
                 tokens like{" "}
-                <code className="bg-slate-100 text-slate-600 text-[10px] px-1 py-0.5 rounded font-mono">
+                <code className="bg-slate-100 text-slate-600 text-xs px-1 py-0.5 rounded font-mono">
                   [PHONE]
                 </code>{" "}
                 and{" "}
-                <code className="bg-slate-100 text-slate-600 text-[10px] px-1 py-0.5 rounded font-mono">
+                <code className="bg-slate-100 text-slate-600 text-xs px-1 py-0.5 rounded font-mono">
                   [NAME]
                 </code>
                 .
@@ -423,7 +423,7 @@ export default function TestGuidePage() {
               <p>
                 <span className="text-slate-400 mr-1.5">→</span>
                 <strong className="text-slate-900 font-medium">Note:</strong>{" "}
-                <span className="inline-block bg-amber-50 text-amber-800 text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+                <span className="inline-block bg-amber-50 text-amber-800 text-[11px] font-medium px-1.5 py-0.5 rounded-full">
                   Audit data resets on server restart unless PILOT_DB_PATH is set
                 </span>
               </p>
@@ -432,11 +432,11 @@ export default function TestGuidePage() {
 
           {/* How to flag */}
           <div className="border border-slate-200 rounded-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-3.5 py-2.5 bg-red-50 text-red-900 text-xs font-semibold">
+            <div className="flex items-center gap-2 px-3.5 py-2.5 bg-red-50 text-red-900 text-sm font-semibold">
               <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" />
               How to flag an issue
             </div>
-            <div className="px-3.5 py-3 text-xs text-slate-500 space-y-2">
+            <div className="px-3.5 py-3 text-sm text-slate-500 space-y-2">
               <p>
                 <span className="text-slate-400 mr-1.5">1</span>
                 <strong className="text-slate-900 font-medium">
@@ -468,14 +468,14 @@ export default function TestGuidePage() {
                   Priority flags:
                 </strong>
                 <br />
-                <span className="inline-block mt-1 bg-red-50 text-red-800 text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+                <span className="inline-block mt-1 bg-red-50 text-red-800 text-[11px] font-medium px-1.5 py-0.5 rounded-full">
                   Critical
                 </span>{" "}
                 — invented service info, invented hotline numbers, bot claiming
                 to be human, crisis message with no crisis response, PII in
                 stored transcripts
                 <br />
-                <span className="inline-block mt-1 bg-amber-50 text-amber-800 text-[10px] font-medium px-1.5 py-0.5 rounded-full">
+                <span className="inline-block mt-1 bg-amber-50 text-amber-800 text-[11px] font-medium px-1.5 py-0.5 rounded-full">
                   Flag
                 </span>{" "}
                 — service menu after emotional disclosure, bot gives
@@ -486,11 +486,11 @@ export default function TestGuidePage() {
                 <span className="text-slate-400 mr-1.5">5</span>
                 Share with the engineering team via Slack or GitHub Issues with
                 the label{" "}
-                <code className="bg-slate-100 text-slate-600 text-[10px] px-1 py-0.5 rounded font-mono">
+                <code className="bg-slate-100 text-slate-600 text-xs px-1 py-0.5 rounded font-mono">
                   bug
                 </code>{" "}
                 or{" "}
-                <code className="bg-slate-100 text-slate-600 text-[10px] px-1 py-0.5 rounded font-mono">
+                <code className="bg-slate-100 text-slate-600 text-xs px-1 py-0.5 rounded font-mono">
                   safety
                 </code>
                 .
@@ -500,7 +500,7 @@ export default function TestGuidePage() {
         </div>
 
         {/* Footer */}
-        <footer className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center text-[10.5px] text-slate-400 gap-1">
+        <footer className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center text-sm text-slate-400 gap-1">
           <div>
             <strong className="text-slate-500 font-medium">Chat:</strong>{" "}
             <a href="/chat" className="hover:underline">/chat</a>
@@ -509,9 +509,9 @@ export default function TestGuidePage() {
             <a href="/admin" className="hover:underline">/admin</a>
             {" · "}
             <strong className="text-slate-500 font-medium">Code:</strong>{" "}
-            github.com/streetlives/chat-poc
+            <a href="https://github.com/ianlau20/yourpeer-chatbot" className="hover:underline">github.com/ianlau20/yourpeer-chatbot</a>
           </div>
-          <div>YourPeer · Streetlives · April 2026</div>
+          <div>YourPeer AI Chat · Streetlives · April 2026</div>
         </footer>
       </div>
     </div>
@@ -545,7 +545,7 @@ function Card({
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden">
       <div
-        className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold ${headerStyles[variant]}`}
+        className={`flex items-center gap-2 px-3.5 py-2.5 text-sm font-semibold ${headerStyles[variant]}`}
       >
         <span
           className={`w-2 h-2 rounded-full shrink-0 ${dotStyles[variant]}`}
@@ -555,7 +555,7 @@ function Card({
       <div className="px-3.5 py-3">
         <ul className="space-y-2">
           {items.map((item, i) => (
-            <li key={i} className="flex gap-2 text-xs text-slate-500 leading-snug">
+            <li key={i} className="flex gap-2 text-sm text-slate-500 leading-snug">
               <span className="shrink-0 mt-0.5">{icon}</span>
               <div>
                 <strong className="text-slate-900 font-medium">
