@@ -8,9 +8,9 @@ import type { Metadata } from "next";
 import { ChatContainer } from "@/components/chat/chat-container";
 
 export const metadata: Metadata = {
-  title: "YourPeer Chat — Find services near you",
+  title: "YourPeer AI Chat — Find services near you",
   description:
-    "Chat with YourPeer to find free support services like food, shelter, showers, and more across NYC.",
+    "Chat with the YourPeer AI Chatbot to find free support services like food, shelter, showers, and more across NYC.",
 };
 
 export default function ChatPage() {

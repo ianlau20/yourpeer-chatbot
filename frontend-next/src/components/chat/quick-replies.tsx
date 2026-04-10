@@ -20,12 +20,10 @@ export function QuickReplies({ replies, onSelect }: QuickRepliesProps) {
       aria-label="Quick reply options"
       className="flex flex-wrap gap-2 self-start max-w-[92%] animate-in fade-in slide-in-from-bottom-1"
     >
-      {replies.map((qr) =>
+      {replies.map((qr, idx) =>
         qr.href ? (
-          // External action (e.g. tel: link) — renders as <a> to trigger
-          // the native handler (phone dialer on mobile, calling app on desktop).
           <a
-            key={qr.value}
+            key={`${idx}-${qr.value}`}
             href={qr.href}
             aria-label={qr.label}
             className={btnClass + " inline-block text-center no-underline"}
@@ -34,7 +32,7 @@ export function QuickReplies({ replies, onSelect }: QuickRepliesProps) {
           </a>
         ) : (
           <button
-            key={qr.value}
+            key={`${idx}-${qr.value}`}
             type="button"
             onClick={() => onSelect(qr.value)}
             aria-label={qr.value}
