@@ -100,6 +100,10 @@ def log_conversation_turn(
         "request_id": request_id,
         "tone": tone,
     }
+    # Store additional fields (confidence, etc.) from kwargs
+    for k, v in kwargs.items():
+        if v is not None and k not in event:
+            event[k] = v
     with _lock:
         _events.append(event)
         _register_conversation(session_id, event)

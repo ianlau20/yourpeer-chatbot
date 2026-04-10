@@ -383,6 +383,21 @@ def _classify_action(text: str) -> str | None:
         if cleaned == phrase:
             return "reset"
 
+    # Correction — user tells us we misunderstood
+    _CORRECTION_PHRASES = [
+        "not what i meant", "not what i asked", "that's not what i",
+        "thats not what i", "you misunderstood", "you got it wrong",
+        "wrong thing", "i didn't ask for that", "i didnt ask for that",
+        "i didn't mean", "i didnt mean", "that's wrong", "thats wrong",
+        "try again", "no that's not right", "no thats not right",
+    ]
+    _CORRECTION_EXACT = ["no", "wrong", "nope"]
+    # Only match exact corrections when there's a _last_action suggesting
+    # the bot just did something the user is rejecting
+    for phrase in _CORRECTION_PHRASES:
+        if phrase in cleaned:
+            return "correction"
+
     # Bot identity
     for phrase in _BOT_IDENTITY_PHRASES:
         if phrase in cleaned:
@@ -1305,39 +1320,68 @@ def generate_reply(
             "confirm_yes", "confirm_deny", "reset", "greeting",
         )
         if _last_results and not has_service_intent and not _is_confirmation_action:
-            # "Show all results" — re-display the stored results
-            if message.lower().strip() in ("show all results", "show results", "show all"):
-                result = {
-                    "session_id": session_id,
-                    "response": "Here are all the results again:",
-                    "follow_up_needed": False,
-                    "slots": existing,
-                    "services": _last_results,
-                    "result_count": len(_last_results),
-                    "relaxed_search": False,
-                    "quick_replies": [
-                        {"label": "🔍 New search", "value": "Start over"},
-                        {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
-                    ],
-                }
-                _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
-                return result
+            # If the user provided a new location, they're likely starting a new
+            # search, not asking about displayed results.
+            _has_new_location = bool(early_extracted.get("location"))
+            if _has_new_location:
+                existing.pop("_last_results", None)
+                save_session_slots(session_id, existing)
+            else:
+                # "Show all results" — re-display the stored results
+                if message.lower().strip() in ("show all results", "show results", "show all"):
+                    result = {
+                        "session_id": session_id,
+                        "response": "Here are all the results again:",
+                        "follow_up_needed": False,
+                        "slots": existing,
+                        "services": _last_results,
+                        "result_count": len(_last_results),
+                        "relaxed_search": False,
+                        "quick_replies": [
+                            {"label": "🔍 New search", "value": "Start over"},
+                            {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+                        ],
+                    }
+                    _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+                    return result
 
-            post_intent = classify_post_results_question(message)
-            if post_intent is not None:
-                pr = answer_from_results(post_intent, _last_results)
-                result = {
-                    "session_id": session_id,
-                    "response": pr["response"],
-                    "follow_up_needed": False,
-                    "slots": existing,
-                    "services": pr.get("services", []),
-                    "result_count": len(pr.get("services", [])),
-                    "relaxed_search": False,
-                    "quick_replies": pr.get("quick_replies", []),
-                }
-                _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
-                return result
+                post_intent = classify_post_results_question(message)
+                if post_intent is not None:
+                    pr = answer_from_results(post_intent, _last_results)
+                    if pr is not None:
+                        result = {
+                            "session_id": session_id,
+                            "response": pr["response"],
+                            "follow_up_needed": False,
+                            "slots": existing,
+                            "services": pr.get("services", []),
+                            "result_count": len(pr.get("services", [])),
+                            "relaxed_search": False,
+                            "quick_replies": pr.get("quick_replies", []),
+                        }
+                        _log_turn(session_id, redacted_message, result, "post_results", request_id=request_id)
+                        return result
+                    # pr is None — name didn't match any result.
+                    # Show disambiguation: let the user choose between
+                    # searching for something new or asking about results.
+                    if post_intent.get("type") == "specific_name":
+                        query = post_intent.get("query", "that")
+                        result = _empty_reply(
+                            session_id,
+                            f"I'm not sure if you're asking about the results "
+                            f"I showed, or if you'd like to search for "
+                            f"something new. Which would you prefer?",
+                            existing,
+                            quick_replies=[
+                                {"label": f"🔍 Search for {query}", "value": f"I need {query}"},
+                                {"label": "📋 More about results", "value": "Tell me about the first one"},
+                                {"label": "🔍 New search", "value": "Start over"},
+                            ],
+                        )
+                        _log_turn(session_id, redacted_message, result, "disambiguation",
+                                  request_id=request_id, confidence="disambiguated")
+                        return result
+                    # Other post-results intents that returned None — fall through
 
         # If the user is starting a new action, clear stale results
         if _last_results and (has_service_intent or _is_confirmation_action):
@@ -1348,26 +1392,20 @@ def generate_reply(
     # Priority: crisis > reset > confirmations > service intent > actions > tone > LLM > general
     action = _action_pre  # Already computed above (avoid duplicate call)
     _response_tone = tone  # stored for use in service flow framing
+    _confidence = "high"   # default: regex match = high confidence
 
     if tone == "crisis":
         category = "crisis"
     elif action == "reset":
         category = "reset"
+    elif action == "correction":
+        category = "correction"
     elif action in ("confirm_change_service", "confirm_change_location",
                      "confirm_yes", "confirm_deny"):
         category = action
     elif action in ("bot_identity", "bot_question", "greeting", "thanks"):
         category = action
     elif has_service_intent:
-        # Service intent wins — help/escalation/emotional/confused become
-        # tone modifiers, not separate routes. This replaces the ad-hoc
-        # guards that used to re-check slots inside help/escalation handlers.
-        #
-        # Exception: escalation requires BOTH service_type AND location to
-        # override. "Connect me with a navigator about food" (food but no
-        # location) should stay as escalation — the user wants human help.
-        # "Navigator, client needs shelter in East Harlem" (both present)
-        # should route to service — the user is making a request.
         if action == "escalation" and not early_extracted.get("location"):
             category = "escalation"
         else:
@@ -1389,10 +1427,13 @@ def generate_reply(
                 f"LLM classifier override: regex='general' → llm='{llm_category}'"
             )
             category = llm_category
+            _confidence = "medium"  # LLM classification
         else:
             category = "general"
+            _confidence = "low"     # LLM failed, pure fallback
     else:
         category = "general"
+        _confidence = "low"         # no regex match, no LLM
 
     # --- Crisis ---
     # Highest priority. Crisis resources are shown immediately.
@@ -1477,6 +1518,35 @@ def generate_reply(
             quick_replies=list(_WELCOME_QUICK_REPLIES),
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
+        return result
+
+    # --- Correction ("not what I meant") ---
+    if category == "correction":
+        # Clear any state that led to the misunderstanding
+        existing.pop("_pending_confirmation", None)
+        existing.pop("_last_action", None)
+        existing.pop("_last_results", None)
+        save_session_slots(session_id, existing)
+        # Build context-aware response
+        service_type = existing.get("service_type")
+        location = existing.get("location")
+        context = ""
+        if service_type and location:
+            context = f" I was searching for {service_type} in {location}."
+        elif service_type:
+            context = f" I was searching for {service_type}."
+        result = _empty_reply(
+            session_id,
+            f"Sorry about that!{context} Let me know what you need — you can "
+            f"pick a service below, tell me in your own words, or connect "
+            f"with a peer navigator.",
+            existing,
+            quick_replies=list(_WELCOME_QUICK_REPLIES) + [
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+            ],
+        )
+        _log_turn(session_id, redacted_message, result, "correction",
+                  request_id=request_id, tone=tone, confidence="low")
         return result
 
     # --- Greeting ---
@@ -2185,9 +2255,12 @@ def generate_reply(
             "shelter, clothing, showers, health care, legal help, and more. "
             "What would be most helpful?",
             merged,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
+            quick_replies=list(_WELCOME_QUICK_REPLIES) + [
+                {"label": "❌ Not what I meant", "value": "not what I meant"},
+            ],
         )
-        _log_turn(session_id, redacted_message, result, "unrecognized_service", request_id=request_id, tone=tone)
+        _log_turn(session_id, redacted_message, result, "unrecognized_service",
+                  request_id=request_id, tone=tone, confidence="low")
         return result
 
     # Use Claude Haiku for a natural conversational response.
@@ -2197,17 +2270,19 @@ def generate_reply(
     has_service_intent = bool(
         merged.get("service_type") or merged.get("location")
     )
+    # Build quick replies — add "Not what I meant" for LLM-routed responses
+    # to let users recover from misinterpretation
+    _general_qr = []
+    if not has_service_intent and len(merged.get("transcript", [])) <= 1:
+        _general_qr = list(_WELCOME_QUICK_REPLIES)
+    if _confidence in ("medium", "low"):
+        _general_qr.append({"label": "❌ Not what I meant", "value": "not what I meant"})
     result = _empty_reply(
         session_id, response, merged,
-        # Only show welcome buttons if the user hasn't started a search yet
-        # and hasn't had multiple conversational turns (avoid being pushy).
-        quick_replies=(
-            list(_WELCOME_QUICK_REPLIES)
-            if not has_service_intent and len(merged.get("transcript", [])) <= 1
-            else []
-        ),
+        quick_replies=_general_qr,
     )
-    _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
+    _log_turn(session_id, redacted_message, result, "general",
+              request_id=request_id, tone=tone, confidence=_confidence)
     return result
 
 
@@ -2382,8 +2457,14 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
 # AUDIT LOG HELPER
 # ---------------------------------------------------------------------------
 
-def _log_turn(session_id: str, user_msg: str, result: dict, category: str, request_id: str | None = None, tone=None):
-    """Log a conversation turn to the audit log."""
+def _log_turn(session_id: str, user_msg: str, result: dict, category: str,
+              request_id: str | None = None, tone=None, confidence: str = "high"):
+    """Log a conversation turn to the audit log.
+
+    Args:
+        confidence: "high" (regex match), "medium" (LLM classification),
+                    "low" (fallback/ambiguous), "disambiguated" (user was asked to clarify)
+    """
     try:
         bot_response_redacted, _ = redact_pii(result.get("response", ""))
         log_conversation_turn(
@@ -2397,6 +2478,7 @@ def _log_turn(session_id: str, user_msg: str, result: dict, category: str, reque
             follow_up_needed=result.get("follow_up_needed", False),
             request_id=request_id,
             tone=tone,
+            confidence=confidence,
         )
     except Exception as e:
         logger.error(f"Failed to log conversation turn: {e}")

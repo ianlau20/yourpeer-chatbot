@@ -54,8 +54,10 @@ The routing priority is:
 
 | Priority | Condition | Route |
 |---|---|---|
+| 0 | Post-results: `_last_results` set + message is a follow-up question | Post-results handler (deterministic, no LLM). New-request phrases and new locations escape to normal routing. Unmatched name → disambiguation prompt |
 | 1 | `tone == crisis` | Crisis handler (always wins) |
 | 2 | `action == reset` | Reset handler |
+| 2a | `action == correction` ("not what I meant") | Correction handler — clears pending state, shows alternatives |
 | 3 | `action` is confirmation/bot/greeting/thanks | Action handler |
 | 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exception: escalation + service without location stays as escalation |
 | 4a | Location-unknown phrases + service_type set + no location | Location-unknown handler (geolocation + borough buttons) |
@@ -64,8 +66,8 @@ The routing priority is:
 | 7 | `tone == frustrated` | Frustration handler |
 | 8 | `tone == emotional` | Emotional handler |
 | 9 | `tone == confused` | Confused handler |
-| 10 | LLM classification (>3 words) | LLM-determined category |
-| 11 | None of the above | General conversation |
+| 10 | LLM classification (>3 words) | LLM-determined category (confidence: medium) |
+| 11 | None of the above | General conversation (confidence: low) |
 
 The key insight is **row 4**: when service intent is present, it wins over help/escalation/emotional/confused. Those become tone modifiers on the service flow, not separate routes. This eliminates the ad-hoc guards that previously re-checked slots inside the help and escalation handlers.
 
@@ -102,6 +104,25 @@ Crisis resources are shown immediately. The session is NOT cleared — the user 
 ### Reset
 
 Clears all session state (slots, transcript, pending confirmation). Shows a fresh welcome message with service category buttons. Triggered by "start over", "new search", "begin again", or "cancel".
+
+### Correction ("Not what I meant")
+
+Triggered by phrases like "not what I meant", "you misunderstood", "wrong thing", "I didn't ask for that" (15 phrases total). Clears `_pending_confirmation`, `_last_action`, and `_last_results` to prevent the user from re-entering the wrong flow, but preserves `service_type` and `location` so they don't lose their search context entirely.
+
+Shows a context-aware response: if the user had an active search, acknowledges it ("Sorry about that! I was searching for food in Brooklyn."). Presents the full service menu plus a peer navigator button. Logged with `confidence="low"` for ambiguity tracking.
+
+The "❌ Not what I meant" quick reply button appears on responses where the system's confidence is medium or low (LLM-classified messages and unrecognized service redirects). Tapping it sends "not what I meant" which triggers this handler.
+
+### Disambiguation
+
+Triggered when a message is ambiguous between a post-results follow-up question and a new service request. Specifically, when:
+1. The user has results displayed (`_last_results` is set)
+2. The post-results classifier matched a `specific_name` pattern (e.g., "What about X?")
+3. But the name doesn't match any displayed result
+
+Instead of silently falling through to normal routing (which would lose the user's context about why the response changed), the bot asks: "I'm not sure if you're asking about the results I showed, or if you'd like to search for something new. Which would you prefer?" with three quick-reply buttons: "🔍 Search for [query]", "📋 More about results", "🔍 New search".
+
+This follows the industry-standard "clarification-before-classification" pattern. Messages with clear new-request signals ("I need X", "where can I go", "looking for") bypass disambiguation entirely via the post-results escape hatch — they're unambiguously new requests.
 
 ### Bot Identity
 
@@ -220,6 +241,25 @@ Three LLM-powered features are used in production, each with a specific model as
 | Crisis detection (Stage 2) | Sonnet | Ambiguous messages where regex didn't fire | JSON: {crisis: bool, category: string} |
 
 See the Model Analysis tab in the admin console for cost/capability analysis and the rationale for each model assignment.
+
+---
+
+## Confidence & Ambiguity Handling
+
+Every routing decision is tagged with a confidence level, stored in the audit log for analysis:
+
+| Confidence | When it's set | What it means |
+|---|---|---|
+| `high` | Regex classification match, service keyword extracted, confirmation action | The system is confident about the user's intent — standard handling |
+| `medium` | LLM classification | The system used the LLM to determine intent — correct in most cases but may misinterpret indirect language |
+| `low` | General fallback, unrecognized service redirect, correction handler | The system is uncertain — the response may not match what the user wanted |
+| `disambiguated` | Disambiguation prompt shown | The system detected ambiguity and asked the user to clarify |
+
+When confidence is `medium` or `low`, the response includes a "❌ Not what I meant" quick reply button so the user can recover immediately if the system misinterpreted their message.
+
+The post-results handler has its own ambiguity detection: when a message pattern-matches as a post-results question (e.g., "What about X?") but the extracted name doesn't match any displayed result, the system presents a disambiguation prompt rather than guessing. This prevents users from getting trapped in the post-results flow when they're trying to start a new search.
+
+Confidence data in the audit log enables tracking misclassification rates across routing categories. Messages logged with `confidence="low"` or `confidence="disambiguated"` can be reviewed in the admin console to identify patterns that need additional phrase coverage or routing logic.
 
 ---
 
@@ -393,7 +433,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 180 tests in `test_chatbot.py`, 56 context routing tests in `test_context_routing.py`, 29 integration scenario tests in `test_integration_scenarios.py`, 28 structural fix tests in `test_structural_fixes.py`, 41 phrase audit tests in `test_phrase_audit.py`, 19 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 34 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 180 tests in `test_chatbot.py`, 56 context routing tests in `test_context_routing.py`, 31 post-results boundary tests in `test_post_results_boundary.py`, 26 ambiguity handling tests in `test_ambiguity_handling.py`, 29 integration scenario tests in `test_integration_scenarios.py`, 28 structural fix tests in `test_structural_fixes.py`, 41 phrase audit tests in `test_phrase_audit.py`, 19 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 34 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

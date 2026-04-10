@@ -39,7 +39,10 @@ User Message
     ├─ Message classification (2-stage: regex → LLM fallback)
     ├─ Route by category:
     │   ├─ crisis → crisis_detector (regex + Sonnet LLM) → hotline resources
+    │   ├─ correction → clears pending state, shows alternatives
     │   ├─ greeting/thanks/help/reset/escalation/frustration → canned response
+    │   ├─ post-results → deterministic answers from stored cards (no LLM)
+    │   ├─ disambiguation → clarifying options when intent is ambiguous
     │   ├─ service request → slot extraction (regex or Haiku LLM for complex inputs)
     │   │   ├─ slots incomplete → follow-up question
     │   │   ├─ slots complete → confirmation prompt with quick replies
@@ -100,6 +103,10 @@ information, preventing hallucination.
 - **Service flow continuation**: when a user already has a service_type and provides new slot data (e.g., "near me", "close by", "I'm 25", "with my kids") in a message not classified as "service", the system treats it as a service flow continuation rather than falling through to the LLM
 - **Narrative extraction**: long messages (20+ words) are detected as narratives and processed with urgency-aware slot extraction that prioritizes shelter/safety over food/employment. Regex fallback handles narrative extraction when LLM is unavailable
 - **Bot self-knowledge**: live capability sourcing from actual code (service categories, PII types, location count) rather than hardcoded facts. Topic matching for 12+ question types with LLM context generation
+- **Confidence scoring**: every routing decision is tagged with a confidence level (high/medium/low/disambiguated) and stored in audit events. Regex matches = high, LLM classification = medium, fallback = low
+- **Disambiguation prompts**: when a message is ambiguous between a post-results question and a new service request, the bot asks the user to clarify instead of guessing. Presents quick-reply buttons for both interpretations
+- **"Not what I meant" recovery**: correction phrases ("not what I meant", "you misunderstood") trigger a handler that clears pending state, shows what the bot was doing, and offers alternatives. "❌ Not what I meant" button appears on low-confidence responses
+- **Post-results escape hatch**: new service requests ("I need X", "where can I go", "looking for") are no longer intercepted by the post-results handler. Messages with a new location clear stored results automatically
 - **LLM conversational fallback**: Haiku handles general/off-topic messages
 - **Admin console**: conversation viewer, event log, metrics dashboard, in-browser eval runner
 - **LLM-as-judge eval**: 142 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
@@ -113,7 +120,7 @@ information, preventing hallucination.
 - **Stability**: 1,000-char message length limit (frontend + backend), coordinate validation (lat ±90, lng ±180), 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
 - **Observability**: `X-Request-ID` correlation IDs flow from frontend → Next.js proxy → FastAPI backend → audit log, enabling end-to-end request tracing
 - **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
-- **Test suite**: 34 pytest files (1,335 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
+- **Test suite**: 36 pytest files (1,392 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, ambiguity handling (confidence scoring, disambiguation, correction recovery), post-results boundary routing, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
 
 ## Known Gaps / In Progress
 

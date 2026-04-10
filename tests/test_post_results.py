@@ -270,7 +270,7 @@ class TestAnswerFromResults:
 
     def test_specific_name_no_match(self):
         result = answer_from_results({"type": "specific_name", "query": "nonexistent"}, MOCK_SERVICES)
-        assert "couldn't find" in result["response"]
+        assert result is None  # Falls through to normal routing
 
     # --- Ask field ---
 

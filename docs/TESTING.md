@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 1,335 tests across 34 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, intensifier stripping, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), database schema/query integration, bot self-knowledge (live capability sourcing, topic matching), boundary drift detection (mock/Pydantic/SQL/format sync), context-aware routing (state transitions, frustration counting, implicit service changes), integration scenarios (narrative flows, cross-feature interactions, eval approximations), and narrative extraction (urgency-aware slot extraction for long messages). Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 1,392 tests across 36 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern), frustration routing, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, intensifier stripping, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), database schema/query integration, bot self-knowledge (live capability sourcing, topic matching), boundary drift detection (mock/Pydantic/SQL/format sync), context-aware routing (state transitions, frustration counting, implicit service changes), integration scenarios (narrative flows, cross-feature interactions, eval approximations), and narrative extraction (urgency-aware slot extraction for long messages), ambiguity handling (confidence scoring, disambiguation prompts, correction recovery, "Not what I meant" button), and post-results boundary routing (new-request escape hatch, location-based result clearing, name-match fallthrough). Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -51,15 +51,16 @@ All 17 backend modules and all public functions are covered:
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_bug_fixes.py`, `test_edge_cases.py`, `test_chat_route.py`, `test_context_routing.py`, `test_integration_scenarios.py` | 250+ | Full |
+| `chatbot.py` | `test_chatbot.py`, `test_bug_fixes.py`, `test_edge_cases.py`, `test_chat_route.py`, `test_context_routing.py`, `test_integration_scenarios.py`, `test_ambiguity_handling.py` | 280+ | Full |
 | `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 160+ | Full |
 | `rag/__init__.py` | `test_query_templates.py`, `test_geolocation.py`, `test_db_integration.py` | 90+ | Full |
 | `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
-| `audit_log.py` | `test_audit_log.py`, `test_bug_fixes.py`, `test_admin.py` | 61+ | Full |
+| `audit_log.py` | `test_audit_log.py`, `test_bug_fixes.py`, `test_admin.py`, `test_ambiguity_handling.py` | 70+ | Full |
 | `crisis_detector.py` | `test_crisis_detector.py`, `test_bug_fixes.py`, `test_crisis_safety_edges.py` | 60+ | Full |
 | `llm_slot_extractor.py` | `test_llm_slot_extractor.py`, `test_narrative_extraction.py` | 44 | Full |
 | `bot_knowledge.py` | `test_bot_knowledge.py` | 37 | Full |
+| `post_results.py` | `test_post_results.py`, `test_post_results_boundary.py` | 100 | Full |
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 34+ | Full |
 | `session_store.py` | `test_session_store.py`, `test_chatbot.py`, `test_chat_route.py` | 7+ | Full |
 | `session_token.py` | `test_session_token.py`, `test_chat_route.py` | 17 | Full |
@@ -502,6 +503,31 @@ Validates narrative extraction — urgency-aware slot extraction for long messag
 | Urgency hierarchy | 3 | Shelter highest, medical above food, food above employment |
 | Regex fallback | 7 | Hospital/housing prioritizes shelter, runaway youth, eviction, re-entry all prioritize shelter, urgency inferred from context, single service no change, location preserved |
 | Smart extractor narrative path | 4 | Narrative uses fallback without LLM, doesn't regex-override, short message uses standard path, additional services preserved |
+
+### `test_post_results_boundary.py` — 31 tests
+
+Validates the boundary between post-results follow-up questions and new service requests. Tests that users are never trapped in the post-results handler when starting a new search. Covers the new-request escape hatch, location-based result clearing, name-match fallthrough, and disambiguation prompts.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| New request escapes | 10 | "I need X", "where can I go", "looking for", "can I get", "help me find", "search for", "is there", "do you have", new location clears results |
+| Unrecognized service escapes | 3 | "What about financial services?", "What about detox?", narrative with shelter keyword after food results |
+| Genuine post-results still work | 8 | Open filter, index, phone/address/hours fields, free filter, named result match, "what about [exact name]", show all |
+| Ambiguous edge cases | 6 | Bare "where?", crisis trumps post-results, reset clears, emotional not intercepted, service keyword escapes, multiple new requests |
+| Classifier unit tests | 2 | 17 parametrized new-request phrases return None, 6 genuine post-results phrases still classified |
+| Name match fallthrough | 2 | Unmatched name returns None, matched name returns response |
+
+### `test_ambiguity_handling.py` — 26 tests
+
+Validates the four industry-recommended ambiguity handling patterns: confidence scoring, disambiguation prompts, correction recovery, and ambiguity logging.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Confidence scoring | 6 | Regex match=high, reset=high, service keyword=high, correction=low, disambiguation=disambiguated, confidence stored in audit events |
+| Disambiguation prompts | 4 | Unmatched name triggers disambiguation, offers search option, preserves session, matched name skips disambiguation |
+| Correction handler | 11 | 5 phrases classified, clears pending/last_action/last_results, preserves service slots, shows buttons + navigator, context-aware message, no false positives on service requests, crisis trumps correction |
+| "Not what I meant" button | 1 | Correction button on unrecognized service responses |
+| Ambiguity logging | 4 | Correction category logged, disambiguation category logged, confidence field in events, high confidence stored |
 
 ## LLM-as-Judge Evaluation (`eval_llm_judge.py`)
 
