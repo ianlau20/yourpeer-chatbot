@@ -258,8 +258,15 @@ def test_base_query_joins():
     assert "join locations" in sql_lower
     assert "left join organizations" in sql_lower
     assert "left join physical_addresses" in sql_lower
-    # Taxonomy is now an EXISTS subquery in filters, not a base JOIN
-    assert "join service_taxonomy" not in sql_lower, \
+    # Taxonomy is now an EXISTS subquery in filters, not a base JOIN.
+    # The also_available correlated subquery uses service_taxonomy but
+    # is inside a SELECT subquery, not a FROM-level JOIN.
+    # Check that the main FROM clause doesn't join service_taxonomy directly.
+    from_clause = sql_lower.split("from services")[1].split("where")[0] if "where" in sql_lower else sql_lower.split("from services")[1]
+    # Remove parenthesized subqueries from the from clause check
+    import re
+    from_no_subqueries = re.sub(r'\(select.*?\)', '', from_clause, flags=re.DOTALL)
+    assert "join service_taxonomy" not in from_no_subqueries, \
         "Taxonomy should use EXISTS filter, not base JOIN (avoids row duplication)"
     # Schedule and membership use regular LEFT JOINs (not LATERAL)
     assert "left join regular_schedules" in sql_lower
@@ -1142,3 +1149,65 @@ def test_sort_open_first_single():
     result = _sort_open_first(cards)
     assert len(result) == 1
     assert result[0]["service_name"] == "A"
+
+
+# -----------------------------------------------------------------------
+# format_service_card — also_available and last_validated_at
+# -----------------------------------------------------------------------
+
+def test_format_card_also_available_filters():
+    """also_available should filter to display categories only."""
+    from app.rag.query_templates import format_service_card
+    card = format_service_card({
+        "service_id": "1", "service_name": "Test",
+        "also_available": ["Shower", "Other service", "Clothing Pantry", "Unknown Category"],
+    })
+    assert card["also_available"] == ["Clothing Pantry", "Shower"]
+
+
+def test_format_card_also_available_none_when_empty():
+    """also_available should be None when no co-located services."""
+    from app.rag.query_templates import format_service_card
+    card = format_service_card({"service_id": "1", "service_name": "Test", "also_available": []})
+    assert card["also_available"] is None
+
+
+def test_format_card_also_available_none_when_only_other():
+    """also_available should be None when only 'Other service' is co-located."""
+    from app.rag.query_templates import format_service_card
+    card = format_service_card({
+        "service_id": "1", "service_name": "Test",
+        "also_available": ["Other service"],
+    })
+    # "Other service" is already filtered by the SQL, but if it slips through
+    # the display filter should catch it
+    assert card["also_available"] is None
+
+
+def test_format_card_last_validated_at_serialized():
+    """last_validated_at should be ISO string, not datetime object."""
+    from datetime import datetime
+    from app.rag.query_templates import format_service_card
+    dt = datetime(2026, 4, 8, 14, 30, 0)
+    card = format_service_card({
+        "service_id": "1", "service_name": "Test",
+        "last_validated_at": dt,
+    })
+    assert card["last_validated_at"] == "2026-04-08T14:30:00"
+
+
+def test_format_card_last_validated_at_none():
+    """last_validated_at should be None when not provided."""
+    from app.rag.query_templates import format_service_card
+    card = format_service_card({"service_id": "1", "service_name": "Test"})
+    assert card["last_validated_at"] is None
+
+
+def test_format_card_also_available_sorted():
+    """also_available should be sorted alphabetically."""
+    from app.rag.query_templates import format_service_card
+    card = format_service_card({
+        "service_id": "1", "service_name": "Test",
+        "also_available": ["Shelter", "Benefits", "Health", "Laundry"],
+    })
+    assert card["also_available"] == ["Benefits", "Health", "Laundry", "Shelter"]

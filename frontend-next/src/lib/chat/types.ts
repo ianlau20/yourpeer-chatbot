@@ -22,6 +22,8 @@ export interface ServiceResult {
   fees?: string;
   requires_membership?: boolean;
   yourpeer_url?: string;
+  last_validated_at?: string;
+  also_available?: string[];
 }
 
 export interface ChatResponse {

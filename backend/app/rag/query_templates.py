@@ -70,7 +70,20 @@ SELECT
         OR membership_elig.eligible_values = '[true]'::jsonb
     ) AS requires_membership,
 
-    l.last_validated_at AS last_validated_at
+    l.last_validated_at AS last_validated_at,
+
+    -- Co-located services: other taxonomy categories at the same location.
+    -- Lets the card show "Also here: Showers, Clothing, Health" so users
+    -- can discover services they didn't think to ask about.
+    (SELECT ARRAY_AGG(DISTINCT t_co.name ORDER BY t_co.name)
+     FROM service_at_locations sal_co
+       JOIN services s_co ON sal_co.service_id = s_co.id
+       JOIN service_taxonomy st_co ON s_co.id = st_co.service_id
+       JOIN taxonomies t_co ON st_co.taxonomy_id = t_co.id
+     WHERE sal_co.location_id = l.id
+       AND s_co.id != s.id
+       AND t_co.name NOT IN ('Other service')
+    ) AS also_available
 
 FROM services s
     JOIN service_at_locations sal  ON s.id = sal.service_id
@@ -725,6 +738,19 @@ def format_service_card(row: dict) -> dict:
     today_closes = row.get("today_closes")
     schedule_status = _compute_schedule_status(today_opens, today_closes)
 
+    # Co-located services — filter to user-relevant categories
+    _DISPLAY_CATEGORIES = {
+        "Shelter", "Shower", "Clothing Pantry", "Clothing",
+        "Health", "Mental Health", "General Health",
+        "Laundry", "Legal Services", "Benefits", "Education",
+        "Employment", "Food", "Food Pantry", "Soup Kitchen",
+        "Toiletries", "Mail", "Free Wifi", "Haircut",
+        "Support Groups", "Drop-in Center", "Crisis",
+        "Restrooms", "Warming Center",
+    }
+    raw_also = row.get("also_available") or []
+    also_available = sorted(set(raw_also) & _DISPLAY_CATEGORIES)
+
     return {
         "service_id": str(row.get("service_id", "")),
         "service_name": row.get("service_name") or "Unknown Service",
@@ -740,9 +766,9 @@ def format_service_card(row: dict) -> dict:
         "yourpeer_url": yourpeer_url,
         "hours_today": schedule_status["hours_today"],
         "is_open": schedule_status["is_open"],
-        # True only when membership eligible_values = ["true"] exclusively.
-        # None/False means open to all or accepts both members and non-members.
         "requires_membership": bool(row.get("requires_membership")),
+        "last_validated_at": row.get("last_validated_at").isoformat() if row.get("last_validated_at") else None,
+        "also_available": also_available if also_available else None,
     }
 
 
