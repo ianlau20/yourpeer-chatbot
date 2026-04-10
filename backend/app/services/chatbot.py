@@ -155,7 +155,8 @@ _HELP_WORD_RE = re.compile(r"\bhelp\b", re.IGNORECASE)
 _ESCALATION_PHRASES = [
     "peer navigator", "talk to a person", "talk to someone",
     "speak to someone", "speak to a person", "real person",
-    "human", "connect me", "call someone", "live chat",
+    "human", "connect me", "connect with person",
+    "connect with peer navigator", "call someone", "live chat",
     "case manager", "social worker", "counselor",
 ]
 
@@ -791,6 +792,7 @@ def _follow_up_quick_replies(slots: dict) -> list:
             {"label": "Brooklyn", "value": "Brooklyn"},
             {"label": "Queens", "value": "Queens"},
             {"label": "Bronx", "value": "Bronx"},
+            {"label": "Staten Island", "value": "Staten Island"},
         ]
 
     return []
@@ -1537,7 +1539,10 @@ def generate_reply(
     if category == "bot_identity":
         result = _empty_reply(
             session_id, _BOT_IDENTITY_RESPONSE, existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
+            ],
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
@@ -1569,7 +1574,7 @@ def generate_reply(
         result = _empty_reply(
             session_id, _CONFUSED_RESPONSE, existing,
             quick_replies=list(_WELCOME_QUICK_REPLIES) + [
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -1598,7 +1603,8 @@ def generate_reply(
         result = _empty_reply(
             session_id, response, existing,
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -1621,7 +1627,7 @@ def generate_reply(
                 "You can also call 311 for live help anytime.",
                 existing,
                 quick_replies=[
-                    {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
                     {"label": "🔄 Start over", "value": "Start over"},
                 ],
             )
@@ -1629,8 +1635,8 @@ def generate_reply(
             result = _empty_reply(
                 session_id, _FRUSTRATION_RESPONSE, existing,
                 quick_replies=[
-                    {"label": "🔍 Try different search", "value": "Start over"},
-                    {"label": "👤 Peer navigator", "value": "connect me with a peer navigator"},
+                    {"label": "🔍 New search", "value": "Start over"},
+                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
                 ],
             )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -1645,7 +1651,13 @@ def generate_reply(
             existing.pop("_pending_confirmation", None)
         existing["_last_action"] = "escalation"
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
         return result
 
@@ -1658,7 +1670,13 @@ def generate_reply(
         # "Yes" after escalation or emotional = "yes, connect me with a person"
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1685,7 +1703,13 @@ def generate_reply(
         # (the confused handler shows a "Talk to a person" button)
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1697,7 +1721,13 @@ def generate_reply(
         # doesn't need this "yes" shortcut for resetting.
         existing.pop("_last_action", None)
         save_session_slots(session_id, existing)
-        result = _empty_reply(session_id, _ESCALATION_RESPONSE, existing)
+        result = _empty_reply(
+            session_id, _ESCALATION_RESPONSE, existing,
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
+        )
         _log_turn(session_id, redacted_message, result, "escalation", request_id=request_id, tone=tone)
         return result
 
@@ -1709,7 +1739,10 @@ def generate_reply(
             "No problem — I'm here if you change your mind. "
             "Is there anything else I can help you with?",
             existing,
-            quick_replies=list(_WELCOME_QUICK_REPLIES),
+            quick_replies=[
+                {"label": "🔍 New search", "value": "Start over"},
+                {"label": "👤 Talk to a person", "value": "Connect with person"},
+            ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
         return result
@@ -1725,7 +1758,7 @@ def generate_reply(
             # Don't push the full service menu after someone expressed distress
             # and declined support — keep it gentle (AVR pattern).
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
@@ -1740,7 +1773,7 @@ def generate_reply(
             "real person, just let me know.",
             existing,
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
@@ -1755,7 +1788,7 @@ def generate_reply(
             "You can also talk to a real person if that would help.",
             existing,
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, "general", request_id=request_id, tone=tone)
@@ -1868,6 +1901,7 @@ def generate_reply(
             "Sure! What neighborhood or borough should I search in?",
             existing,
             quick_replies=[
+                {"label": "📍 Use my location", "value": "__use_geolocation__"},
                 {"label": "Manhattan", "value": "Manhattan"},
                 {"label": "Brooklyn", "value": "Brooklyn"},
                 {"label": "Queens", "value": "Queens"},

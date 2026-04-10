@@ -7,6 +7,8 @@
 export interface QuickReply {
   label: string;
   value: string;
+  /** When present, the button renders as a link (e.g. "tel:" for phone calls). */
+  href?: string;
 }
 
 export interface ServiceResult {

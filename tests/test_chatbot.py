@@ -528,13 +528,12 @@ def test_emotional_response_has_peer_navigator(fresh_session):
     """Emotional messages should get a warm response with a peer navigator option."""
     with patch("app.services.chatbot.detect_crisis", return_value=None):
         result = send("I'm feeling really down", session_id=fresh_session)
-    # Should acknowledge feeling, not show a service menu
+    # Should acknowledge feeling
     assert "service" not in result["response"].lower() or "peer" in result["response"].lower()
-    # Should NOT show 9 welcome category buttons
+    # Should show New search + Peer navigator (not welcome menu)
     labels = [qr["label"] for qr in result["quick_replies"]]
-    assert "🍽️ Food" not in labels
-    # Should offer peer navigator
-    assert any("person" in qr["label"].lower() or "peer" in qr["value"].lower()
+    assert "🍽️ Food" not in labels, "Emotional should NOT show welcome menu"
+    assert any("peer" in qr["label"].lower() or "navigator" in qr["label"].lower()
                for qr in result["quick_replies"])
     # Should not extract slots
     assert result["slots"].get("service_type") is None
@@ -1078,7 +1077,7 @@ def test_repeated_frustration_pushes_navigator(fresh_session):
     response = result["response"].lower()
     assert "peer navigator" in response or "real people" in response
     labels = [qr["label"] for qr in result.get("quick_replies", [])]
-    assert any("person" in l.lower() or "talk" in l.lower() for l in labels)
+    assert any("peer" in l.lower() or "navigator" in l.lower() for l in labels)
 
 
 def test_repeated_frustration_shorter_response(fresh_session):
@@ -1291,7 +1290,7 @@ def test_pure_emotional_still_works(fresh_session):
     assert "search" not in response or "food" not in response
     qr = result.get("quick_replies", [])
     labels = [q["label"] for q in qr]
-    assert any("person" in l.lower() or "talk" in l.lower() for l in labels)
+    assert any("peer" in l.lower() or "navigator" in l.lower() for l in labels)
 
 
 def test_pure_help_still_works(fresh_session):
@@ -1748,3 +1747,97 @@ def test_colocated_confirmation_mentions_both(fresh_session):
     assert "food" in response
     assert "clothing" in response
     assert "brooklyn" in response
+
+
+# -----------------------------------------------------------------------
+# QUICK REPLY BUTTON AUDIT TESTS
+# -----------------------------------------------------------------------
+
+def test_bot_identity_buttons(fresh_session):
+    """Bot identity should show New search + Peer navigator, not welcome menu."""
+    result = send("are you a bot", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "🔍 New search" in labels
+    assert "🤝 Peer navigator" in labels
+    assert "🍽️ Food" not in labels, "Should NOT show welcome menu"
+
+
+def test_emotional_buttons_no_welcome_menu(fresh_session):
+    """Emotional response should show New search + Peer navigator, not welcome menu."""
+    result = send("I'm scared and alone", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "🔍 New search" in labels
+    assert "🤝 Peer navigator" in labels
+    assert "🍽️ Food" not in labels
+
+
+def test_frustrated_first_buttons(fresh_session):
+    """Frustrated (first time) should show New search + Peer navigator."""
+    result = send("this is not helpful at all", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "🔍 New search" in labels
+    assert "🤝 Peer navigator" in labels
+    assert "🍽️ Food" not in labels
+
+
+def test_escalation_buttons(fresh_session):
+    """Escalation should show New search + Talk to a person."""
+    result = send("I want to talk to someone", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    values = [qr["value"] for qr in result.get("quick_replies", [])]
+    assert "🔍 New search" in labels
+    assert "👤 Talk to a person" in labels
+    assert "Connect with person" in values
+    assert "🍽️ Food" not in labels
+
+
+def test_yes_after_emotional_shows_escalation_buttons(fresh_session):
+    """'Yes' after emotional should show escalation buttons."""
+    send("I'm feeling really down", session_id=fresh_session)
+    result = send("yes", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "👤 Talk to a person" in labels
+    assert "🔍 New search" in labels
+
+
+def test_no_after_escalation_shows_escalation_buttons(fresh_session):
+    """'No' after escalation should still show Talk to a person option."""
+    send("I want to talk to someone", session_id=fresh_session)
+    result = send("no", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "👤 Talk to a person" in labels
+    assert "🔍 New search" in labels
+
+
+def test_connect_with_person_routes_to_escalation(fresh_session):
+    """'Connect with person' (Talk to a person button value) should trigger escalation."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("Connect with person") == "escalation"
+
+
+def test_connect_with_peer_navigator_routes_to_escalation(fresh_session):
+    """'Connect with peer navigator' (Peer navigator button value) should trigger escalation."""
+    from app.services.chatbot import _classify_action
+    assert _classify_action("Connect with peer navigator") == "escalation"
+
+
+def test_peer_navigator_label_standardized(fresh_session):
+    """All non-escalation paths should use '🤝 Peer navigator', not 'Talk to a person'."""
+    # Emotional
+    r1 = send("I'm feeling really down", session_id=fresh_session)
+    labels1 = [qr["label"] for qr in r1.get("quick_replies", [])]
+    assert "🤝 Peer navigator" in labels1
+    assert "🤝 Talk to a person" not in labels1
+
+
+def test_location_change_has_use_my_location_first(fresh_session):
+    """'Change location' should show 'Use my location' as the first option."""
+    from app.services.session_store import save_session_slots
+    save_session_slots(fresh_session, {
+        "service_type": "food", "location": "Brooklyn",
+    })
+    result = send("Change location", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "📍 Use my location" in labels, f"Missing Use my location, got {labels}"
+    assert labels[0] == "📍 Use my location", f"Should be first, got {labels}"
+    assert "Staten Island" in labels, "Should include Staten Island"
