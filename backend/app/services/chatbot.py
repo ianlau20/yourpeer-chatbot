@@ -969,8 +969,8 @@ def _build_confirmation_message(slots: dict) -> str:
     queued = slots.get("_queued_services", [])
     if queued:
         co_labels = [
-            detail or _SERVICE_LABELS.get(svc_type, svc_type)
-            for svc_type, detail in queued
+            (q[1] if len(q) > 1 and q[1] else None) or _SERVICE_LABELS.get(q[0], q[0])
+            for q in queued
         ]
         all_labels = [service_label] + co_labels
         if len(all_labels) == 2:
@@ -2644,7 +2644,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
         # Instead of searching food first then offering shelter, try to find
         # locations that have BOTH food AND shelter.
         queued = slots.get("_queued_services", [])
-        colocated_types = [svc_type for svc_type, _ in queued] if queued else None
+        colocated_types = [q[0] for q in queued] if queued else None
         # Save original queue with detail labels before it gets cleared
         if queued:
             slots["_queued_services_original"] = list(queued)
@@ -2743,7 +2743,10 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
     # Now offer shelter.
     queued = slots.get("_queued_services", [])
     if queued and services_list:
-        next_service, next_detail = queued[0]
+        q_item = queued[0]
+        next_service = q_item[0]
+        next_detail = q_item[1] if len(q_item) > 1 else None
+        next_location = q_item[2] if len(q_item) > 2 else None
         remaining = queued[1:]
 
         # Update session: pop the offered service, keep remaining.
@@ -2754,15 +2757,27 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
         else:
             slots.pop("_queued_services", None)
         slots["_queue_offer_pending"] = True
+
+        # If the queued service has a different location, store it
+        # so the search uses the right location when accepted.
+        if next_location and next_location != slots.get("location"):
+            slots["_queued_location"] = next_location
         save_session_slots(session_id, slots)
 
         label = next_detail or _SERVICE_LABELS.get(next_service, next_service)
+        loc_suffix = ""
+        if next_location and next_location != slots.get("location"):
+            loc_suffix = f" in {next_location}"
         bot_response += (
-            f"\n\nYou also mentioned {label} — would you like me to "
+            f"\n\nYou also mentioned {label}{loc_suffix} — would you like me to "
             f"search for that too?"
         )
+        # Include location in the quick reply value so slot extraction picks it up
+        qr_value = f"I need {next_service}"
+        if next_location:
+            qr_value += f" in {next_location}"
         after_results_qr = [
-            {"label": f"✅ Yes, search for {label}", "value": f"I need {next_service}"},
+            {"label": f"✅ Yes, search for {label}", "value": qr_value},
             {"label": "❌ No thanks", "value": "No thanks"},
         ]
 

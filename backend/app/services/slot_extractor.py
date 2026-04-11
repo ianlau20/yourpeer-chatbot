@@ -576,8 +576,50 @@ def _extract_family_status(text: str) -> Optional[str]:
     return None
 
 
+def _extract_all_locations(text: str) -> list[tuple[int, str]]:
+    """Extract ALL location matches from text with their positions.
+
+    Returns a list of (text_position, location_name) tuples, sorted by
+    position. Used for per-service location binding when multiple services
+    and multiple locations appear in the same message.
+
+    Example:
+        "food in Brooklyn and shelter in Manhattan"
+        → [(8, "brooklyn"), (30, "manhattan")]
+    """
+    lower = text.lower()
+    found = []
+    matched_spans = []
+
+    # Preposition + known location (highest priority)
+    for loc in _KNOWN_LOCATIONS:
+        pattern = r"\b(?:in|near|around|by|from|over in|out in)\s+" + re.escape(loc) + r"\b"
+        for m in re.finditer(pattern, lower):
+            pos = m.start()
+            end = m.end()
+            # Skip overlapping matches
+            if any(pos < ms_end and end > ms_start for ms_start, ms_end in matched_spans):
+                continue
+            matched_spans.append((pos, end))
+            found.append((pos, loc))
+
+    # Bare mention of known locations (only if not already found via preposition)
+    for loc in _KNOWN_LOCATIONS:
+        for m in re.finditer(r"\b" + re.escape(loc) + r"\b", lower):
+            pos = m.start()
+            end = m.end()
+            if any(pos < ms_end and end > ms_start for ms_start, ms_end in matched_spans):
+                continue
+            matched_spans.append((pos, end))
+            found.append((pos, loc))
+
+    found.sort(key=lambda x: x[0])
+    return found
+
+
 def extract_slots(message: str) -> dict:
     all_types = _extract_all_service_types(message)
+    all_locations = _extract_all_locations(message)
 
     service_type = None
     service_detail = None
@@ -585,13 +627,50 @@ def extract_slots(message: str) -> dict:
 
     if all_types:
         service_type, service_detail = all_types[0]
-        additional_services = all_types[1:]  # remaining (service, detail) tuples
+
+        if len(all_types) > 1 and len(all_locations) > 1:
+            # Per-service location binding: match each service to
+            # its nearest location by text position.
+            # Re-extract with positions for binding.
+            _svc_positions = []
+            lower = message.lower()
+            for svc, detail in all_types:
+                for kw_list_svc, keywords in SERVICE_KEYWORDS.items():
+                    if kw_list_svc == svc:
+                        for kw in keywords:
+                            pos = lower.find(kw)
+                            if pos >= 0:
+                                _svc_positions.append((pos, svc, detail))
+                                break
+                        break
+
+            _svc_positions.sort(key=lambda x: x[0])
+
+            # Bind: for each service, find the nearest location
+            for i, (svc_pos, svc, detail) in enumerate(_svc_positions):
+                if i == 0:
+                    # Primary service — find closest location
+                    closest = min(all_locations, key=lambda x: abs(x[0] - svc_pos))
+                    # Primary location set below via _extract_location override
+                else:
+                    # Queue service — find closest location not already used
+                    closest = min(all_locations, key=lambda x: abs(x[0] - svc_pos))
+                    additional_services.append((svc, detail, closest[1]))
+        else:
+            # Single location or single service — no per-service binding needed
+            additional_services = [(s, d, None) for s, d in all_types[1:]]
+
+    # Location: use first-mentioned for primary service when multiple exist
+    if all_locations:
+        primary_location = all_locations[0][1]
+    else:
+        primary_location = _extract_location(message)
 
     return {
         "service_type": service_type,
         "service_detail": service_detail,
         "additional_services": additional_services,
-        "location": _extract_location(message),
+        "location": primary_location,
         "urgency": _extract_urgency(message),
         "age": _extract_age(message),
         "family_status": _extract_family_status(message),
