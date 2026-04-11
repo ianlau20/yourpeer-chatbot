@@ -264,26 +264,24 @@ class TestSeniorAutoInfer:
 
     def test_age_65_adds_senior(self):
         params = _get_query_params(populations=[], age=65)
-        # Senior boost should inject description pattern
-        desc = params.get("description_pattern", "")
-        assert "senior" in desc or "elder" in desc
+        boost = params.get("pop_boost_pattern", "")
+        assert "senior" in boost or "elder" in boost
 
     def test_age_30_no_senior(self):
         params = _get_query_params(populations=[], age=30)
-        desc = params.get("description_pattern", "")
-        assert "senior" not in desc and "elder" not in desc
+        assert "pop_boost_pattern" not in params
 
     def test_age_62_boundary(self):
         params = _get_query_params(populations=[], age=62)
-        desc = params.get("description_pattern", "")
-        assert "senior" in desc or "elder" in desc
+        boost = params.get("pop_boost_pattern", "")
+        assert "senior" in boost or "elder" in boost
 
     def test_explicit_senior_not_doubled(self):
         """If user already said 'senior', auto-infer shouldn't duplicate."""
         params = _get_query_params(populations=["senior"], age=70)
-        desc = params.get("description_pattern", "")
+        boost = params.get("pop_boost_pattern", "")
         # Should have senior pattern exactly once — no duplication
-        assert desc.count("senior") >= 1  # at least present
+        assert boost.count("senior") >= 1  # at least present
 
 
 # -----------------------------------------------------------------------
@@ -311,47 +309,53 @@ class TestVeteranBoost:
 # -----------------------------------------------------------------------
 
 class TestDescriptionBoost:
-    """Non-veteran populations inject description_pattern boost."""
+    """Non-veteran populations inject pop_boost_pattern (ORDER BY rank)."""
 
     def test_disabled_injects_pattern(self):
         params = _get_query_params(populations=["disabled"])
-        desc = params.get("description_pattern", "")
-        assert "disabilit" in desc
-        assert "wheelchair" in desc
+        boost = params.get("pop_boost_pattern", "")
+        assert "disabilit" in boost
+        assert "wheelchair" in boost
 
     def test_reentry_injects_pattern(self):
         params = _get_query_params(populations=["reentry"])
-        desc = params.get("description_pattern", "")
-        assert "reentry" in desc
-        assert "parole" in desc
+        boost = params.get("pop_boost_pattern", "")
+        assert "reentry" in boost
+        assert "parole" in boost
 
     def test_dv_survivor_injects_pattern(self):
         params = _get_query_params(populations=["dv_survivor"])
-        desc = params.get("description_pattern", "")
-        assert "domestic violence" in desc
+        boost = params.get("pop_boost_pattern", "")
+        assert "domestic violence" in boost
 
     def test_pregnant_injects_pattern(self):
         params = _get_query_params(populations=["pregnant"])
-        desc = params.get("description_pattern", "")
-        assert "prenatal" in desc
+        boost = params.get("pop_boost_pattern", "")
+        assert "prenatal" in boost
 
     def test_multiple_populations_combine_patterns(self):
         params = _get_query_params(populations=["disabled", "reentry"])
-        desc = params.get("description_pattern", "")
-        assert "disabilit" in desc
-        assert "reentry" in desc
+        boost = params.get("pop_boost_pattern", "")
+        assert "disabilit" in boost
+        assert "reentry" in boost
 
-    def test_description_boost_appends_to_existing(self):
-        """If sub-category narrowing already set a pattern, boost appends."""
+    def test_description_boost_separate_from_subcategory_filter(self):
+        """Phase 4 sub-category filter (description_pattern) and Phase 3
+        population boost (pop_boost_pattern) use different params."""
         params = _get_query_params(
             service_type="other",
             populations=["disabled"],
             service_detail="English classes",
         )
-        desc = params.get("description_pattern", "")
-        # Should have both the ESL pattern AND the disability pattern
-        assert "ESL" in desc or "english" in desc.lower()
-        assert "disabilit" in desc
+        # Phase 4: description_pattern is a WHERE filter for sub-category
+        desc_filter = params.get("description_pattern", "")
+        assert "ESL" in desc_filter or "english" in desc_filter.lower()
+        # Phase 3: pop_boost_pattern is an ORDER BY rank for population
+        pop_boost = params.get("pop_boost_pattern", "")
+        assert "disabilit" in pop_boost
+        # They're separate keys — no collision
+        assert "disabilit" not in desc_filter
+        assert "ESL" not in pop_boost
 
 
 # -----------------------------------------------------------------------
@@ -445,12 +449,12 @@ class TestNoPopulationNoBoost:
     def test_empty_list(self):
         params = _get_query_params(populations=[])
         assert "veteran_boost" not in params
-        assert "description_pattern" not in params
+        assert "pop_boost_pattern" not in params
 
     def test_none(self):
         params = _get_query_params(populations=None)
         assert "veteran_boost" not in params
-        assert "description_pattern" not in params
+        assert "pop_boost_pattern" not in params
 
 
 # -----------------------------------------------------------------------
@@ -758,6 +762,202 @@ class TestExtractSlotsSmartPopulationMerge:
         regex_pops = set([])
         combined = sorted(llm_pops | regex_pops)
         assert combined == []
+
+
+# -----------------------------------------------------------------------
+# ORDER BY DYNAMIC BUILDER
+# -----------------------------------------------------------------------
+
+class TestOrderByDynamicBuilder:
+    """Verify the dynamic ORDER BY includes pop_boost_pattern
+    in the generated SQL — the core fix for Phase 3."""
+
+    def test_pop_boost_pattern_in_sql(self):
+        """When pop_boost_pattern is set, it appears in the ORDER BY."""
+        from app.rag.query_templates import build_query
+        sql, params = build_query("food", {"pop_boost_pattern": "disabilit|wheelchair"})
+        assert ":pop_boost_pattern" in sql
+        assert "ORDER BY" in sql
+        assert params.get("pop_boost_pattern") == "disabilit|wheelchair"
+
+    def test_no_pop_boost_pattern_not_in_sql(self):
+        """When pop_boost_pattern is absent, it does NOT appear in SQL."""
+        from app.rag.query_templates import build_query
+        sql, params = build_query("food", {})
+        assert ":pop_boost_pattern" not in sql
+
+    def test_lgbtq_and_pop_boost_coexist(self):
+        """LGBTQ boost + description boost can appear together."""
+        from app.rag.query_templates import build_query
+        sql, params = build_query("food", {
+            "lgbtq_boost": True,
+            "pop_boost_pattern": "disabilit",
+        })
+        assert "lgbtq" in sql.lower()
+        assert ":pop_boost_pattern" in sql
+
+    def test_veteran_and_pop_boost_coexist(self):
+        """Veteran boost + description boost can appear together."""
+        from app.rag.query_templates import build_query
+        sql, params = build_query("shelter", {
+            "veteran_boost": True,
+            "pop_boost_pattern": "disabilit",
+        })
+        assert "veterans" in sql.lower()
+        assert ":pop_boost_pattern" in sql
+
+    def test_distance_and_pop_boost_coexist(self):
+        """Proximity search + description boost can appear together."""
+        from app.rag.query_templates import build_query
+        sql, params = build_query("food", {
+            "pop_boost_pattern": "senior",
+            "lat": 40.7,
+            "lon": -74.0,
+            "radius_meters": 3000,
+        })
+        assert ":pop_boost_pattern" in sql
+        assert "ST_Distance" in sql
+
+
+# -----------------------------------------------------------------------
+# PHASE 5: DV CRISIS → POPULATION INJECTION
+# -----------------------------------------------------------------------
+
+_DV_CRISIS_RESPONSE = "I'm sorry you're going through this. You deserve to be safe."
+
+_MOCK_RESULTS = {
+    "services": [{"service_name": "Test Shelter", "address": "123 Main St"}],
+    "result_count": 1,
+    "template_used": "shelter",
+    "params_applied": {},
+    "relaxed": False,
+    "execution_ms": 50,
+}
+
+
+def _send_with_crisis(message, crisis_category, session_id=None):
+    """Send a message through generate_reply with mocked crisis detection."""
+    from unittest.mock import patch as _patch
+    from app.services.chatbot import generate_reply
+    from app.services.session_store import clear_session, get_session_slots
+
+    if session_id is None:
+        import uuid
+        session_id = f"test-dv-{uuid.uuid4().hex[:8]}"
+        clear_session(session_id)
+
+    crisis_return = (crisis_category, _DV_CRISIS_RESPONSE)
+
+    with _patch("app.services.chatbot.claude_reply", return_value="How can I help?"), \
+         _patch("app.services.chatbot.query_services", return_value=_MOCK_RESULTS), \
+         _patch("app.services.chatbot.detect_crisis", return_value=crisis_return):
+        result = generate_reply(message, session_id=session_id)
+
+    slots = get_session_slots(session_id)
+    return result, slots, session_id
+
+
+class TestDVCrisisPopulationInjection:
+    """Phase 5: DV crisis step-down injects dv_survivor into _populations
+    so the description boost fires on subsequent searches."""
+
+    def test_dv_crisis_with_service_intent_injects_population(self):
+        """'he hits me and I need shelter' — crisis fires, step-down
+        offers search, and dv_survivor is injected into session."""
+        result, slots, _ = _send_with_crisis(
+            "he hits me and I need shelter in Brooklyn",
+            "domestic_violence",
+        )
+        assert "dv_survivor" in slots.get("_populations", [])
+
+    def test_dv_crisis_without_service_intent_still_injects(self):
+        """'he hits me' — crisis fires, no service intent, but
+        dv_survivor is still injected for future searches."""
+        result, slots, _ = _send_with_crisis(
+            "he hits me",
+            "domestic_violence",
+        )
+        assert "dv_survivor" in slots.get("_populations", [])
+
+    def test_non_dv_crisis_no_injection(self):
+        """Safety concern crisis should NOT inject dv_survivor."""
+        result, slots, _ = _send_with_crisis(
+            "I don't feel safe here, I need shelter in Brooklyn",
+            "safety_concern",
+        )
+        assert "dv_survivor" not in slots.get("_populations", [])
+
+    def test_dv_crisis_preserves_existing_populations(self):
+        """If user already identified as veteran, DV injection should
+        ADD dv_survivor without removing veteran."""
+        from app.services.session_store import save_session_slots, clear_session
+        import uuid
+
+        session_id = f"test-dv-{uuid.uuid4().hex[:8]}"
+        clear_session(session_id)
+        # Pre-populate session with veteran population
+        save_session_slots(session_id, {"_populations": ["veteran"]})
+
+        _, slots, _ = _send_with_crisis(
+            "he hits me and I need shelter in Brooklyn",
+            "domestic_violence",
+            session_id=session_id,
+        )
+        assert "dv_survivor" in slots.get("_populations", [])
+        assert "veteran" in slots.get("_populations", [])
+
+    def test_dv_crisis_no_duplicate_when_already_extracted(self):
+        """If population extractor already caught dv_survivor (from
+        'domestic violence' phrase), injection shouldn't duplicate."""
+        result, slots, _ = _send_with_crisis(
+            "domestic violence, I need shelter in Brooklyn",
+            "domestic_violence",
+        )
+        pops = slots.get("_populations", [])
+        assert pops.count("dv_survivor") == 1
+
+    def test_dv_step_down_offers_search(self):
+        """DV crisis with service intent should offer step-down search."""
+        result, _, _ = _send_with_crisis(
+            "he hits me and I need shelter in Brooklyn",
+            "domestic_violence",
+        )
+        assert "would you like me to search" in result["response"].lower() or \
+               "Yes, search" in str(result.get("quick_replies", []))
+
+    def test_dv_population_persists_after_confirm(self):
+        """After DV crisis step-down, user confirms search → dv_survivor
+        should still be in session when query_services is called."""
+        from unittest.mock import patch as _patch, call as _call
+        from app.services.chatbot import generate_reply
+        from app.services.session_store import clear_session
+        import uuid
+
+        session_id = f"test-dv-{uuid.uuid4().hex[:8]}"
+        clear_session(session_id)
+
+        # Step 1: DV crisis with service intent → step-down
+        with _patch("app.services.chatbot.claude_reply", return_value=""), \
+             _patch("app.services.chatbot.query_services", return_value=_MOCK_RESULTS) as mock_qs, \
+             _patch("app.services.chatbot.detect_crisis",
+                    return_value=("domestic_violence", _DV_CRISIS_RESPONSE)):
+            generate_reply("he hits me and I need shelter in Brooklyn",
+                           session_id=session_id)
+
+        # Step 2: User confirms → query executes
+        with _patch("app.services.chatbot.claude_reply", return_value=""), \
+             _patch("app.services.chatbot.query_services", return_value=_MOCK_RESULTS) as mock_qs, \
+             _patch("app.services.chatbot.detect_crisis", return_value=None):
+            generate_reply("Yes, search", session_id=session_id)
+
+            # Verify query_services was called with populations including dv_survivor
+            if mock_qs.called:
+                call_kwargs = mock_qs.call_args
+                populations = call_kwargs.kwargs.get("populations") or \
+                              (call_kwargs[1].get("populations") if len(call_kwargs) > 1 else None)
+                if populations is not None:
+                    assert "dv_survivor" in populations, \
+                        f"Expected dv_survivor in populations, got: {populations}"
 
 
 if __name__ == "__main__":

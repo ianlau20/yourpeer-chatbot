@@ -893,6 +893,17 @@ def _handle_crisis(
     _step_down_categories = ("safety_concern", "domestic_violence", "youth_runaway")
     if has_service_intent and crisis_category in _step_down_categories:
         merged_crisis = merge_slots(existing, early_extracted)
+
+        # Phase 5: When crisis category is domestic_violence, ensure
+        # dv_survivor is in _populations so the description boost fires
+        # on the subsequent search. The crisis detector catches 54 DV
+        # phrases (e.g. "he hits me", "afraid to go home") that the
+        # population extractor doesn't cover. This bridges the gap.
+        if crisis_category == "domestic_violence":
+            pops = set(merged_crisis.get("_populations", []))
+            pops.add("dv_survivor")
+            merged_crisis["_populations"] = sorted(pops)
+
         additional = early_extracted.get("additional_services", [])
         if additional and "_queued_services" not in merged_crisis:
             merged_crisis["_queued_services"] = additional
@@ -920,6 +931,13 @@ def _handle_crisis(
             ],
         )
     else:
+        # Phase 5: Inject dv_survivor even without service intent, so
+        # if the user later asks for a service, the boost is in session.
+        if crisis_category == "domestic_violence":
+            pops = set(existing.get("_populations", []))
+            pops.add("dv_survivor")
+            existing["_populations"] = sorted(pops)
+
         existing["_last_action"] = "crisis"
         save_session_slots(session_id, existing)
         result = _empty_reply(session_id, crisis_response, existing)
