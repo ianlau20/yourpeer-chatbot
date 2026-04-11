@@ -591,6 +591,14 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
         for key in regex_result:
             if key in ("additional_services", "additional_service_types"):
                 continue
+            # _populations: merge via union from both sources
+            if key == "_populations":
+                llm_pops = set(narrative_result.get("_populations") or [])
+                regex_pops = set(regex_result.get("_populations") or [])
+                combined = sorted(llm_pops | regex_pops)
+                if combined:
+                    narrative_result["_populations"] = combined
+                continue
             if narrative_result.get(key) is None and regex_result.get(key) is not None:
                 narrative_result[key] = regex_result[key]
 
@@ -623,6 +631,16 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
         for key in regex_result:
             # Skip additional_services — handled separately below
             if key == "additional_services":
+                continue
+            # _populations: merge via union (both sources may detect
+            # different populations). Regex catches keyword phrases the
+            # LLM might miss, and vice versa.
+            if key == "_populations":
+                llm_pops = set(llm_result.get("_populations") or [])
+                regex_pops = set(regex_result.get("_populations") or [])
+                combined = sorted(llm_pops | regex_pops)
+                if combined:
+                    llm_result["_populations"] = combined
                 continue
             if llm_result.get(key) is None and regex_result.get(key) is not None:
                 llm_result[key] = regex_result[key]

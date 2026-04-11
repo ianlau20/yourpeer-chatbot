@@ -71,46 +71,31 @@ def _build_confirmation_message(slots: dict) -> str:
     if age:
         parts[0] += f" (age {age})"
 
-    # When the user identified as LGBTQ, note it in the confirmation
-    # so they know the results will prioritize affirming services.
-    # For binary/trans gender, the filter operates silently (like age).
+    # --- Identity-aware prefixes ---
+    # Build a prefix for the service label based on the user's identity
+    # context. Applied ONCE to avoid fragile str.replace() chains.
+    # Priority order: LGBTQ (from _gender) > population (from _populations).
+    # Only one prefix is shown to keep the message concise.
+    _prefix = ""
     gender = slots.get("_gender")
-    if gender == "lgbtq":
-        parts[0] = parts[0].replace(
-            f"I'll search for {service_label}",
-            f"I'll search for LGBTQ-friendly {service_label}",
-        )
-
-    # Population context — let the user know their identity context was
-    # captured and will influence results. Only show the most salient
-    # modifier to keep the message concise.
     populations = slots.get("_populations", [])
-    _pop_prefix_applied = False
-    if "veteran" in populations:
-        parts[0] = parts[0].replace(
-            f"I'll search for {service_label}",
-            f"I'll search for veteran-friendly {service_label}",
-        )
-        _pop_prefix_applied = True
-    elif "disabled" in populations:
-        parts[0] = parts[0].replace(
-            f"I'll search for {service_label}",
-            f"I'll search for accessible {service_label}",
-        )
-        _pop_prefix_applied = True
-    elif "reentry" in populations:
-        parts[0] = parts[0].replace(
-            f"I'll search for {service_label}",
-            f"I'll search for reentry-friendly {service_label}",
-        )
-        _pop_prefix_applied = True
 
-    # Senior: only show if age wasn't explicitly stated (otherwise
-    # "(age 65)" already conveys the same information).
-    if "senior" in populations and not age and not _pop_prefix_applied:
+    if gender == "lgbtq":
+        _prefix = "LGBTQ-friendly "
+    elif "veteran" in populations:
+        _prefix = "veteran-friendly "
+    elif "disabled" in populations:
+        _prefix = "accessible "
+    elif "reentry" in populations:
+        _prefix = "reentry-friendly "
+    elif "senior" in populations and not age:
+        # Only show if age wasn't stated (otherwise "(age 65)" covers it)
+        _prefix = "senior-friendly "
+
+    if _prefix:
         parts[0] = parts[0].replace(
             f"I'll search for {service_label}",
-            f"I'll search for senior-friendly {service_label}",
+            f"I'll search for {_prefix}{service_label}",
         )
 
     family = slots.get("family_status")

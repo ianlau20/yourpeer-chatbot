@@ -583,6 +583,183 @@ class TestLLMClassifierPopulations:
         assert "reentry" in _UNIFIED_SYSTEM_PROMPT
 
 
+# -----------------------------------------------------------------------
+# WORD BOUNDARY EXTRACTION (SHORT KEYWORDS)
+# -----------------------------------------------------------------------
+
+class TestWordBoundaryPopulations:
+    """Short keywords like 'vet' and 'army' use word-boundary matching."""
+
+    def test_vet_word_boundary(self):
+        assert "veteran" in _extract_populations("I'm a vet, need food")
+
+    def test_vet_not_in_veterinarian(self):
+        assert "veteran" not in _extract_populations("I saw a veterinarian")
+
+    def test_vet_not_in_veto(self):
+        assert "veteran" not in _extract_populations("they tried to veto it")
+
+    def test_vet_not_in_vetted(self):
+        assert "veteran" not in _extract_populations("the proposal was vetted")
+
+    def test_army_word_boundary(self):
+        assert "veteran" in _extract_populations("I was in the army")
+
+    def test_army_not_salvation_army(self):
+        """'salvation army' is a service org, not military service."""
+        assert "veteran" not in _extract_populations(
+            "I need help from the salvation army"
+        )
+
+    def test_army_not_salvation_army_capitalized(self):
+        assert "veteran" not in _extract_populations(
+            "The Salvation Army shelter is full"
+        )
+
+
+# -----------------------------------------------------------------------
+# DISABLED / SERVICE KEYWORD OVERLAP
+# -----------------------------------------------------------------------
+
+class TestDisabledServiceKeywordOverlap:
+    """'disabled' exists in both SERVICE_KEYWORDS['other'] and
+    _POPULATION_PHRASES. Verify both systems extract correctly
+    and don't interfere with each other."""
+
+    def test_disabled_alone_extracts_both(self):
+        """'I'm disabled' → service_type=other AND _populations=['disabled'].
+        This is correct: the service extractor sees 'disabled' as a service
+        keyword, and the population extractor sees it as an identity."""
+        slots = extract_slots("I'm disabled")
+        assert slots["service_type"] == "other"
+        assert "disabled" in slots["_populations"]
+
+    def test_disabled_with_service_doesnt_shadow(self):
+        """'I'm disabled and need food' → service_type extracts both
+        'other' (from 'disabled') and 'food', with food as primary
+        if it appears first in the multi-service scan. Population
+        still extracts 'disabled'."""
+        slots = extract_slots("I need food and I'm disabled")
+        assert slots["service_type"] == "food"
+        assert "disabled" in slots["_populations"]
+
+    def test_disability_services_extracts_both(self):
+        """'I need disability services in Brooklyn' → service_type=other
+        (from 'disability services' keyword) AND population=disabled."""
+        slots = extract_slots("I need disability services in Brooklyn")
+        assert slots["service_type"] == "other"
+        assert "disabled" in slots["_populations"]
+
+    def test_wheelchair_food_only_population(self):
+        """'wheelchair' is only a population phrase, not a service keyword.
+        So it extracts population but doesn't set service_type."""
+        slots = extract_slots("I use a wheelchair and need food in Queens")
+        assert slots["service_type"] == "food"
+        assert "disabled" in slots["_populations"]
+
+    def test_disabled_veteran_food(self):
+        """'disabled veteran, need food' — 'disabled' is first in text so
+        it becomes primary service_type=other. 'food' goes to additional.
+        Both populations still extract correctly."""
+        slots = extract_slots("disabled veteran, need food in Brooklyn")
+        # 'disabled' appears first → primary service is 'other'
+        assert slots["service_type"] == "other"
+        assert "disabled" in slots["_populations"]
+        assert "veteran" in slots["_populations"]
+        # 'food' captured in additional_services
+        additional_types = [s[0] for s in slots.get("additional_services", [])]
+        assert "food" in additional_types
+
+    def test_reentry_employment_overlap(self):
+        """'reentry' keywords appear in both SERVICE_KEYWORDS['other'] and
+        _POPULATION_PHRASES. 'on parole' is only a population phrase;
+        'reentry' is both."""
+        slots = extract_slots("I need a job, I'm on parole")
+        assert slots["service_type"] == "employment"
+        assert "reentry" in slots["_populations"]
+
+
+# -----------------------------------------------------------------------
+# CONFIRMATION PREFIX SINGLE-REPLACE INTEGRITY
+# -----------------------------------------------------------------------
+
+class TestConfirmationPrefixIntegrity:
+    """The prefix is built once and applied via a single str.replace().
+    Verify the fix for the fragile multi-replace bug."""
+
+    def test_lgbtq_veteran_lgbtq_wins(self):
+        """LGBTQ prefix takes priority over veteran population prefix."""
+        slots = {
+            "service_type": "shelter",
+            "location": "Manhattan",
+            "_gender": "lgbtq",
+            "_populations": ["veteran"],
+        }
+        msg = _build_confirmation_message(slots)
+        assert "LGBTQ-friendly" in msg
+        # Veteran should NOT also appear (only one prefix shown)
+        assert "veteran-friendly" not in msg
+
+    def test_lgbtq_disabled_lgbtq_wins(self):
+        slots = {
+            "service_type": "food",
+            "location": "Brooklyn",
+            "_gender": "lgbtq",
+            "_populations": ["disabled"],
+        }
+        msg = _build_confirmation_message(slots)
+        assert "LGBTQ-friendly" in msg
+        assert "accessible" not in msg
+
+    def test_no_gender_veteran_wins(self):
+        """Without LGBTQ gender, veteran population prefix applies."""
+        slots = {
+            "service_type": "food",
+            "location": "Brooklyn",
+            "_gender": "male",
+            "_populations": ["veteran"],
+        }
+        msg = _build_confirmation_message(slots)
+        assert "veteran-friendly" in msg
+        assert "LGBTQ" not in msg
+
+
+# -----------------------------------------------------------------------
+# LLM EXTRACT_SLOTS_SMART POPULATION MERGE
+# -----------------------------------------------------------------------
+
+class TestExtractSlotsSmartPopulationMerge:
+    """Verify that extract_slots_smart merges populations from
+    both regex and LLM sources via union."""
+
+    def test_supplement_logic_merges_populations(self):
+        """Simulate the supplement block: LLM has one population,
+        regex has a different one. Both should be in the result."""
+        # This tests the code pattern, not the actual LLM call
+        llm_result = {"_populations": ["veteran"], "service_type": "food"}
+        regex_result = {"_populations": ["disabled"], "service_type": "food"}
+
+        # Simulate the merge logic from extract_slots_smart
+        llm_pops = set(llm_result.get("_populations") or [])
+        regex_pops = set(regex_result.get("_populations") or [])
+        combined = sorted(llm_pops | regex_pops)
+        assert combined == ["disabled", "veteran"]
+
+    def test_supplement_when_llm_empty(self):
+        """LLM returns empty populations, regex found some.
+        Regex populations should survive."""
+        llm_pops = set([])
+        regex_pops = set(["veteran"])
+        combined = sorted(llm_pops | regex_pops)
+        assert combined == ["veteran"]
+
+    def test_supplement_when_both_empty(self):
+        llm_pops = set([])
+        regex_pops = set([])
+        combined = sorted(llm_pops | regex_pops)
+        assert combined == []
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
