@@ -429,9 +429,16 @@ _CONFIRM_DENY_EXACT = [
 ]
 
 _CONFIRM_DENY_PHRASES = [
-    "no thanks", "no thank you", "i dont want", "i don't want",
+    "no thanks", "no thank you",
+    # Narrowed: "i don't want" was too broad — matched "I don't want
+    # anyone to know" (shame context). Adding "to" or "that" suffix.
+    "i dont want to", "i don't want to",
+    "i dont want that", "i don't want that",
     "not right now", "maybe later", "changed my mind",
     "i changed my mind",
+    # Informal declines (multi_decline_with_different_phrasing)
+    "i'm good", "im good", "nah i'm good", "nah im good",
+    "all good", "no need",
 ]
 
 
@@ -1472,12 +1479,48 @@ def generate_reply(
     # --- EXTRACT SLOTS FIRST (before classification) ---
     # This is the key architectural change: slots are always extracted
     # so we know if there's service intent before deciding how to route.
-    # Regex only here — LLM extraction runs later for complex messages.
+    # Regex runs first (instant). If regex finds no service_type on a
+    # message that's long enough to be a real request, the LLM extractor
+    # runs to catch natural phrasings like "somewhere to stay" → shelter
+    # or "help finding work" → employment that regex misses.
     early_extracted = extract_slots(message)
     has_service_intent = early_extracted.get("service_type") is not None
 
-    # --- CLASSIFY ACTION (regex, instant) ---
+    # --- LLM SLOT ENRICHMENT (before classification) ---
+    # When regex found no service_type, try the LLM extractor. This
+    # is the fix for multi_reentry_shelter_employment (2.25) and
+    # multi_dycd_rhy_youth_runaway (3.12) — the LLM prompt already
+    # handles "got out of Rikers" → shelter, "ran away" + "somewhere
+    # to stay" → shelter, "help finding work" → employment. It just
+    # never got to run because routing pre-empted it.
+    #
+    # Gate: only run when it's likely to help and won't waste a call.
+    # Skip for short messages (confirmations, greetings) and for
+    # messages where an action was already detected that should take
+    # priority (resets, bot questions, etc.).
     _action_pre = _classify_action(message)
+    _SKIP_LLM_ENRICHMENT_ACTIONS = {
+        "reset", "greeting", "thanks", "bot_identity", "bot_question",
+        "confirm_yes", "confirm_deny", "confirm_change_service",
+        "confirm_change_location", "correction", "negative_preference",
+        "escalation",
+    }
+    if (_USE_LLM
+            and not has_service_intent
+            and len(message.split()) >= 5
+            and _action_pre not in _SKIP_LLM_ENRICHMENT_ACTIONS):
+        try:
+            _llm_extracted = extract_slots_smart(message)
+            if _llm_extracted.get("service_type"):
+                logger.info(
+                    f"LLM enrichment found service_type="
+                    f"'{_llm_extracted['service_type']}' that regex missed"
+                )
+                early_extracted = _llm_extracted
+                has_service_intent = True
+        except Exception as e:
+            logger.error(f"LLM slot enrichment failed: {e}")
+            # Fall through — regex result is still usable
 
     # --- CRISIS DETECTION (always runs before any other handler) ---
     # Safety: crisis detection MUST run before post-results, confirmation,
@@ -1684,7 +1727,7 @@ def generate_reply(
             # out and need shelter in Brooklyn" where the crisis handler
             # fires on "kicked out" but the user also has a clear service
             # request that shouldn't be lost.
-            _step_down_categories = ("safety_concern", "domestic_violence")
+            _step_down_categories = ("safety_concern", "domestic_violence", "youth_runaway")
             if (has_service_intent
                     and crisis_category in _step_down_categories):
                 # Merge early-extracted slots into session so they're
@@ -2353,10 +2396,13 @@ def generate_reply(
         # Has new slot data — merge and re-process below
 
     # --- Service request or general conversation ---
-    # Slots were already extracted with regex above (early_extracted).
-    # For service-category messages, re-extract with LLM for better
-    # accuracy on complex inputs. For non-service categories, use the
-    # regex result to avoid LLM hallucinating slots from conversation history.
+    # Slots were extracted with regex (and possibly LLM enrichment) above.
+    # For service-category messages, re-extract with LLM + conversation
+    # history for best accuracy. This may re-run the LLM if enrichment
+    # already ran, but the conversation_history context can improve results
+    # in multi-turn scenarios. Cost: ~$0.001 for Haiku — negligible.
+    # For non-service categories, use early_extracted to avoid LLM
+    # hallucinating slots from conversation history.
     if _USE_LLM and category == "service":
         extracted = extract_slots_smart(
             message,

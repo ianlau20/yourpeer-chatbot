@@ -22,7 +22,8 @@ SERVICE_KEYWORDS = {
 
     # --- Shelter & Housing (taxonomy: Shelter) ---
     "shelter": [
-        "shelter", "place to stay", "housing", "sleep tonight",
+        "shelter", "place to stay", "somewhere to stay", "housing",
+        "sleep tonight",
         "place to sleep", "somewhere to sleep", "homeless", "unhoused",
         "drop-in center", "drop in center", "warming center",
         "overnight", "transitional housing", "safe haven", "room",
@@ -96,7 +97,8 @@ SERVICE_KEYWORDS = {
         "resume", "interview", "job training", "vocational",
         "workforce", "job placement", "temp work", "day labor",
         "job search", "job help", "find work", "need work",
-        "looking for work",
+        "looking for work", "finding work", "help finding work",
+        "finding a job", "help finding a job", "help with work",
         "apprenticeship", "part-time", "gig work",
     ],
 
