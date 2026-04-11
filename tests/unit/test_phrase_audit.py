@@ -11,7 +11,7 @@ Run with: python -m pytest tests/test_phrase_audit.py -v
 import pytest
 from unittest.mock import patch
 from app.services.crisis_detector import detect_crisis
-from app.services.chatbot import _classify_tone, _classify_action
+from app.services.classifier import _classify_tone, _classify_action
 from app.services.slot_extractor import extract_slots
 from conftest import assert_classified, send
 

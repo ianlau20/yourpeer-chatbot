@@ -12,7 +12,8 @@ from app.services.bot_knowledge import (
     answer_question, build_capability_context, TOPICS,
     _get_service_categories, _get_pii_categories, _get_location_count,
 )
-from app.services.chatbot import _static_bot_answer, _classify_action
+from app.services.classifier import _classify_action
+from app.services.responses import _static_bot_answer
 
 
 class TestLiveCapabilitySourcing:

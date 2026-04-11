@@ -247,7 +247,7 @@ def assert_classified(message, expected_category):
         assert_classified("start over", "reset")
         assert_classified("hi", "greeting")
     """
-    from app.services.chatbot import _classify_message
+    from app.services.classifier import _classify_message
     actual = _classify_message(message)
     assert actual == expected_category, \
         f"Expected '{message}' → '{expected_category}', got '{actual}'"

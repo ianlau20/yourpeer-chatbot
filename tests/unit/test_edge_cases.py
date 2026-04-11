@@ -205,7 +205,7 @@ def test_pii_redaction_preserves_age():
 
 def test_pii_not_echoed_in_confirmation():
     """PII in slot values must be redacted before echoing in confirmation."""
-    from app.services.chatbot import _build_confirmation_message
+    from app.services.confirmation import _build_confirmation_message
     # Simulate a street address captured as location
     slots = {"service_type": "food", "location": "123 Main Street"}
     msg = _build_confirmation_message(slots)

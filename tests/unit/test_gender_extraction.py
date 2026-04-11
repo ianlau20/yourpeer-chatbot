@@ -159,7 +159,7 @@ class TestConfirmationGender:
 
     @pytest.fixture(autouse=True)
     def _import(self):
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         self.build_msg = _build_confirmation_message
 
     def test_lgbtq_label(self):
