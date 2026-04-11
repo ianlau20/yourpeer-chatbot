@@ -48,7 +48,7 @@ export function ChatContainer() {
     <div className="flex flex-col max-w-[820px] mx-auto px-4 pb-7 min-h-dvh">
       <div className="flex items-baseline gap-2.5 px-1 pt-5 pb-3.5">
         <h1 className="text-xl font-bold tracking-tight text-neutral-900">
-          YourPeer Chat
+          YourPeer AI Chat
         </h1>
         <span
           title={isOnline ? "Connected" : "Offline"}

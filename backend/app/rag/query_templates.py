@@ -14,7 +14,8 @@ Schema reference (Streetlives PostgreSQL):
     eligibility (3,646 rows)       — service_id, parameter_id, eligible_values (JSONB)
     eligibility_parameters (9)     — id, name (gender/age/familySize/income/...)
     physical_addresses (2,569)     — location_id, address_1, city, state_province, postal_code
-    regular_schedules (971)        — service_id, weekday, opens_at, closes_at
+    regular_schedules (971)        — service_id, weekday, opens_at, closes_at (STALE — pre-COVID)
+    holiday_schedules (10,593)     — service_id, weekday, opens_at, closes_at, occasion (CURRENT — 'COVID19')
     organizations (2,460)          — id, name, description, url
     phones (2,730)                 — location_id / service_id / organization_id, number
     accessibility_for_disabilities — location_id, accessibility, details
@@ -104,11 +105,17 @@ FROM services s
             END
         LIMIT 1
     ) best_phone ON TRUE
-    -- Today's schedule: regular LEFT JOIN instead of LATERAL since the
-    -- weekday value is constant per query (no per-row dependency).
-    LEFT JOIN regular_schedules today_sched
+    -- Today's schedule: uses holiday_schedules (occasion='COVID19') which
+    -- contains the current operating hours (10,593 rows covering 2,448
+    -- services). Despite the table name, this is NOT holiday-specific —
+    -- it became the de facto schedule source during COVID when orgs updated
+    -- their hours en masse. regular_schedules (971 rows) is stale pre-COVID
+    -- data. YourPeer.nyc uses this same table for its schedule display.
+    -- Weekday convention: 1=Monday...7=Sunday (matches PostgreSQL ISODOW).
+    LEFT JOIN holiday_schedules today_sched
         ON today_sched.service_id = s.id
-        AND today_sched.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int - 1
+        AND today_sched.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int
+        AND today_sched.occasion = 'COVID19'
     -- Membership eligibility: regular LEFT JOIN instead of LATERAL.
     -- Batches the lookup across all rows instead of per-row subquery.
     LEFT JOIN eligibility membership_elig
@@ -256,13 +263,14 @@ FILTER_BY_GENDER_ELIGIBILITY = (
 )
 
 # Schedule filter — only services open on a given weekday.
-# weekday: 0=Monday … 6=Sunday (matches regular_schedules.weekday)
+# weekday: 1=Monday … 7=Sunday (matches holiday_schedules.weekday / ISODOW)
 FILTER_BY_WEEKDAY = (
     """
     EXISTS (
-        SELECT 1 FROM regular_schedules rs
+        SELECT 1 FROM holiday_schedules rs
         WHERE rs.service_id = s.id
           AND rs.weekday = :weekday
+          AND rs.occasion = 'COVID19'
     )
     """,
     ["weekday"],
@@ -272,11 +280,12 @@ FILTER_BY_WEEKDAY = (
 FILTER_BY_OPEN_NOW = (
     """
     EXISTS (
-        SELECT 1 FROM regular_schedules rs
+        SELECT 1 FROM holiday_schedules rs
         WHERE rs.service_id = s.id
           AND rs.weekday = :weekday
           AND rs.opens_at <= :current_time
           AND rs.closes_at >= :current_time
+          AND rs.occasion = 'COVID19'
     )
     """,
     ["weekday", "current_time"],
