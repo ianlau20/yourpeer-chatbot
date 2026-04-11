@@ -511,9 +511,10 @@ TEMPLATES = {
             "taxonomy_names": [
                 "legal services",
                 "immigration services",
+                "advocates / legal aid",
             ]
         },
-        "taxonomy_aliases": ["Legal Services", "Immigration Services"],
+        "taxonomy_aliases": ["Legal Services", "Immigration Services", "Advocates / Legal Aid"],
     },
     "employment": {
         "name": "EmploymentQuery",
