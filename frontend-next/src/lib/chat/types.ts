@@ -102,6 +102,7 @@ export interface RoutingDistribution {
     conversational: number;
     emotional: number;
     safety: number;
+    recovery: number;
     general_llm: number;
     other: number;
   };
@@ -142,6 +143,91 @@ export interface AdminStats {
   routing?: RoutingDistribution;
   tone_distribution?: ToneDistribution;
   multi_intent?: MultiIntentMetrics;
+  // P0-P3 metrics (Run 23+)
+  confidence?: ConfidenceMetrics;
+  recovery_rates?: RecoveryMetrics;
+  session_metrics?: SessionMetrics;
+  no_result_by_service?: Record<string, { total_queries: number; no_result_rate: number }>;
+  time_of_day?: TimeOfDayMetrics;
+  post_results_engagement?: PostResultsEngagement;
+  geographic_demand?: Record<string, { total_queries: number; share: number; no_result_rate: number }>;
+  frustration_tiers?: FrustrationTiers;
+  session_duration?: SessionDuration;
+  repetition_rate?: RepetitionRate;
+  llm_metrics?: LlmMetrics;
+}
+
+// --- P0-P3 metric types ---
+
+export interface ConfidenceMetrics {
+  total_with_confidence: number;
+  distribution: Record<string, number>;
+  high_rate: number | null;
+  low_rate: number | null;
+}
+
+export interface RecoveryMetrics {
+  correction_turns: number;
+  correction_session_rate: number | null;
+  disambiguation_turns: number;
+  disambiguation_session_rate: number | null;
+  negative_preference_turns: number;
+  negative_preference_session_rate: number | null;
+}
+
+export interface SessionMetrics {
+  total_sessions: number;
+  bounce_count: number;
+  bounce_rate: number | null;
+  avg_turns_per_session: number | null;
+  median_turns_per_session: number | null;
+  distribution?: Record<string, number>;
+}
+
+export interface TimeOfDayMetrics {
+  total_events: number;
+  peak_hour_utc: number | null;
+  hourly?: Record<string, number>;
+  daily?: Record<string, number>;
+}
+
+export interface PostResultsEngagement {
+  sessions_with_results: number;
+  sessions_engaged: number;
+  engagement_rate: number | null;
+}
+
+export interface FrustrationTiers {
+  total_frustrated_sessions: number;
+  tiers: { tier_1: number; tier_2: number; tier_3_plus: number };
+  tier_1_rate: number | null;
+  tier_3_plus_rate: number | null;
+}
+
+export interface SessionDuration {
+  total_multi_turn_sessions: number;
+  avg_duration_sec: number | null;
+  median_duration_sec: number | null;
+  p95_duration_sec: number | null;
+  buckets?: Record<string, number>;
+}
+
+export interface RepetitionRate {
+  sessions_with_repetition: number;
+  repetition_rate: number | null;
+}
+
+export interface LlmMetrics {
+  total_calls: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  estimated_cost: number | null;
+  avg_calls_per_session: number | null;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  failure_rate: number | null;
+  by_task?: Record<string, { calls: number; avg_latency_ms: number }>;
+  by_model?: Record<string, number>;
 }
 
 export interface ConversationSummary {
