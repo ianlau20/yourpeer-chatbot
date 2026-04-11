@@ -39,6 +39,7 @@ def query_services(
     family_status: str = None,
     colocated_service_types: list = None,
     service_detail: str = None,
+    populations: list = None,
 ) -> dict:
     """
     High-level entry point: go from intake slots to service results.
@@ -251,6 +252,43 @@ def query_services(
             pattern = _DETAIL_DESCRIPTION_PATTERNS.get(service_detail)
             if pattern:
                 user_params["description_pattern"] = pattern
+
+    # -----------------------------------------------------------------
+    # Population-based query boost (Phase 3)
+    # -----------------------------------------------------------------
+    # Cross-cutting identity attributes that modify ALL searches.
+    # Veterans get veteran-tagged services boosted. Disabled users get
+    # accessibility-related services boosted. Etc.
+    #
+    # Auto-infer senior from age when not explicitly stated.
+    _populations = list(populations or [])
+    if age is not None and age >= 62 and "senior" not in _populations:
+        _populations.append("senior")
+
+    # Description-based boost patterns — appended to any existing
+    # description_pattern from sub-category narrowing (Phase 4).
+    # These float relevant services higher in results without
+    # excluding anything.
+    _POPULATION_DESCRIPTION_BOOSTS = {
+        "disabled": r"disabilit|disabled|wheelchair|accessible|ADA|blind|deaf|SSI|SSDI",
+        "reentry": r"reentry|re-entry|parole|probation|incarcerat|released|formerly",
+        "dv_survivor": r"domestic violence|DV|intimate partner|safety plan|abuse|protective order",
+        "pregnant": r"prenatal|maternity|postpartum|WIC|pregnan|maternal|newborn",
+        "senior": r"senior|older adult|aging|elder|60\+|65\+|over 60|NORC",
+    }
+
+    for pop in _populations:
+        if pop == "veteran":
+            # Taxonomy-based boost (same pattern as LGBTQ boost)
+            user_params["veteran_boost"] = True
+        else:
+            boost_pattern = _POPULATION_DESCRIPTION_BOOSTS.get(pop)
+            if boost_pattern:
+                existing_pattern = user_params.get("description_pattern", "")
+                if existing_pattern:
+                    user_params["description_pattern"] = f"{existing_pattern}|{boost_pattern}"
+                else:
+                    user_params["description_pattern"] = boost_pattern
 
     # Co-located service filter: restrict results to locations that also
     # have the additional service types the user asked for.

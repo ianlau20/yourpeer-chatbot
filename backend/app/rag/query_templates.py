@@ -84,7 +84,15 @@ SELECT
      WHERE sal_co.location_id = l.id
        AND s_co.id != s.id
        AND t_co.name NOT IN ('Other service')
-    ) AS also_available
+    ) AS also_available,
+
+    -- Accessibility info from the accessibility_for_disabilities table.
+    -- Surfaced on service cards so users can make informed decisions.
+    (SELECT afd.accessibility
+     FROM accessibility_for_disabilities afd
+     WHERE afd.location_id = l.id
+     LIMIT 1
+    ) AS accessibility_info
 
 FROM services s
     JOIN service_at_locations sal  ON s.id = sal.service_id
@@ -340,6 +348,17 @@ _LGBTQ_BOOST_RANK = """CASE
     ) THEN 0 ELSE 1
 END"""
 
+# Veteran taxonomy boost: floats services tagged "Veterans" to top.
+# Same pattern as LGBTQ boost. Only active when user identifies as veteran.
+_VETERAN_BOOST_RANK = """CASE
+    WHEN EXISTS (
+        SELECT 1 FROM service_taxonomy st_vet
+        JOIN taxonomies t_vet ON st_vet.taxonomy_id = t_vet.id
+        WHERE st_vet.service_id = s.id
+        AND LOWER(t_vet.name) = 'veterans'
+    ) THEN 0 ELSE 1
+END"""
+
 _ORDER_LIMIT = f"""
 ORDER BY {_OPEN_NOW_RANK},
          l.last_validated_at DESC NULLS LAST,
@@ -349,6 +368,23 @@ LIMIT :max_results
 
 _ORDER_LIMIT_LGBTQ_BOOST = f"""
 ORDER BY {_LGBTQ_BOOST_RANK},
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_LIMIT_VETERAN_BOOST = f"""
+ORDER BY {_VETERAN_BOOST_RANK},
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_LIMIT_BOTH_BOOST = f"""
+ORDER BY {_LGBTQ_BOOST_RANK},
+         {_VETERAN_BOOST_RANK},
          {_OPEN_NOW_RANK},
          l.last_validated_at DESC NULLS LAST,
          s.name
@@ -367,6 +403,25 @@ LIMIT :max_results
 
 _ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST = f"""
 ORDER BY {_LGBTQ_BOOST_RANK},
+         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_BY_DISTANCE_LIMIT_VETERAN_BOOST = f"""
+ORDER BY {_VETERAN_BOOST_RANK},
+         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_BY_DISTANCE_LIMIT_BOTH_BOOST = f"""
+ORDER BY {_LGBTQ_BOOST_RANK},
+         {_VETERAN_BOOST_RANK},
          ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
          {_OPEN_NOW_RANK},
          l.last_validated_at DESC NULLS LAST,
@@ -751,13 +806,21 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
     if "max_results" not in params:
         params["max_results"] = _DEFAULT_MAX_RESULTS
 
-    # Use distance-aware ordering when proximity search is active
-    # Use LGBTQ-boosted ordering when user identifies as LGBTQ/trans/nonbinary
+    # Use distance-aware ordering when proximity search is active.
+    # Use population-boosted ordering when user identifies as LGBTQ or veteran.
     _lgbtq_boost = params.pop("lgbtq_boost", False)
-    if "lat" in params and "lon" in params:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_BY_DISTANCE_LIMIT
+    _veteran_boost = params.pop("veteran_boost", False)
+
+    _has_distance = "lat" in params and "lon" in params
+
+    if _lgbtq_boost and _veteran_boost:
+        order_clause = _ORDER_BY_DISTANCE_LIMIT_BOTH_BOOST if _has_distance else _ORDER_LIMIT_BOTH_BOOST
+    elif _lgbtq_boost:
+        order_clause = _ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST if _has_distance else _ORDER_LIMIT_LGBTQ_BOOST
+    elif _veteran_boost:
+        order_clause = _ORDER_BY_DISTANCE_LIMIT_VETERAN_BOOST if _has_distance else _ORDER_LIMIT_VETERAN_BOOST
     else:
-        order_clause = _ORDER_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_LIMIT
+        order_clause = _ORDER_BY_DISTANCE_LIMIT if _has_distance else _ORDER_LIMIT
 
     full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{order_clause}"
 
@@ -893,6 +956,7 @@ def format_service_card(row: dict) -> dict:
             else row.get("last_validated_at")  # pass through str or None
         ),
         "also_available": also_available if also_available else None,
+        "accessibility": row.get("accessibility_info"),
     }
 
 

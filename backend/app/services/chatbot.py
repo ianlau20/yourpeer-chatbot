@@ -657,8 +657,8 @@ def generate_reply(
             )
         else:
             pending_extracted = extract_slots(message)
-        pending_has_new = any(v is not None for k, v in pending_extracted.items()
-                              if k != "additional_services")
+        pending_has_new = any(v is not None and v != [] for k, v in pending_extracted.items()
+                              if k not in ("additional_services", "_populations"))
 
         if not pending_has_new:
             existing["_pending_confirmation"] = True
@@ -700,8 +700,8 @@ def generate_reply(
     else:
         extracted = early_extracted
 
-    has_new_slots = any(v is not None for k, v in extracted.items()
-                        if k != "additional_services")
+    has_new_slots = any(v is not None and v != [] for k, v in extracted.items()
+                        if k not in ("additional_services", "_populations"))
 
     merged = merge_slots(existing, extracted)
 
@@ -1205,6 +1205,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             family_status=slots.get("family_status"),
             colocated_service_types=colocated_types,
             service_detail=slots.get("service_detail"),
+            populations=slots.get("_populations"),
         )
 
         colocated_success = (

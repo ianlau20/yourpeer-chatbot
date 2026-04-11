@@ -81,6 +81,38 @@ def _build_confirmation_message(slots: dict) -> str:
             f"I'll search for LGBTQ-friendly {service_label}",
         )
 
+    # Population context — let the user know their identity context was
+    # captured and will influence results. Only show the most salient
+    # modifier to keep the message concise.
+    populations = slots.get("_populations", [])
+    _pop_prefix_applied = False
+    if "veteran" in populations:
+        parts[0] = parts[0].replace(
+            f"I'll search for {service_label}",
+            f"I'll search for veteran-friendly {service_label}",
+        )
+        _pop_prefix_applied = True
+    elif "disabled" in populations:
+        parts[0] = parts[0].replace(
+            f"I'll search for {service_label}",
+            f"I'll search for accessible {service_label}",
+        )
+        _pop_prefix_applied = True
+    elif "reentry" in populations:
+        parts[0] = parts[0].replace(
+            f"I'll search for {service_label}",
+            f"I'll search for reentry-friendly {service_label}",
+        )
+        _pop_prefix_applied = True
+
+    # Senior: only show if age wasn't explicitly stated (otherwise
+    # "(age 65)" already conveys the same information).
+    if "senior" in populations and not age and not _pop_prefix_applied:
+        parts[0] = parts[0].replace(
+            f"I'll search for {service_label}",
+            f"I'll search for senior-friendly {service_label}",
+        )
+
     family = slots.get("family_status")
     if family == "with_children":
         parts[0] += ", with children"

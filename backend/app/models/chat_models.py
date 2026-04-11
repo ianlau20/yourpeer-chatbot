@@ -28,6 +28,7 @@ class ServiceCard(BaseModel):
     requires_membership: Optional[bool] = None
     last_validated_at: Optional[str] = None
     also_available: Optional[List[str]] = None
+    accessibility: Optional[str] = None
 
 
 class QuickReply(BaseModel):
