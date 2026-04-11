@@ -136,8 +136,11 @@ def query_services(
         _DB_GENDER_VALUES = {"male", "female"}
         if gender in _DB_GENDER_VALUES:
             user_params["gender"] = gender
-        # else: gender signal is preserved in slots for taxonomy enrichment
-        # and confirmation display, but not passed to the eligibility filter
+        # For LGBTQ/trans/nonbinary: skip the eligibility filter but
+        # activate the sort boost so affirming services (e.g., Ali Forney
+        # Center) float to the top of results without excluding anything.
+        if gender in ("lgbtq", "transgender", "nonbinary"):
+            user_params["lgbtq_boost"] = True
     if weekday is not None:
         user_params["weekday"] = weekday
     if current_time:

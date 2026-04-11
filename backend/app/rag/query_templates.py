@@ -309,8 +309,29 @@ _OPEN_NOW_RANK = """CASE
     THEN 0 ELSE 1
 END"""
 
+# LGBTQ taxonomy boost: returns 0 for services tagged "LGBTQ Young Adult",
+# 1 for everything else. Floats affirming services (e.g., Ali Forney Center)
+# to the top of results without excluding non-LGBTQ services.
+# Only active when user identifies as LGBTQ/trans/nonbinary.
+_LGBTQ_BOOST_RANK = """CASE
+    WHEN EXISTS (
+        SELECT 1 FROM service_taxonomy st_lgbtq
+        JOIN taxonomies t_lgbtq ON st_lgbtq.taxonomy_id = t_lgbtq.id
+        WHERE st_lgbtq.service_id = s.id
+        AND LOWER(t_lgbtq.name) = 'lgbtq young adult'
+    ) THEN 0 ELSE 1
+END"""
+
 _ORDER_LIMIT = f"""
 ORDER BY {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_LIMIT_LGBTQ_BOOST = f"""
+ORDER BY {_LGBTQ_BOOST_RANK},
+         {_OPEN_NOW_RANK},
          l.last_validated_at DESC NULLS LAST,
          s.name
 LIMIT :max_results
@@ -320,6 +341,15 @@ LIMIT :max_results
 # Distance first, then open-now, then freshness.
 _ORDER_BY_DISTANCE_LIMIT = f"""
 ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST = f"""
+ORDER BY {_LGBTQ_BOOST_RANK},
+         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
          {_OPEN_NOW_RANK},
          l.last_validated_at DESC NULLS LAST,
          s.name
@@ -659,9 +689,12 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
         params["max_results"] = _DEFAULT_MAX_RESULTS
 
     # Use distance-aware ordering when proximity search is active
-    order_clause = _ORDER_LIMIT
+    # Use LGBTQ-boosted ordering when user identifies as LGBTQ/trans/nonbinary
+    _lgbtq_boost = params.pop("lgbtq_boost", False)
     if "lat" in params and "lon" in params:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT
+        order_clause = _ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_BY_DISTANCE_LIMIT
+    else:
+        order_clause = _ORDER_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_LIMIT
 
     full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{order_clause}"
 

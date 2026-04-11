@@ -159,7 +159,7 @@ class TestConfirmationGender:
 
     @pytest.fixture(autouse=True)
     def _import(self):
-        from app.services.confirmation import _build_confirmation_message
+        from app.services.chatbot import _build_confirmation_message
         self.build_msg = _build_confirmation_message
 
     def test_lgbtq_label(self):
@@ -179,31 +179,83 @@ class TestConfirmationGender:
 
 
 # ---------------------------------------------------------------------------
-# 4. Query layer — gender filter mapping
+# 4. Query layer — gender filter mapping + LGBTQ sort boost
 # ---------------------------------------------------------------------------
 
 class TestGenderFilterMapping:
-    """Verify that only male/female pass to the SQL filter.
+    """Verify that only male/female pass to the SQL filter, and that
+    LGBTQ/trans/nonbinary trigger a sort boost instead."""
 
-    transgender/nonbinary/lgbtq must NOT be passed as gender to
-    query_services, because the DB only has ["male","female"] and
-    ["female"] in eligibility.eligible_values for gender.
-    """
+    def test_male_passes_to_filter(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("clothing", {"gender": "male", "borough": "Manhattan"})
+        assert params.get("gender") == "male"
 
-    def test_male_passes_through(self):
-        """Male should be included in user_params for filtering."""
-        # We test the param building logic, not the actual DB query
-        from app.rag import query_services
-        # This would fail without a DB, but we can check the code path
-        # by inspecting what params would be built.
-        # For now, verify the mapping logic in __init__.py is correct
-        # by checking the DB-compatible values set.
+    def test_female_passes_to_filter(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("clothing", {"gender": "female", "borough": "Manhattan"})
+        assert params.get("gender") == "female"
+
+    def test_lgbtq_not_in_filter_params(self):
+        """lgbtq should never be passed as a gender filter value."""
         _DB_GENDER_VALUES = {"male", "female"}
-        assert "male" in _DB_GENDER_VALUES
-        assert "female" in _DB_GENDER_VALUES
+        assert "lgbtq" not in _DB_GENDER_VALUES
         assert "transgender" not in _DB_GENDER_VALUES
         assert "nonbinary" not in _DB_GENDER_VALUES
-        assert "lgbtq" not in _DB_GENDER_VALUES
+
+
+class TestLgbtqSortBoost:
+    """Verify that lgbtq_boost activates the LGBTQ Young Adult sort preference."""
+
+    def test_boost_adds_lgbtq_rank_to_order_by(self):
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("shelter", {
+            "borough": "Manhattan",
+            "lgbtq_boost": True,
+            "taxonomy_names": ["shelter", "lgbtq young adult"],
+        })
+        # The LGBTQ boost subquery should be in the ORDER BY
+        assert "lgbtq young adult" in sql.lower()
+        assert "st_lgbtq" in sql
+
+    def test_no_boost_without_flag(self):
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("shelter", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["shelter", "lgbtq young adult"],
+        })
+        assert "st_lgbtq" not in sql
+
+    def test_boost_not_leaked_as_sql_param(self):
+        """lgbtq_boost should be popped from params, not sent to SQL."""
+        from app.rag.query_templates import build_query
+        _, params = build_query("shelter", {
+            "borough": "Manhattan",
+            "lgbtq_boost": True,
+        })
+        assert "lgbtq_boost" not in params
+
+    def test_boost_with_distance_ordering(self):
+        """LGBTQ boost should also work with proximity-based sorting."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("shelter", {
+            "lat": 40.7233,
+            "lon": -73.9985,
+            "radius_meters": 1600,
+            "lgbtq_boost": True,
+            "taxonomy_names": ["shelter", "lgbtq young adult"],
+        })
+        assert "st_lgbtq" in sql
+        assert "ST_Distance" in sql
+
+    def test_boost_works_for_non_shelter(self):
+        """LGBTQ boost should work for any service type, not just shelter."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("food", {
+            "borough": "Manhattan",
+            "lgbtq_boost": True,
+        })
+        assert "st_lgbtq" in sql
 
 
 # ---------------------------------------------------------------------------
