@@ -928,7 +928,7 @@ class TestDVCrisisPopulationInjection:
     def test_dv_population_persists_after_confirm(self):
         """After DV crisis step-down, user confirms search → dv_survivor
         should still be in session when query_services is called."""
-        from unittest.mock import patch as _patch, call as _call
+        from unittest.mock import patch as _patch
         from app.services.chatbot import generate_reply
         from app.services.session_store import clear_session
         import uuid
@@ -938,7 +938,7 @@ class TestDVCrisisPopulationInjection:
 
         # Step 1: DV crisis with service intent → step-down
         with _patch("app.services.chatbot.claude_reply", return_value=""), \
-             _patch("app.services.chatbot.query_services", return_value=_MOCK_RESULTS) as mock_qs, \
+             _patch("app.services.chatbot.query_services", return_value=_MOCK_RESULTS), \
              _patch("app.services.chatbot.detect_crisis",
                     return_value=("domestic_violence", _DV_CRISIS_RESPONSE)):
             generate_reply("he hits me and I need shelter in Brooklyn",
@@ -950,14 +950,45 @@ class TestDVCrisisPopulationInjection:
              _patch("app.services.chatbot.detect_crisis", return_value=None):
             generate_reply("Yes, search", session_id=session_id)
 
-            # Verify query_services was called with populations including dv_survivor
-            if mock_qs.called:
-                call_kwargs = mock_qs.call_args
-                populations = call_kwargs.kwargs.get("populations") or \
-                              (call_kwargs[1].get("populations") if len(call_kwargs) > 1 else None)
-                if populations is not None:
-                    assert "dv_survivor" in populations, \
-                        f"Expected dv_survivor in populations, got: {populations}"
+        # Hard assertions — query_services MUST have been called
+        assert mock_qs.called, "query_services was not called after confirm"
+        call_kwargs = mock_qs.call_args
+        populations = call_kwargs.kwargs.get("populations")
+        assert populations is not None, "populations param missing from query_services call"
+        assert "dv_survivor" in populations, \
+            f"Expected dv_survivor in populations, got: {populations}"
+
+    def test_dv_no_service_intent_then_followup_gets_boost(self):
+        """User says 'he hits me' (no service intent) → crisis fires →
+        dv_survivor injected. Then user says 'I need shelter in Brooklyn'
+        → dv_survivor should be in query_services call."""
+        from unittest.mock import patch as _patch
+        from app.services.chatbot import generate_reply
+        from app.services.session_store import clear_session
+        import uuid
+
+        session_id = f"test-dv-{uuid.uuid4().hex[:8]}"
+        clear_session(session_id)
+
+        # Step 1: DV crisis, no service intent
+        with _patch("app.services.chatbot.claude_reply", return_value=""), \
+             _patch("app.services.chatbot.query_services", return_value=_MOCK_RESULTS), \
+             _patch("app.services.chatbot.detect_crisis",
+                    return_value=("domestic_violence", _DV_CRISIS_RESPONSE)):
+            generate_reply("he hits me", session_id=session_id)
+
+        # Step 2: Follow-up with service intent → should reach confirmation
+        with _patch("app.services.chatbot.claude_reply", return_value=""), \
+             _patch("app.services.chatbot.query_services", return_value=_MOCK_RESULTS), \
+             _patch("app.services.chatbot.detect_crisis", return_value=None):
+            result = generate_reply("I need shelter in Brooklyn",
+                                    session_id=session_id)
+
+        # Verify dv_survivor is in session for when search executes
+        from app.services.session_store import get_session_slots
+        slots = get_session_slots(session_id)
+        assert "dv_survivor" in slots.get("_populations", []), \
+            f"dv_survivor not in session after follow-up, got: {slots.get('_populations')}"
 
 
 if __name__ == "__main__":
