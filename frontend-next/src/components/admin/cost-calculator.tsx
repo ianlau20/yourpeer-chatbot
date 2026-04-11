@@ -89,7 +89,7 @@ export function CostCalculator() {
   const [llmSlotPct, setLlmSlotPct] = useState(30);
   const [crisisLlmPct, setCrisisLlmPct] = useState(5);
   const [conversationalPct, setConversationalPct] = useState(20);
-  const [classificationPct, setClassificationPct] = useState(15);
+  const [classificationPct, setClassificationPct] = useState(25);
   const [emotionalPct, setEmotionalPct] = useState(5);
   const [botQuestionPct, setBotQuestionPct] = useState(2);
   const [includeJury, setIncludeJury] = useState(false);
@@ -125,7 +125,7 @@ export function CostCalculator() {
   const activeTasks: { key: string; label: string; model: "haiku" | "sonnet"; cost: number; count: number }[] = [
     { key: "conv", label: "Conversational", model: config.models.conv, cost: config.breakdown.conv, count: conversationalTurns },
     { key: "slots", label: "Slot extraction", model: config.models.slots, cost: config.breakdown.slots, count: slotTurns },
-    { key: "classification", label: "Classification", model: config.models.classification, cost: config.breakdown.classification, count: classificationTurns },
+    { key: "classification", label: "Unified gate", model: config.models.classification, cost: config.breakdown.classification, count: classificationTurns },
     { key: "crisis", label: "Crisis detection", model: config.models.crisis, cost: config.breakdown.crisis, count: crisisTurns },
     { key: "emotionalAck", label: "Emotional ack.", model: config.models.emotionalAck, cost: config.breakdown.emotionalAck, count: emotionalTurns },
     { key: "botQuestion", label: "Bot questions", model: config.models.botQuestion, cost: config.breakdown.botQuestion, count: botQuestionTurns },
@@ -147,7 +147,7 @@ export function CostCalculator() {
           <SliderField label="% needing LLM slots" value={llmSlotPct} onChange={setLlmSlotPct} min={0} max={100} step={5} format={(v) => v + "%"} />
           <SliderField label="% hitting LLM crisis" value={crisisLlmPct} onChange={setCrisisLlmPct} min={0} max={30} step={1} format={(v) => v + "%"} />
           <SliderField label="% conversational LLM" value={conversationalPct} onChange={setConversationalPct} min={0} max={60} step={5} format={(v) => v + "%"} />
-          <SliderField label="% LLM classification" value={classificationPct} onChange={setClassificationPct} min={0} max={50} step={5} format={(v) => v + "%"} />
+          <SliderField label="% unified gate (regex miss rate)" value={classificationPct} onChange={setClassificationPct} min={0} max={50} step={5} format={(v) => v + "%"} />
           <SliderField label="% emotional responses" value={emotionalPct} onChange={setEmotionalPct} min={0} max={20} step={1} format={(v) => v + "%"} />
           <SliderField label="% bot questions" value={botQuestionPct} onChange={setBotQuestionPct} min={0} max={10} step={1} format={(v) => v + "%"} />
         </div>
