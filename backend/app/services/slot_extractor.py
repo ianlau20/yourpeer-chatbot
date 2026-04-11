@@ -134,6 +134,24 @@ SERVICE_KEYWORDS = {
         "vocational training",
     ],
 
+    # --- Housing Assistance (non-emergency — taxonomy: Other service, Benefits, etc.) ---
+    # Distinct from "shelter" which returns beds/drop-in centers.
+    # These are housing PROGRAMS: rental assistance, eviction prevention,
+    # affordable housing applications, Section 8 vouchers, etc.
+    # "housing" alone stays in shelter (ambiguous → urgent interpretation).
+    "housing_assistance": [
+        # Rental / eviction
+        "rental assistance", "help with rent", "behind on rent",
+        "rent arrears", "eviction prevention",
+        "housing voucher", "housing assistance",
+        "housing program", "housing application",
+        "section 8", "rent program",
+        "homeless prevention",
+        # Affordable housing
+        "affordable housing", "nycha", "housing connect",
+        "subsidized housing", "housing lottery",
+    ],
+
     # --- Other Services (taxonomy: Other service) ---
     "other": [
         "other services", "other service",
@@ -158,10 +176,6 @@ SERVICE_KEYWORDS = {
         "high school equivalency", "adult education", "adult literacy",
         "computer class", "computer skills", "digital literacy",
         "computer training",
-        # Housing assistance — non-shelter (112 services)
-        "rental assistance", "help with rent", "behind on rent",
-        "rent arrears", "eviction prevention",
-        "housing voucher", "housing assistance",
         # Senior services (23 services)
         "senior center", "senior services", "older adult",
         "aging services", "elder services",
@@ -178,9 +192,6 @@ SERVICE_KEYWORDS = {
         # LGBTQ non-shelter services (13 services)
         "lgbtq services", "lgbtq support", "lgbtq center",
         "queer services", "queer community",
-        # Affordable housing (non-emergency)
-        "affordable housing", "nycha", "housing connect",
-        "subsidized housing",
         # Parenting
         "parenting class", "parenting support", "parenting program",
         # Baby supplies (moved from food — diapers aren't food)
@@ -340,13 +351,19 @@ _NOTABLE_SUB_TYPES = {
     "eviction prevention": "eviction prevention",
     "housing voucher": "housing vouchers",
     "housing assistance": "housing assistance",
+    "housing program": "housing programs",
+    "section 8": "Section 8 vouchers",
+    "affordable housing": "affordable housing",
+    "housing lottery": "housing lottery",
+    "nycha": "NYCHA housing",
+    "housing connect": "Housing Connect",
+    "homeless prevention": "homeless prevention programs",
     "senior center": "senior services",
     "senior services": "senior services",
     "older adult": "senior services",
     "reentry": "re-entry services",
     "re-entry": "re-entry services",
     "released from jail": "re-entry services",
-    "affordable housing": "affordable housing",
     "parenting class": "parenting classes",
     "baby supplies": "baby supplies",
     "diapers": "baby supplies",

@@ -271,6 +271,9 @@ SLOT_SERVICE_TO_TEMPLATE = {
     "shelter":       "shelter",
     "housing":       "shelter",
 
+    # Housing Assistance (non-emergency — rental assistance, eviction prevention)
+    "housing_assistance": "housing_assistance",
+
     # Clothing
     "clothing":      "clothing",
 

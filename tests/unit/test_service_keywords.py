@@ -218,31 +218,60 @@ class TestEducation:
 
 
 class TestHousingAssistance:
-    """112 services — distinct from shelter (beds vs rent programs)."""
+    """112 services — distinct from shelter (beds vs rent programs).
+    Phase 2: split into dedicated housing_assistance service type."""
 
     def test_rental_assistance(self):
         r = extract_slots("I need rental assistance")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
         assert r["service_detail"] == "rental assistance"
 
     def test_behind_on_rent(self):
         r = extract_slots("I'm behind on rent")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
 
     def test_housing_voucher(self):
         r = extract_slots("I need a housing voucher")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
 
     def test_eviction_prevention(self):
         r = extract_slots("I need eviction prevention")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
 
     def test_housing_vs_shelter(self):
-        """'housing' alone → shelter (urgent). 'housing assistance' → other (program)."""
+        """'housing' alone → shelter (urgent). 'housing assistance' → housing_assistance (program)."""
         r_housing = extract_slots("I need housing")
         r_assist = extract_slots("I need housing assistance")
         assert r_housing["service_type"] == "shelter"
-        assert r_assist["service_type"] == "other"
+        assert r_assist["service_type"] == "housing_assistance"
+
+    def test_affordable_housing(self):
+        r = extract_slots("I need affordable housing")
+        assert r["service_type"] == "housing_assistance"
+        assert r["service_detail"] == "affordable housing"
+
+    def test_nycha(self):
+        r = extract_slots("how do I apply for NYCHA")
+        assert r["service_type"] == "housing_assistance"
+        assert r["service_detail"] == "NYCHA housing"
+
+    def test_section_8(self):
+        r = extract_slots("I need Section 8")
+        assert r["service_type"] == "housing_assistance"
+        assert r["service_detail"] == "Section 8 vouchers"
+
+    def test_housing_program(self):
+        r = extract_slots("I need a housing program")
+        assert r["service_type"] == "housing_assistance"
+
+    def test_evicted_stays_shelter(self):
+        """'evicted' implies immediate crisis → shelter, not housing programs."""
+        r = extract_slots("I just got evicted")
+        assert r["service_type"] == "shelter"
+
+    def test_homeless_prevention(self):
+        r = extract_slots("I need homeless prevention help")
+        assert r["service_type"] == "housing_assistance"
 
 
 class TestSenior:
@@ -484,3 +513,63 @@ class TestYourPeerAlignment:
         assert "ISODOW FROM CURRENT_DATE)::int\n" in sql or \
                "ISODOW FROM CURRENT_DATE)::int " in sql
         assert "ISODOW FROM CURRENT_DATE)::int - 1" not in sql
+
+
+class TestHousingAssistanceTemplate:
+    """Phase 2: housing_assistance template uses description-level filtering
+    to return housing programs (rental assistance, eviction prevention)
+    instead of the full 940-item 'Other service' catch-all."""
+
+    def test_template_exists(self):
+        from app.rag.query_templates import TEMPLATES
+        assert "housing_assistance" in TEMPLATES
+
+    def test_template_has_description_filter(self):
+        """Description filter must be in required_filters so it always runs."""
+        from app.rag.query_templates import TEMPLATES, FILTER_BY_DESCRIPTION_KEYWORDS
+        required = TEMPLATES["housing_assistance"]["required_filters"]
+        assert FILTER_BY_DESCRIPTION_KEYWORDS in required
+
+    def test_description_pattern_in_default_params(self):
+        from app.rag.query_templates import TEMPLATES
+        pattern = TEMPLATES["housing_assistance"]["default_params"]["description_pattern"]
+        assert "rental" in pattern
+        assert "eviction" in pattern
+        assert "section 8" in pattern.lower() or "section" in pattern
+
+    def test_sql_includes_description_filter(self):
+        from app.rag.query_templates import build_query
+        sql, params = build_query("housing_assistance", {"borough": "Manhattan"})
+        assert "description ~*" in sql
+        assert "description_pattern" in params
+
+    def test_sql_excludes_description_filter_for_shelter(self):
+        """Shelter template must NOT have description filter."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("shelter", {"borough": "Manhattan"})
+        assert "description ~*" not in sql
+
+    def test_relaxed_query_keeps_description_filter(self):
+        """When zero results, relaxed query drops borough but keeps
+        description filter — we still want housing programs, not all 940."""
+        from app.rag.query_templates import build_relaxed_query
+        sql, _ = build_relaxed_query("housing_assistance", {"borough": "Manhattan"})
+        assert "description ~*" in sql
+
+    def test_routing_maps_correctly(self):
+        from app.rag.query_executor import resolve_template_key
+        assert resolve_template_key("housing_assistance") == "housing_assistance"
+        assert resolve_template_key("shelter") == "shelter"
+        assert resolve_template_key("housing") == "shelter"
+
+    def test_disambiguation_housing_vs_housing_assistance(self):
+        """'housing' → shelter (urgent). 'housing assistance' → housing_assistance (program)."""
+        r_housing = extract_slots("I need housing")
+        r_assist = extract_slots("I need housing assistance")
+        r_rent = extract_slots("I need help with rent")
+        r_evicted = extract_slots("I got evicted")
+
+        assert r_housing["service_type"] == "shelter"
+        assert r_assist["service_type"] == "housing_assistance"
+        assert r_rent["service_type"] == "housing_assistance"
+        assert r_evicted["service_type"] == "shelter"
