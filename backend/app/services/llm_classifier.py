@@ -70,6 +70,9 @@ bot_question, confirm_yes, confirm_deny, negative_preference, or null,
   "urgency": "high" if tonight/now/emergency, "medium" if soon/this week, \
 or null,
   "age": integer if stated, or null,
+  "gender": one of: male, female, transgender, nonbinary, lgbtq, or null. \
+Only extract if explicitly stated. lgbtq/queer/gay/lesbian = "lgbtq". \
+Trans man/FTM = "male". Trans woman/MTF = "female". Non-binary/enby/agender = "nonbinary",
   "family_status": "with_children", "with_family", "alone", or null
 }
 
@@ -221,5 +224,12 @@ def _validate_result(data: dict) -> dict:
     if isinstance(family, str):
         family = family.lower().strip()
     result["family_status"] = family if family in _VALID_FAMILY else None
+
+    # Gender
+    _VALID_GENDERS = {"male", "female", "transgender", "nonbinary", "lgbtq", None}
+    gender = data.get("gender")
+    if isinstance(gender, str):
+        gender = gender.lower().strip()
+    result["gender"] = gender if gender in _VALID_GENDERS else None
 
     return result

@@ -207,6 +207,116 @@ _NOTABLE_SUB_TYPES = {
     "groceries": "groceries",
 }
 
+# ---------------------------------------------------------------------------
+# GENDER / LGBTQ IDENTITY EXTRACTION
+# ---------------------------------------------------------------------------
+# Extract ONLY when the user explicitly states their gender or identity.
+# NEVER infer gender from name, voice, or phrasing.
+# Maps stated identity to DB-compatible values for eligibility filtering.
+
+_GENDER_PHRASES = {
+    # Female-identifying
+    "woman": "female", "female": "female", "girl": "female",
+    "mom": "female", "mother": "female",
+
+    # Male-identifying
+    "man": "male", "male": "male", "guy": "male",
+    "dad": "male", "father": "male",
+
+    # Trans-identifying — map to the gender they identify AS
+    # AND flag as transgender for LGBTQ-specific services
+    "transwoman": "female", "trans woman": "female",
+    "transman": "male", "trans man": "male",
+    "transgender": "transgender",
+    "mtf": "female", "ftm": "male",
+
+    # Non-binary / gender non-conforming
+    "nonbinary": "nonbinary", "non-binary": "nonbinary",
+    "non binary": "nonbinary", "enby": "nonbinary",
+    "genderqueer": "nonbinary", "gender fluid": "nonbinary",
+    "agender": "nonbinary",
+
+    # LGBTQ umbrella — doesn't specify gender but indicates need
+    # for LGBTQ-affirming services
+    "lgbtq": "lgbtq", "lgbtq+": "lgbtq", "lgbt": "lgbtq",
+    "queer": "lgbtq", "gay": "lgbtq", "lesbian": "lgbtq",
+    "bisexual": "lgbtq",
+}
+
+# Sorted longest-first so "trans woman" matches before "woman",
+# "non-binary" before "non", etc.
+_GENDER_PHRASES_SORTED = sorted(_GENDER_PHRASES.items(), key=lambda x: len(x[0]), reverse=True)
+
+# Words that contain gender keywords but are NOT gender declarations.
+# "the man at the counter" or "Manhattan" should not trigger extraction.
+_GENDER_FALSE_POSITIVE_RE = re.compile(
+    r'\b(?:man(?:hattan|age[rd]?|ual|date|kind|y|or|ic|ner)?'
+    r'|woman(?:hood|ly|ize)?'
+    r'|male(?:volent|function|ware)?'
+    r'|female(?:ness)?'
+    r'|guy(?:ana|s)?'
+    r')\b',
+    re.IGNORECASE,
+)
+
+# Patterns that indicate the user is talking about THEMSELVES
+# (vs. referring to someone else). We require one of:
+#   - "I am a ...", "I'm a ...", "im a ..."
+#   - Bare identity term as the subject: "transman, need shelter"
+#   - Comma-separated list with age: "21, LGBTQ, in Soho"
+_SELF_REFERENCE_RE = re.compile(
+    r"(?:"
+    r"\bi[' ]?m\s+(?:a\s+)?"          # "I'm a", "I'm", "im a"
+    r"|\bi am\s+(?:a\s+)?"            # "I am a", "I am"
+    r"|\bas a\s+"                       # "as a trans man"
+    r"|\b\d{1,2}\s*,\s*"               # "21, LGBTQ" (age-prefixed)
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _extract_gender(text: str) -> Optional[str]:
+    """Extract gender or LGBTQ identity from user message.
+
+    Returns one of: 'male', 'female', 'transgender', 'nonbinary',
+    'lgbtq', or None. Only extracts when explicitly stated.
+    """
+    lower = text.lower()
+
+    for phrase, value in _GENDER_PHRASES_SORTED:
+        pos = lower.find(phrase)
+        if pos == -1:
+            continue
+
+        end = pos + len(phrase)
+
+        # Word boundary check: the character before/after must be
+        # non-alphanumeric (or start/end of string)
+        if pos > 0 and lower[pos - 1].isalpha():
+            continue
+        if end < len(lower) and lower[end].isalpha():
+            # Exception: allow "transman" (no space) as a single word
+            if phrase not in ("transman", "transwoman"):
+                continue
+
+        # Guard against "the man at the counter" — check that the gender
+        # term is used as self-identification, not referring to someone else.
+        # For short unambiguous identity terms (lgbtq, trans*, nonbinary, etc.)
+        # we trust the match. For common words (man, woman, guy, girl, mom, dad)
+        # we require a self-reference pattern nearby.
+        _COMMON_GENDER_WORDS = {"man", "woman", "guy", "girl", "male", "female",
+                                 "mom", "mother", "dad", "father"}
+        if phrase in _COMMON_GENDER_WORDS:
+            # Check for self-reference pattern in the ~30 chars before the match
+            prefix = text[max(0, pos - 30):pos + end]
+            if not _SELF_REFERENCE_RE.search(prefix):
+                continue
+
+        return value
+
+    return None
+
+
 def _extract_all_service_types(text: str) -> list[tuple[str, Optional[str]]]:
     """Extract ALL service type categories from a message.
 
@@ -681,6 +791,7 @@ def extract_slots(message: str) -> dict:
         "urgency": _extract_urgency(message),
         "age": _extract_age(message),
         "family_status": _extract_family_status(message),
+        "gender": _extract_gender(message),
     }
 
 

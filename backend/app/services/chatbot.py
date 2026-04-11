@@ -1020,6 +1020,16 @@ def _build_confirmation_message(slots: dict) -> str:
     if age:
         parts[0] += f" (age {age})"
 
+    # When the user identified as LGBTQ, note it in the confirmation
+    # so they know the results will prioritize affirming services.
+    # For binary/trans gender, the filter operates silently (like age).
+    gender = slots.get("gender")
+    if gender == "lgbtq":
+        parts[0] = parts[0].replace(
+            f"I'll search for {service_label}",
+            f"I'll search for LGBTQ-friendly {service_label}",
+        )
+
     family = slots.get("family_status")
     if family == "with_children":
         parts[0] += ", with children"
@@ -1575,6 +1585,8 @@ def generate_reply(
                         early_extracted["age"] = _unified["age"]
                     if _unified.get("family_status"):
                         early_extracted["family_status"] = _unified["family_status"]
+                    if _unified.get("gender"):
+                        early_extracted["gender"] = _unified["gender"]
                     has_service_intent = True
 
                 # Tone and action — store for later routing
@@ -2732,6 +2744,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             service_type=slots.get("service_type"),
             location=location,
             age=slots.get("age"),
+            gender=slots.get("gender"),
             latitude=slots.get("_latitude") if use_coords else None,
             longitude=slots.get("_longitude") if use_coords else None,
             family_status=slots.get("family_status"),

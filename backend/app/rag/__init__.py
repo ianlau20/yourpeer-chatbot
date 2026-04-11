@@ -122,7 +122,22 @@ def query_services(
     if age is not None:
         user_params["age"] = age
     if gender:
-        user_params["gender"] = gender
+        # The DB only has "male" and "female" in eligibility.eligible_values
+        # for the gender parameter. Values like "transgender", "nonbinary",
+        # and "lgbtq" would fail the @> check and wrongly EXCLUDE services
+        # that have gender rules (e.g., a trans man would be excluded from
+        # clothing pantries that accept males).
+        #
+        # Mapping:
+        #   "male" / "female" → pass directly (matches DB values)
+        #   "transgender"     → skip filter (no direction specified)
+        #   "nonbinary"       → skip filter (not in DB)
+        #   "lgbtq"           → skip filter (handled via taxonomy boost)
+        _DB_GENDER_VALUES = {"male", "female"}
+        if gender in _DB_GENDER_VALUES:
+            user_params["gender"] = gender
+        # else: gender signal is preserved in slots for taxonomy enrichment
+        # and confirmation display, but not passed to the eligibility filter
     if weekday is not None:
         user_params["weekday"] = weekday
     if current_time:
@@ -153,6 +168,12 @@ def query_services(
         # slots, so include it by default so these services are never
         # invisible to any shelter search.
         extra_taxonomies.append("lgbtq young adult")
+
+        # When user explicitly identified as LGBTQ, trans, or nonbinary,
+        # also include sub-categories that may be LGBTQ-affirming
+        if gender in ("lgbtq", "transgender", "nonbinary"):
+            extra_taxonomies.append("drop-in center")
+            extra_taxonomies.append("crisis")
 
         if extra_taxonomies:
             enriched = list(TEMPLATES["shelter"]["default_params"]["taxonomy_names"])
