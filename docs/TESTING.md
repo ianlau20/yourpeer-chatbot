@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 1,392 tests across 36 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests validate every backend module: slot extraction (regex and LLM-based), PII redaction, conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern with 6 emotion-specific static responses), frustration routing (3-tier counter-based escalation), negative preference handling, conversational awareness guard, privacy routing exception, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, intensifier stripping, post-normalization emotional phrase variants, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), database schema/query integration, bot self-knowledge (live capability sourcing, topic matching), boundary drift detection (mock/Pydantic/SQL/format sync), context-aware routing (state transitions, frustration counting, implicit service changes), integration scenarios (narrative flows, cross-feature interactions, eval approximations), and narrative extraction (urgency-aware slot extraction for long messages), ambiguity handling (confidence scoring, disambiguation prompts, correction recovery, "Not what I meant" button), and post-results boundary routing (new-request escape hatch, location-based result clearing, name-match fallthrough). Unit tests run without external services (database and Claude API are mocked). Integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 1,475 tests across 39 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests are organized into `tests/unit/` (23 files — no DB or LLM needed) and `tests/integration/` (15 files — use mocked DB/LLM via `send()`/`send_multi()` helpers), with a separate `tests/eval/` directory for the LLM judge. Tests validate every backend module: slot extraction (regex and LLM-based), gender/LGBTQ identity extraction, PII redaction (including gender identity terms), conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern with 6 emotion-specific static responses), frustration routing (3-tier counter-based escalation), negative preference handling, conversational awareness guard, privacy routing exception, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, intensifier stripping, post-normalization emotional phrase variants, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), database schema/query integration, bot self-knowledge (live capability sourcing, topic matching), boundary drift detection (mock/Pydantic/SQL/format sync), context-aware routing (state transitions, frustration counting, implicit service changes), integration scenarios (narrative flows, cross-feature interactions, eval approximations), narrative extraction (urgency-aware slot extraction for long messages), ambiguity handling (confidence scoring, disambiguation prompts, correction recovery, "Not what I meant" button), and post-results boundary routing (new-request escape hatch, location-based result clearing, name-match fallthrough). Unit tests run without external services (database and Claude API are mocked). DB integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -19,16 +19,28 @@ pip install pytest httpx
 pytest tests/ -v
 ```
 
+**Run unit tests only (fast, no external deps):**
+
+```
+pytest tests/unit/ -v
+```
+
+**Run integration tests only:**
+
+```
+pytest tests/integration/ -v
+```
+
 **Run a single test file:**
 
 ```
-pytest tests/test_chatbot.py -v
+pytest tests/unit/test_slot_extractor.py -v
 ```
 
 **Run a single test:**
 
 ```
-pytest tests/test_chatbot.py::test_confirm_deny_breaks_loop -v
+pytest tests/integration/test_chatbot.py::test_confirm_deny_breaks_loop -v
 ```
 
 **Run LLM-as-judge evaluation (requires API key):**
@@ -47,38 +59,42 @@ Without `ANTHROPIC_API_KEY`, the 5 live LLM tests are automatically skipped.
 
 ## Test Coverage Map
 
-All 17 backend modules and all public functions are covered:
+All 21 backend modules and all public functions are covered. Tests are in `tests/unit/` (no external deps) and `tests/integration/` (mocked DB/LLM):
 
 | Module | Test file(s) | Tests | Status |
 |---|---|---|---|
-| `chatbot.py` | `test_chatbot.py`, `test_bug_fixes.py`, `test_edge_cases.py`, `test_chat_route.py`, `test_context_routing.py`, `test_integration_scenarios.py`, `test_ambiguity_handling.py` | 280+ | Full |
-| `slot_extractor.py` | `test_slot_extractor.py`, `test_edge_cases.py`, `test_location_boundaries.py` | 160+ | Full |
-| `rag/__init__.py` | `test_query_templates.py`, `test_geolocation.py`, `test_db_integration.py` | 90+ | Full |
-| `query_templates.py` | `test_query_templates.py`, `test_location_boundaries.py` | 49+ | Full |
-| `query_executor.py` | `test_location_boundaries.py`, `test_edge_cases.py` | 65 | Full |
-| `audit_log.py` | `test_audit_log.py`, `test_bug_fixes.py`, `test_admin.py`, `test_ambiguity_handling.py` | 70+ | Full |
-| `crisis_detector.py` | `test_crisis_detector.py`, `test_bug_fixes.py`, `test_crisis_safety_edges.py` | 60+ | Full |
-| `llm_slot_extractor.py` | `test_llm_slot_extractor.py`, `test_narrative_extraction.py` | 44 | Full |
-| `llm_classifier.py` | `test_llm_classifier.py` | 30 | Full |
-| `bot_knowledge.py` | `test_bot_knowledge.py` | 37 | Full |
-| `post_results.py` | `test_post_results.py`, `test_post_results_boundary.py` | 100 | Full |
-| `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 34+ | Full |
-| `session_store.py` | `test_session_store.py`, `test_chatbot.py`, `test_chat_route.py` | 7+ | Full |
-| `session_token.py` | `test_session_token.py`, `test_chat_route.py` | 17 | Full |
-| `rate_limiter.py` | `test_rate_limiter.py`, `test_rate_limit_integration.py` | 24 | Full |
-| `chat_models.py` | `test_chat_route.py`, `test_boundary_drift.py` | 27+ | Full |
-| `admin.py` (routes) | `test_admin.py` | 28 | Full |
-| `chat.py` (route) | `test_chat_route.py` | 48 | Full |
-| `claude_client.py` | `test_claude_client.py` | 19 | Full |
-| `main.py` | `test_main.py` | 14 | Full |
+| `chatbot.py` | `integration/test_chatbot.py`, `integration/test_bug_fixes.py`, `integration/test_context_routing.py`, `integration/test_integration_scenarios.py`, `integration/test_ambiguity_handling.py` | 280+ | Full |
+| `classifier.py` | `unit/test_contraction_normalization.py`, `unit/test_phrase_audit.py`, `integration/test_chatbot.py` | 60+ | Full |
+| `phrase_lists.py` | `unit/test_phrase_audit.py` | 41 | Full |
+| `responses.py` | `integration/test_chatbot.py`, `integration/test_gap_coverage.py` | (inline) | Full |
+| `confirmation.py` | `unit/test_edge_cases.py`, `unit/test_gender_extraction.py`, `integration/test_chatbot.py` | (inline) | Full |
+| `slot_extractor.py` | `unit/test_slot_extractor.py`, `unit/test_gender_extraction.py`, `unit/test_edge_cases.py`, `unit/test_location_boundaries.py` | 200+ | Full |
+| `rag/__init__.py` | `unit/test_query_templates.py`, `integration/test_geolocation.py`, `integration/test_db_integration.py` | 90+ | Full |
+| `query_templates.py` | `unit/test_query_templates.py`, `unit/test_location_boundaries.py` | 49+ | Full |
+| `query_executor.py` | `unit/test_location_boundaries.py`, `unit/test_edge_cases.py` | 65 | Full |
+| `audit_log.py` | `unit/test_audit_log.py`, `integration/test_bug_fixes.py`, `integration/test_admin.py`, `integration/test_ambiguity_handling.py` | 70+ | Full |
+| `crisis_detector.py` | `unit/test_crisis_detector.py`, `integration/test_bug_fixes.py`, `integration/test_crisis_safety_edges.py` | 60+ | Full |
+| `llm_slot_extractor.py` | `unit/test_llm_slot_extractor.py`, `unit/test_narrative_extraction.py` | 44 | Full |
+| `llm_classifier.py` | `unit/test_llm_classifier.py` | 30 | Full |
+| `bot_knowledge.py` | `unit/test_bot_knowledge.py` | 37 | Full |
+| `post_results.py` | `unit/test_post_results.py`, `unit/test_post_results_boundary.py` | 100 | Full |
+| `pii_redactor.py` | `unit/test_pii_redactor.py`, `unit/test_gender_extraction.py`, `unit/test_edge_cases.py` | 38+ | Full |
+| `session_store.py` | `unit/test_session_store.py`, `integration/test_chatbot.py`, `integration/test_chat_route.py` | 7+ | Full |
+| `session_token.py` | `unit/test_session_token.py`, `integration/test_chat_route.py` | 17 | Full |
+| `rate_limiter.py` | `unit/test_rate_limiter.py`, `integration/test_rate_limit_integration.py` | 24 | Full |
+| `chat_models.py` | `integration/test_chat_route.py`, `integration/test_boundary_drift.py` | 27+ | Full |
+| `admin.py` (routes) | `integration/test_admin.py` | 28 | Full |
+| `chat.py` (route) | `integration/test_chat_route.py` | 48 | Full |
+| `claude_client.py` | `unit/test_claude_client.py` | 19 | Full |
+| `main.py` | `unit/test_main.py` | 14 | Full |
 
 **Not covered:** Frontend TypeScript/React components (`frontend-next/`). There is no frontend test infrastructure in the project yet. See "Known Limitations" section below.
 
 ## Test Suites
 
-### `test_chatbot.py` — 180 tests
+### `integration/test_chatbot.py` — 193 tests
 
-Validates the main chatbot module — message classification (split classifier), slot extraction routing, PII redaction integration, confirmation flow, quick replies, emotional awareness, bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, combined action+tone routing, tone prefix assertions, escalation guard, nearby borough suggestions, location-unknown interceptor, service flow continuation, and LLM fallback. External dependencies are mocked.
+Validates the main chatbot routing — message classification (split classifier in `classifier.py`), slot extraction routing, PII redaction integration, confirmation flow (in `confirmation.py`), quick replies, emotional awareness (responses in `responses.py`), bot questions, privacy question handling, static fallbacks, context-aware yes/no, frustration loop detection, family composition, gender/LGBTQ identity handling, combined action+tone routing, tone prefix assertions, escalation guard, nearby borough suggestions, location-unknown interceptor, service flow continuation, and LLM fallback. External dependencies are mocked.
 
 | Category | Tests | What's covered |
 |---|---|---|

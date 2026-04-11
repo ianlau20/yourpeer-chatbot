@@ -1,7 +1,7 @@
 # Phrase List Audit Report
 
 **Date:** 2026-04-08
-**Scope:** All regex phrase lists in `chatbot.py`, `crisis_detector.py`, and `slot_extractor.py`
+**Scope:** All regex phrase lists in `phrase_lists.py`, `classifier.py`, `crisis_detector.py`, and `slot_extractor.py`
 **Methodology:** Cross-referenced against C-SSRS (Columbia Suicide Severity Rating Scale), ISEAR emotion model, DAPHNE social needs chatbot research, Woebot/Wysa clinical patterns, NYC homeless population service terminology, and NLP suicide detection literature.
 
 ---
@@ -16,14 +16,14 @@
 | Trafficking | crisis_detector.py | 25 | Crisis detection — forced labor/sex work |
 | Medical emergency | crisis_detector.py | 18 | Crisis detection — immediate physical danger |
 | Violence | crisis_detector.py | 16 | Crisis detection — threats to others |
-| Emotional | chatbot.py | 135 | Sub-crisis distress routing → AVR handler. Includes "i'm X", "im X", "i am X", "i feel X", and "i am feeling X" forms for 13 emotional states, plus intensifier variants |
-| Frustration | chatbot.py | 40 | System frustration → 3-tier escalation handler |
-| Confused | chatbot.py | 25 | Overwhelm → gentle guidance handler |
-| Negative preference | chatbot.py | 19 | Rejection of offered options → alternative service categories |
-| Escalation | chatbot.py | 13 | Human handoff requests |
-| Help | chatbot.py | 15 | Capability questions |
-| Bot question | chatbot.py | 65 | Privacy/capability meta-questions (includes 12 provider data-sharing phrases) |
-| Bot identity | chatbot.py | 15 | "Am I talking to a robot?" |
+| Emotional | phrase_lists.py | 135 | Sub-crisis distress routing → AVR handler. Includes "i'm X", "im X", "i am X", "i feel X", and "i am feeling X" forms for 13 emotional states, plus intensifier variants |
+| Frustration | phrase_lists.py | 40 | System frustration → 3-tier escalation handler |
+| Confused | phrase_lists.py | 25 | Overwhelm → gentle guidance handler |
+| Negative preference | classifier.py | 19 | Rejection of offered options → alternative service categories |
+| Escalation | phrase_lists.py | 13 | Human handoff requests |
+| Help | phrase_lists.py | 15 | Capability questions |
+| Bot question | phrase_lists.py | 65 | Privacy/capability meta-questions (includes 12 provider data-sharing phrases) |
+| Bot identity | phrase_lists.py | 15 | "Am I talking to a robot?" |
 | Service keywords | slot_extractor.py | 220 | Service type extraction (9 categories) |
 | Word-boundary keywords | slot_extractor.py | 6 | Collision-prone service keywords |
 | **Total** | | **~759** | |
@@ -321,7 +321,7 @@ A comprehensive regex audit tested 133 natural-language inputs and found miss ra
 
 **Slot extractor — employment (+5):** finding work, help finding work, help with work, finding a job, help finding a job.
 
-**Total phrases added:** ~90 across chatbot.py, crisis_detector.py, and slot_extractor.py. Post-Track 1 detection rates on audit test set: confirm_yes 18%→100%, frustration 42%→100%, emotional 0%→100%, escalation 50%→100%, crisis suicidal ideation 18%→82%, crisis DV 50%→100%, crisis medical 0%→100%.
+**Total phrases added:** ~90 across phrase_lists.py, classifier.py, crisis_detector.py, and slot_extractor.py. Post-Track 1 detection rates on audit test set: confirm_yes 18%→100%, frustration 42%→100%, emotional 0%→100%, escalation 50%→100%, crisis suicidal ideation 18%→82%, crisis DV 50%→100%, crisis medical 0%→100%.
 
 **Implementation note:** 130+ phrases added across 7 files. Total phrase inventory: 770 → 850+. Three systematic preprocessing functions eliminate future gaps: contraction normalization (37 mappings), intensifier stripping (20 adverbs), and emotional enhancement validation (56-item blocklist). Bot self-knowledge module (`bot_knowledge.py`) provides 15 topic entries with keyword matching for static bot question answers. Zero test regressions (939 passed locally, same 4 pre-existing feature gaps).
 

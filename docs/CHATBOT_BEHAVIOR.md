@@ -399,7 +399,7 @@ This pattern is informed by research across several domains relevant to our popu
 
 Based on this research, the following principles govern emotional handling in the YourPeer chatbot:
 
-1. **Emotion detection runs before intent classification.** The split classifier (`_classify_tone`) runs independently of slot extraction. This ensures emotional phrases like "I'm feeling scared" are recognized even when service keywords are also present.
+1. **Emotion detection runs before intent classification.** The split classifier (`_classify_tone()` in `classifier.py`) runs independently of slot extraction. This ensures emotional phrases like "I'm feeling scared" are recognized even when service keywords are also present.
 
 2. **Don't push services on emotional users.** When someone expresses distress ("I'm feeling really down"), the response shows empathy and offers a peer navigator — no service category buttons. The emotional deny handler ("no" after emotional response) also avoids the full service menu, showing only a navigator button.
 
@@ -451,8 +451,8 @@ Based on this research, the following principles govern emotional handling in th
 
 ### Adding a new routing category
 
-1. Add a phrase list constant in `chatbot.py` (e.g., `_NEW_CATEGORY_PHRASES`)
-2. Add detection in `_classify_message` at the appropriate priority level
+1. Add a phrase list constant in `phrase_lists.py` (e.g., `_NEW_CATEGORY_PHRASES`)
+2. Add detection in `_classify_action()` or `_classify_tone()` in `classifier.py` at the appropriate priority level
 3. Add a response constant or LLM prompt builder
 4. Add routing in `generate_reply`
 5. Add the category to `_CLASSIFY_SYSTEM_PROMPT` and the `valid` set in `claude_client.py`
@@ -460,19 +460,19 @@ Based on this research, the following principles govern emotional handling in th
 
 ### Adding new emotional phrases
 
-Add to `_EMOTIONAL_PHRASES` in `chatbot.py`. Avoid phrases that overlap with service keywords ("feeling hungry" should route to food service, not emotional acknowledgment). Add a test case to `test_emotional_classification`. Thanks to contraction normalization, you only need the expanded form — e.g., adding "not okay" will automatically match "isn't okay", "wasnt okay", "aren't okay", etc.
+Add to `_EMOTIONAL_PHRASES` in `phrase_lists.py`. Avoid phrases that overlap with service keywords ("feeling hungry" should route to food service, not emotional acknowledgment). Add a test case to `test_emotional_classification`. Thanks to contraction normalization, you only need the expanded form — e.g., adding "not okay" will automatically match "isn't okay", "wasnt okay", "aren't okay", etc.
 
 ### Contraction normalization and intensifier stripping
 
-`_normalize_contractions()` in `chatbot.py` expands 37 common contractions (e.g., "isn't" → "is not", "i'm" → "i am") before phrase matching in `_classify_tone()` and the help negators in `_classify_action()`. This means phrase lists only need the expanded "not" form to match all contraction variants. Normalization is NOT applied to crisis detection — crisis uses explicit enumeration for safety. To add a new contraction, add it to `_CONTRACTION_MAP` in `chatbot.py` and add a test in `test_contraction_normalization.py`.
+`_normalize_contractions()` in `classifier.py` expands 37 common contractions (e.g., "isn't" → "is not", "i'm" → "i am") before phrase matching in `_classify_tone()` and the help negators in `_classify_action()`. This means phrase lists only need the expanded "not" form to match all contraction variants. Normalization is NOT applied to crisis detection — crisis uses explicit enumeration for safety. To add a new contraction, add it to `_CONTRACTION_MAP` in `phrase_lists.py` and add a test in `test_contraction_normalization.py`.
 
-`_strip_intensifiers()` removes 19 common intensifier adverbs (really, very, so, super, extremely, just, kinda, etc.) from text before phrase matching. This allows "I'm really scared" to match "i'm scared" in the phrase list without needing every intensifier×emotion combination. Both `_classify_tone()` and `_classify_message()` check four variants of each message: cleaned, normalized (contractions expanded), stripped (intensifiers removed), and stripped_normalized (both). Intensifier stripping is NOT applied to crisis detection.
+`_strip_intensifiers()` (in `classifier.py`) removes 19 common intensifier adverbs (really, very, so, super, extremely, just, kinda, etc.) from text before phrase matching. This allows "I'm really scared" to match "i'm scared" in the phrase list without needing every intensifier×emotion combination. Both `_classify_tone()` and `_classify_message()` check four variants of each message: cleaned, normalized (contractions expanded), stripped (intensifiers removed), and stripped_normalized (both). Intensifier stripping is NOT applied to crisis detection.
 
-**Post-normalization phrase variants.** Because contraction normalization converts "I'm" → "I am", the `_EMOTIONAL_PHRASES` list includes both forms: "i'm scared" and "i am scared". Without these, "I'm scared" → normalized "i am scared" → no match. The post-normalization variants cover scared, sad, down, anxious, lonely, hopeless, depressed, stuck, stressed, and pathetic.
+**Post-normalization phrase variants.** Because contraction normalization converts "I'm" → "I am", the `_EMOTIONAL_PHRASES` list (in `phrase_lists.py`) includes both forms: "i'm scared" and "i am scared". Without these, "I'm scared" → normalized "i am scared" → no match. The post-normalization variants cover scared, sad, down, anxious, lonely, hopeless, depressed, stuck, stressed, and pathetic.
 
 ### Modifying guardrails
 
-LLM guardrails are embedded in three prompt builders in `chatbot.py`:
+LLM guardrails are embedded in three prompt builders in `responses.py`:
 - `_build_conversational_prompt()` — general conversation
 - `_build_empathetic_prompt()` — emotional acknowledgment
 - `_build_bot_question_prompt()` — capability questions
@@ -481,14 +481,17 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 180 tests in `test_chatbot.py`, 56 context routing tests in `test_context_routing.py`, 31 post-results boundary tests in `test_post_results_boundary.py`, 26 ambiguity handling tests in `test_ambiguity_handling.py`, 29 integration scenario tests in `test_integration_scenarios.py`, 28 structural fix tests in `test_structural_fixes.py`, 41 phrase audit tests in `test_phrase_audit.py`, 19 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 34 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 193 tests in `integration/test_chatbot.py`, 56 context routing tests in `integration/test_context_routing.py`, 31 post-results boundary tests in `unit/test_post_results_boundary.py`, 26 ambiguity handling tests in `integration/test_ambiguity_handling.py`, 29 integration scenario tests in `integration/test_integration_scenarios.py`, 28 structural fix tests in `integration/test_structural_fixes.py`, 41 phrase audit tests in `unit/test_phrase_audit.py`, 19 contraction normalization tests in `unit/test_contraction_normalization.py`, 29 edge-case tests in `unit/test_edge_cases.py`, 36 crisis detection tests in `unit/test_crisis_detector.py`, 39 gender extraction tests in `unit/test_gender_extraction.py`, and 34 PII redaction tests in `unit/test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests
-pytest tests/test_chatbot.py -v
+pytest tests/integration/test_chatbot.py -v
 
 # Run a specific category
-pytest tests/test_chatbot.py -k "emotional" -v
+pytest tests/integration/test_chatbot.py -k "emotional" -v
+
+# Unit tests only (fast)
+pytest tests/unit/ -q
 
 # Full suite
 pytest tests/ -q
