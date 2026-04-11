@@ -307,6 +307,12 @@ def get_stats() -> dict:
     routing = _compute_routing(turns, cat_dist)
     tone_dist = _compute_tone_distribution(turns)
     multi = _compute_multi_intent(turns, queries, sess_cats)
+    confidence = _compute_confidence(turns)
+    recovery = _compute_recovery_rates(turns, sess_cats)
+    session_metrics = _compute_session_metrics(turns)
+    no_result_svc = _compute_no_result_by_service(queries)
+    time_of_day = _compute_time_of_day(all_events)
+    post_results_eng = _compute_post_results_engagement(turns, queries)
 
     return {
         "total_events": len(all_events),
@@ -339,6 +345,21 @@ def get_stats() -> dict:
         "routing": routing,
         "tone_distribution": tone_dist,
         "multi_intent": multi,
+        # --- P0 metrics (Run 23+) ---
+        "confidence": confidence,
+        "recovery_rates": recovery,
+        # --- P1 metrics (Run 23+) ---
+        "session_metrics": session_metrics,
+        "no_result_by_service": no_result_svc,
+        "time_of_day": time_of_day,
+        "post_results_engagement": post_results_eng,
+        # --- P2 metrics (Run 23+) ---
+        "geographic_demand": _compute_geographic_demand(queries),
+        "frustration_tiers": _compute_frustration_tiers(turns),
+        "session_duration": _compute_session_duration(all_events),
+        "repetition_rate": _compute_repetition_rate(all_events),
+        # --- P3 metrics (Run 23+) ---
+        "llm_metrics": _compute_llm_metrics(),
     }
 
 
@@ -386,6 +407,7 @@ _ROUTING_CONVERSATIONAL = {
 }
 _ROUTING_EMOTIONAL = {"emotional", "frustration", "confused"}
 _ROUTING_SAFETY = {"crisis", "escalation"}
+_ROUTING_RECOVERY = {"correction", "negative_preference", "disambiguation", "location_unknown"}
 _ROUTING_GENERAL = {"general"}
 
 
@@ -398,6 +420,7 @@ def _compute_routing(turns: list, cat_dist: dict) -> dict:
         "conversational": 0,
         "emotional": 0,
         "safety": 0,
+        "recovery": 0,
         "general": 0,
     }
     for t in turns:
@@ -410,6 +433,8 @@ def _compute_routing(turns: list, cat_dist: dict) -> dict:
             buckets["emotional"] += 1
         elif cat in _ROUTING_SAFETY:
             buckets["safety"] += 1
+        elif cat in _ROUTING_RECOVERY:
+            buckets["recovery"] += 1
         else:
             buckets["general"] += 1
 
@@ -487,6 +512,521 @@ def _compute_multi_intent(turns: list, queries: list, sess_cats: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# P0: CONFIDENCE DISTRIBUTION
+# ---------------------------------------------------------------------------
+
+def _compute_confidence(turns: list) -> dict:
+    """Aggregate confidence levels across all turns.
+
+    Confidence is logged as a kwarg on every _log_turn() call:
+    high = regex matched clearly, medium = LLM classified,
+    low = fallback, disambiguated = user chose from options.
+    """
+    dist: dict[str, int] = {}
+    total = 0
+    for t in turns:
+        conf = t.get("confidence")
+        if conf:
+            dist[conf] = dist.get(conf, 0) + 1
+            total += 1
+    return {
+        "distribution": dist,
+        "total_with_confidence": total,
+        "high_rate": round(dist.get("high", 0) / total, 2) if total else None,
+        "low_rate": round(dist.get("low", 0) / total, 2) if total else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# P0: CORRECTION / DISAMBIGUATION / NEGATIVE PREFERENCE RATES
+# ---------------------------------------------------------------------------
+
+def _compute_recovery_rates(turns: list, sess_cats: dict) -> dict:
+    """Per-session rates for recovery categories (Run 22+).
+
+    - correction: user said "not what I meant" — misclassification signal
+    - disambiguation: bot showed clarifying options — genuine ambiguity
+    - negative_preference: user rejected all results — poor match signal
+    """
+    total_sess = len(sess_cats) or 1
+
+    correction_turns = sum(1 for t in turns if t.get("category") == "correction")
+    correction_sessions = {s for s, c in sess_cats.items() if "correction" in c}
+
+    disambig_turns = sum(1 for t in turns if t.get("category") == "disambiguation")
+    disambig_sessions = {s for s, c in sess_cats.items() if "disambiguation" in c}
+
+    negpref_turns = sum(1 for t in turns if t.get("category") == "negative_preference")
+    negpref_sessions = {s for s, c in sess_cats.items() if "negative_preference" in c}
+
+    return {
+        "correction_turns": correction_turns,
+        "correction_session_rate": round(len(correction_sessions) / total_sess, 3),
+        "disambiguation_turns": disambig_turns,
+        "disambiguation_session_rate": round(len(disambig_sessions) / total_sess, 3),
+        "negative_preference_turns": negpref_turns,
+        "negative_preference_session_rate": round(len(negpref_sessions) / total_sess, 3),
+    }
+
+
+# ---------------------------------------------------------------------------
+# P1: TURNS PER SESSION + BOUNCE RATE
+# ---------------------------------------------------------------------------
+
+def _compute_session_metrics(turns: list) -> dict:
+    """Turns per session, bounce rate, and distribution."""
+    session_turn_counts: dict[str, int] = {}
+    for t in turns:
+        sid = t.get("session_id", "")
+        if sid:
+            session_turn_counts[sid] = session_turn_counts.get(sid, 0) + 1
+
+    total_sessions = len(session_turn_counts)
+    if total_sessions == 0:
+        return {
+            "avg_turns_per_session": None,
+            "median_turns_per_session": None,
+            "bounce_rate": None,
+            "total_sessions": 0,
+        }
+
+    counts = sorted(session_turn_counts.values())
+    avg = round(sum(counts) / len(counts), 1)
+    median = counts[len(counts) // 2]
+    bounces = sum(1 for c in counts if c == 1)
+    bounce_rate = round(bounces / total_sessions, 2)
+
+    # Distribution buckets
+    buckets = {"1_turn": 0, "2-3_turns": 0, "4-6_turns": 0,
+               "7-10_turns": 0, "11+_turns": 0}
+    for c in counts:
+        if c == 1:
+            buckets["1_turn"] += 1
+        elif c <= 3:
+            buckets["2-3_turns"] += 1
+        elif c <= 6:
+            buckets["4-6_turns"] += 1
+        elif c <= 10:
+            buckets["7-10_turns"] += 1
+        else:
+            buckets["11+_turns"] += 1
+
+    return {
+        "avg_turns_per_session": avg,
+        "median_turns_per_session": median,
+        "bounce_rate": bounce_rate,
+        "bounce_count": bounces,
+        "total_sessions": total_sessions,
+        "distribution": buckets,
+    }
+
+
+# ---------------------------------------------------------------------------
+# P1: NO-RESULT RATE BY SERVICE TYPE
+# ---------------------------------------------------------------------------
+
+def _compute_no_result_by_service(queries: list) -> dict:
+    """Break down no-result rate by service category."""
+    by_service: dict[str, dict] = {}  # {svc: {total: N, no_result: N}}
+    for q in queries:
+        svc = q.get("params", {}).get("service_type") or q.get("template_name", "")
+        if not svc:
+            continue
+        if svc not in by_service:
+            by_service[svc] = {"total": 0, "no_result": 0}
+        by_service[svc]["total"] += 1
+        if q.get("result_count", 0) == 0:
+            by_service[svc]["no_result"] += 1
+
+    result = {}
+    for svc, counts in sorted(by_service.items()):
+        result[svc] = {
+            "total_queries": counts["total"],
+            "no_result_count": counts["no_result"],
+            "no_result_rate": round(counts["no_result"] / counts["total"], 2)
+            if counts["total"] else 0,
+        }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# P1: TIME-OF-DAY DEMAND PATTERNS
+# ---------------------------------------------------------------------------
+
+def _compute_time_of_day(all_events: list) -> dict:
+    """Distribution of events by hour (UTC) and day of week."""
+    hourly: dict[int, int] = {}
+    daily: dict[str, int] = {}
+
+    for e in all_events:
+        ts = e.get("timestamp", "")
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            hour = dt.hour
+            day = dt.strftime("%A")
+            hourly[hour] = hourly.get(hour, 0) + 1
+            daily[day] = daily.get(day, 0) + 1
+        except (ValueError, AttributeError):
+            continue
+
+    # Fill missing hours
+    for h in range(24):
+        hourly.setdefault(h, 0)
+
+    peak_hour = max(hourly, key=hourly.get) if hourly else None
+
+    return {
+        "hourly": dict(sorted(hourly.items())),
+        "daily": daily,
+        "peak_hour_utc": peak_hour,
+        "total_events": sum(hourly.values()),
+    }
+
+
+# ---------------------------------------------------------------------------
+# P1: POST-RESULTS ENGAGEMENT RATE
+# ---------------------------------------------------------------------------
+
+def _compute_post_results_engagement(turns: list, queries: list) -> dict:
+    """Of sessions that received results, how many asked follow-ups?"""
+    # Sessions that got query results
+    q_sessions = {q.get("session_id") for q in queries
+                  if q.get("session_id") and q.get("result_count", 0) > 0}
+
+    # Sessions that had post_results turns
+    pr_sessions = {t.get("session_id") for t in turns
+                   if t.get("category") == "post_results"}
+
+    engaged = q_sessions & pr_sessions
+
+    # Count post_results turn types
+    pr_types: dict[str, int] = {}
+    for t in turns:
+        if t.get("category") == "post_results":
+            # The sub-type is in the bot response pattern or kwargs
+            pr_types["total"] = pr_types.get("total", 0) + 1
+
+    return {
+        "sessions_with_results": len(q_sessions),
+        "sessions_engaged": len(engaged),
+        "engagement_rate": round(len(engaged) / len(q_sessions), 2)
+        if q_sessions else None,
+        "post_results_turns": pr_types.get("total", 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# P2: GEOGRAPHIC DEMAND DISTRIBUTION
+# ---------------------------------------------------------------------------
+
+def _compute_geographic_demand(queries: list) -> dict:
+    """Session count and service type breakdown by location.
+
+    Identifies underserved areas: if 40% of searches are for Brooklyn
+    but only 15% of database entries are Brooklyn locations, there's a
+    coverage gap.
+    """
+    by_location: dict[str, dict] = {}
+    for q in queries:
+        loc = q.get("params", {}).get("location", "")
+        if not loc:
+            continue
+        loc = loc.lower().strip()
+        if loc not in by_location:
+            by_location[loc] = {"total": 0, "services": {}, "no_result": 0}
+        by_location[loc]["total"] += 1
+        if q.get("result_count", 0) == 0:
+            by_location[loc]["no_result"] += 1
+        svc = q.get("params", {}).get("service_type", "unknown")
+        by_location[loc]["services"][svc] = by_location[loc]["services"].get(svc, 0) + 1
+
+    total_queries = sum(v["total"] for v in by_location.values())
+    result = {}
+    for loc in sorted(by_location, key=lambda x: by_location[x]["total"], reverse=True):
+        info = by_location[loc]
+        result[loc] = {
+            "total_queries": info["total"],
+            "share": round(info["total"] / total_queries, 2) if total_queries else 0,
+            "no_result_rate": round(info["no_result"] / info["total"], 2) if info["total"] else 0,
+            "top_services": dict(sorted(info["services"].items(), key=lambda x: x[1], reverse=True)[:5]),
+        }
+    return result
+
+
+# ---------------------------------------------------------------------------
+# P2: FRUSTRATION TIER DISTRIBUTION
+# ---------------------------------------------------------------------------
+
+def _compute_frustration_tiers(turns: list) -> dict:
+    """Of sessions with frustration, how many reach tier 1/2/3+?
+
+    Validates the 3-tier frustration escalation design.
+    If most users hit tier 3, the bot is consistently failing.
+    If most stay at tier 1, the first response defuses it.
+    """
+    # Count frustration turns per session
+    session_frust: dict[str, int] = {}
+    for t in turns:
+        if t.get("category") == "frustration" or t.get("tone") == "frustrated":
+            sid = t.get("session_id", "")
+            if sid:
+                session_frust[sid] = session_frust.get(sid, 0) + 1
+
+    tiers = {"tier_1": 0, "tier_2": 0, "tier_3_plus": 0}
+    for count in session_frust.values():
+        if count == 1:
+            tiers["tier_1"] += 1
+        elif count == 2:
+            tiers["tier_2"] += 1
+        else:
+            tiers["tier_3_plus"] += 1
+
+    total_frustrated = len(session_frust)
+    return {
+        "total_frustrated_sessions": total_frustrated,
+        "tiers": tiers,
+        "tier_1_rate": round(tiers["tier_1"] / total_frustrated, 2) if total_frustrated else None,
+        "tier_3_plus_rate": round(tiers["tier_3_plus"] / total_frustrated, 2) if total_frustrated else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# P2: SESSION DURATION
+# ---------------------------------------------------------------------------
+
+def _compute_session_duration(all_events: list) -> dict:
+    """Time elapsed from first to last message in a session.
+
+    Combined with turns-per-session, reveals whether long sessions are
+    productive (many turns) or stuck (few turns spread over time).
+    The capacity scenarios doc models 3/7/15-minute session tiers.
+    """
+    session_times: dict[str, list] = {}
+    for e in all_events:
+        sid = e.get("session_id", "")
+        ts = e.get("timestamp", "")
+        if not sid or not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            session_times.setdefault(sid, []).append(dt)
+        except (ValueError, AttributeError):
+            continue
+
+    durations_sec = []
+    for sid, times in session_times.items():
+        if len(times) < 2:
+            continue
+        times.sort()
+        delta = (times[-1] - times[0]).total_seconds()
+        durations_sec.append(delta)
+
+    if not durations_sec:
+        return {
+            "avg_duration_sec": None, "median_duration_sec": None,
+            "p95_duration_sec": None, "total_multi_turn_sessions": 0,
+            "buckets": {},
+        }
+
+    durations_sec.sort()
+    n = len(durations_sec)
+    avg = round(sum(durations_sec) / n, 1)
+    median = round(durations_sec[n // 2], 1)
+    p95 = round(durations_sec[int(n * 0.95)], 1) if n >= 20 else None
+
+    # Bucket into capacity model tiers
+    buckets = {"under_1min": 0, "1_3min": 0, "3_7min": 0,
+               "7_15min": 0, "over_15min": 0}
+    for d in durations_sec:
+        if d < 60:
+            buckets["under_1min"] += 1
+        elif d < 180:
+            buckets["1_3min"] += 1
+        elif d < 420:
+            buckets["3_7min"] += 1
+        elif d < 900:
+            buckets["7_15min"] += 1
+        else:
+            buckets["over_15min"] += 1
+
+    return {
+        "avg_duration_sec": avg,
+        "median_duration_sec": median,
+        "p95_duration_sec": p95,
+        "total_multi_turn_sessions": n,
+        "buckets": buckets,
+    }
+
+
+# ---------------------------------------------------------------------------
+# P2: BOT REPETITION RATE
+# ---------------------------------------------------------------------------
+
+def _compute_repetition_rate(all_events: list) -> dict:
+    """Percentage of sessions where the bot gives the exact same response
+    on two consecutive turns.
+
+    The eval judge flags repetition (see edge_frustration_loop scenario).
+    This metric directly measures whether the 3-tier frustration fix works.
+    """
+    # Group turns by session, ordered by timestamp
+    session_turns: dict[str, list] = {}
+    for e in all_events:
+        if e.get("type") != "conversation_turn":
+            continue
+        sid = e.get("session_id", "")
+        if sid:
+            session_turns.setdefault(sid, []).append(e)
+
+    sessions_with_repetition = 0
+    total_repetitions = 0
+    total_sessions = len(session_turns)
+
+    for sid, turns in session_turns.items():
+        # Sort by timestamp to ensure order
+        turns.sort(key=lambda x: x.get("timestamp", ""))
+        prev_response = None
+        has_repetition = False
+        for t in turns:
+            resp = t.get("bot_response", "")
+            if resp and resp == prev_response:
+                total_repetitions += 1
+                has_repetition = True
+            prev_response = resp
+        if has_repetition:
+            sessions_with_repetition += 1
+
+    return {
+        "sessions_with_repetition": sessions_with_repetition,
+        "total_repetitions": total_repetitions,
+        "repetition_rate": round(sessions_with_repetition / total_sessions, 2)
+        if total_sessions else None,
+        "total_sessions_checked": total_sessions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# P3: LLM CALL METRICS
+# ---------------------------------------------------------------------------
+
+# LLM call tracking — populated by the instrumentation wrapper in
+# claude_client.py (or wherever LLM calls are made). Each entry:
+#   {"timestamp": str, "session_id": str, "task": str,
+#    "model": str, "input_tokens": int, "output_tokens": int,
+#    "latency_ms": int, "success": bool}
+_llm_calls: deque = deque(maxlen=MAX_EVENTS)
+
+
+def log_llm_call(
+    session_id="", task="", model="", input_tokens=0,
+    output_tokens=0, latency_ms=0, success=True, **kwargs,
+):
+    """Log an LLM API call for cost and latency tracking.
+
+    Call this from claude_client.py or any LLM call site:
+        log_llm_call(session_id=sid, task="crisis_detection",
+                     model="claude-sonnet-4-6", input_tokens=350,
+                     output_tokens=20, latency_ms=850)
+    """
+    entry = {
+        "timestamp": _now_iso(),
+        "session_id": session_id,
+        "task": task,
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "latency_ms": latency_ms,
+        "success": success,
+    }
+    with _lock:
+        _llm_calls.append(entry)
+
+
+def _compute_llm_metrics() -> dict:
+    """Aggregate LLM call metrics: cost, latency, fallback rate.
+
+    Cost tracking is essential for the capacity model — the scenarios
+    doc estimates 36,000 sessions/month at scale.
+    """
+    with _lock:
+        calls = list(_llm_calls)
+
+    if not calls:
+        return {
+            "total_calls": 0, "total_input_tokens": 0,
+            "total_output_tokens": 0, "estimated_cost": 0,
+            "by_task": {}, "by_model": {},
+            "latency_p50_ms": None, "latency_p95_ms": None,
+            "failure_rate": None,
+        }
+
+    total = len(calls)
+    total_in = sum(c.get("input_tokens", 0) for c in calls)
+    total_out = sum(c.get("output_tokens", 0) for c in calls)
+    failures = sum(1 for c in calls if not c.get("success", True))
+
+    # Cost estimate (Haiku: $1/$5 per MTok, Sonnet: $3/$15 per MTok)
+    PRICING = {
+        "claude-haiku-4-5-20251001": (1.0, 5.0),
+        "claude-sonnet-4-6": (3.0, 15.0),
+    }
+    cost = 0.0
+    for c in calls:
+        model = c.get("model", "")
+        inp_price, out_price = PRICING.get(model, (1.0, 5.0))
+        cost += (c.get("input_tokens", 0) / 1e6 * inp_price +
+                 c.get("output_tokens", 0) / 1e6 * out_price)
+
+    # Latency percentiles
+    latencies = sorted(c.get("latency_ms", 0) for c in calls if c.get("latency_ms"))
+    p50 = latencies[len(latencies) // 2] if latencies else None
+    p95 = latencies[int(len(latencies) * 0.95)] if len(latencies) >= 20 else None
+
+    # By task
+    by_task: dict[str, dict] = {}
+    for c in calls:
+        task = c.get("task", "unknown")
+        if task not in by_task:
+            by_task[task] = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "latency_sum": 0}
+        by_task[task]["calls"] += 1
+        by_task[task]["input_tokens"] += c.get("input_tokens", 0)
+        by_task[task]["output_tokens"] += c.get("output_tokens", 0)
+        by_task[task]["latency_sum"] += c.get("latency_ms", 0)
+    for task_info in by_task.values():
+        task_info["avg_latency_ms"] = round(task_info.pop("latency_sum") / task_info["calls"])
+
+    # By model
+    by_model: dict[str, int] = {}
+    for c in calls:
+        model = c.get("model", "unknown")
+        by_model[model] = by_model.get(model, 0) + 1
+
+    # Per-session LLM call count
+    session_calls: dict[str, int] = {}
+    for c in calls:
+        sid = c.get("session_id", "")
+        if sid:
+            session_calls[sid] = session_calls.get(sid, 0) + 1
+    avg_per_session = (round(sum(session_calls.values()) / len(session_calls), 1)
+                       if session_calls else None)
+
+    return {
+        "total_calls": total,
+        "total_input_tokens": total_in,
+        "total_output_tokens": total_out,
+        "estimated_cost": round(cost, 4),
+        "failure_rate": round(failures / total, 3) if total else None,
+        "latency_p50_ms": p50,
+        "latency_p95_ms": p95,
+        "by_task": by_task,
+        "by_model": by_model,
+        "avg_calls_per_session": avg_per_session,
+    }
+
+
+# ---------------------------------------------------------------------------
 # EVAL RESULTS
 # ---------------------------------------------------------------------------
 
@@ -523,6 +1063,7 @@ def clear_audit_log() -> None:
         _events.clear()
         _conversations.clear()
         _query_log.clear()
+        _llm_calls.clear()
         _eval_results = None
     persistence.clear_events()
 
