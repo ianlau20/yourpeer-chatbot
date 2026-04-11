@@ -134,6 +134,7 @@ _USE_LLM = bool(os.getenv("ANTHROPIC_API_KEY"))
 
 if _USE_LLM:
     from app.services.llm_slot_extractor import extract_slots_smart
+    from app.services.llm_classifier import classify_unified
     from app.llm.claude_client import classify_message_llm
     logger.info("LLM features enabled (ANTHROPIC_API_KEY found)")
 else:
@@ -1523,41 +1524,72 @@ def generate_reply(
     early_extracted = extract_slots(message)
     has_service_intent = early_extracted.get("service_type") is not None
 
-    # --- LLM SLOT ENRICHMENT (before classification) ---
-    # When regex found no service_type, try the LLM extractor. This
-    # is the fix for multi_reentry_shelter_employment (2.25) and
-    # multi_dycd_rhy_youth_runaway (3.12) — the LLM prompt already
-    # handles "got out of Rikers" → shelter, "ran away" + "somewhere
-    # to stay" → shelter, "help finding work" → employment. It just
-    # never got to run because routing pre-empted it.
-    #
-    # Gate: only run when it's likely to help and won't waste a call.
-    # Skip for short messages (confirmations, greetings) and for
-    # messages where an action was already detected that should take
-    # priority (resets, bot questions, etc.).
+    # --- CLASSIFY ACTION (regex, instant) ---
     _action_pre = _classify_action(message)
-    _SKIP_LLM_ENRICHMENT_ACTIONS = {
+
+    # --- UNIFIED LLM CLASSIFICATION GATE ---
+    # When regex found nothing useful (no service_type, no action, no tone),
+    # make ONE Haiku call that returns all classification dimensions.
+    # This replaces the old Phase 2 slot enrichment + LLM category fallback
+    # with a single combined call. Fixes the 52% regex miss rate on natural
+    # language by letting the LLM handle any input regex can't classify.
+    #
+    # Gate: only fires when regex genuinely has nothing. Skip for short
+    # messages and for messages where regex already found something useful.
+    _llm_tone = None
+    _llm_action = None
+    _SKIP_UNIFIED_ACTIONS = {
         "reset", "greeting", "thanks", "bot_identity", "bot_question",
         "confirm_yes", "confirm_deny", "confirm_change_service",
         "confirm_change_location", "correction", "negative_preference",
         "escalation",
     }
-    if (_USE_LLM
-            and not has_service_intent
-            and len(message.split()) >= 5
-            and _action_pre not in _SKIP_LLM_ENRICHMENT_ACTIONS):
+    _regex_tone_pre = _classify_tone(message, crisis_result=_CRISIS_NOT_CHECKED)
+    _needs_unified = (
+        _USE_LLM
+        and not has_service_intent
+        and _action_pre not in _SKIP_UNIFIED_ACTIONS
+        and _regex_tone_pre is None
+        and len(message.split()) >= 4
+    )
+    if _needs_unified:
         try:
-            _llm_extracted = extract_slots_smart(message)
-            if _llm_extracted.get("service_type"):
-                logger.info(
-                    f"LLM enrichment found service_type="
-                    f"'{_llm_extracted['service_type']}' that regex missed"
-                )
-                early_extracted = _llm_extracted
-                has_service_intent = True
+            _unified = classify_unified(message)
+            if _unified:
+                # Service extraction
+                if _unified.get("service_type"):
+                    logger.info(
+                        f"Unified gate found service_type="
+                        f"'{_unified['service_type']}' that regex missed"
+                    )
+                    early_extracted["service_type"] = _unified["service_type"]
+                    if _unified.get("service_detail"):
+                        early_extracted["service_detail"] = _unified["service_detail"]
+                    if _unified.get("location"):
+                        early_extracted["location"] = _unified["location"]
+                    if _unified.get("additional_services"):
+                        early_extracted["additional_services"] = _unified["additional_services"]
+                    if _unified.get("urgency"):
+                        early_extracted["urgency"] = _unified["urgency"]
+                    if _unified.get("age"):
+                        early_extracted["age"] = _unified["age"]
+                    if _unified.get("family_status"):
+                        early_extracted["family_status"] = _unified["family_status"]
+                    has_service_intent = True
+
+                # Tone and action — store for later routing
+                if _unified.get("tone"):
+                    _llm_tone = _unified["tone"]
+                    logger.info(f"Unified gate detected tone='{_llm_tone}'")
+                if _unified.get("action"):
+                    _llm_action = _unified["action"]
+                    logger.info(f"Unified gate detected action='{_llm_action}'")
+                    # Override action if regex missed it
+                    if _action_pre is None:
+                        _action_pre = _llm_action
         except Exception as e:
-            logger.error(f"LLM slot enrichment failed: {e}")
-            # Fall through — regex result is still usable
+            logger.error(f"Unified LLM classification failed: {e}")
+            # Fall through — regex results are still usable
 
     # --- CRISIS DETECTION (always runs before any other handler) ---
     # Safety: crisis detection MUST run before post-results, confirmation,
@@ -1584,6 +1616,10 @@ def generate_reply(
         tone = "crisis"
     else:
         tone = _classify_tone(message, crisis_result=_crisis_result)
+        # Unified LLM gate may have detected a tone that regex missed
+        # (e.g., "I'm broken" → emotional, "this is trash" → frustrated)
+        if tone is None and _llm_tone:
+            tone = _llm_tone
 
     if tone == "crisis":
         # Jump straight to crisis handling (below in routing section)
