@@ -257,18 +257,22 @@ def query_services(
     # Population-based query boost (Phase 3)
     # -----------------------------------------------------------------
     # Cross-cutting identity attributes that modify ALL searches.
-    # Veterans get veteran-tagged services boosted. Disabled users get
-    # accessibility-related services boosted. Etc.
+    # Veterans get veteran-tagged services boosted via taxonomy rank.
+    # Other populations get description-based sort boost via ORDER BY.
+    #
+    # IMPORTANT: This uses pop_boost_pattern (ORDER BY rank), NOT
+    # description_pattern (WHERE filter). The difference:
+    #   description_pattern → excludes non-matching services (Phase 4)
+    #   pop_boost_pattern   → floats matching services to top, keeps all
     #
     # Auto-infer senior from age when not explicitly stated.
     _populations = list(populations or [])
     if age is not None and age >= 62 and "senior" not in _populations:
         _populations.append("senior")
 
-    # Description-based boost patterns — appended to any existing
-    # description_pattern from sub-category narrowing (Phase 4).
-    # These float relevant services higher in results without
-    # excluding anything.
+    # Description-based boost patterns — used as ORDER BY rank expressions.
+    # Services matching these patterns sort to the top without excluding
+    # non-matching services.
     _POPULATION_DESCRIPTION_BOOSTS = {
         "disabled": r"disabilit|disabled|wheelchair|accessible|ADA|blind|deaf|SSI|SSDI",
         "reentry": r"reentry|re-entry|parole|probation|incarcerat|released|formerly",
@@ -284,11 +288,11 @@ def query_services(
         else:
             boost_pattern = _POPULATION_DESCRIPTION_BOOSTS.get(pop)
             if boost_pattern:
-                existing_pattern = user_params.get("description_pattern", "")
-                if existing_pattern:
-                    user_params["description_pattern"] = f"{existing_pattern}|{boost_pattern}"
+                existing_boost = user_params.get("pop_boost_pattern", "")
+                if existing_boost:
+                    user_params["pop_boost_pattern"] = f"{existing_boost}|{boost_pattern}"
                 else:
-                    user_params["description_pattern"] = boost_pattern
+                    user_params["pop_boost_pattern"] = boost_pattern
 
     # Co-located service filter: restrict results to locations that also
     # have the additional service types the user asked for.

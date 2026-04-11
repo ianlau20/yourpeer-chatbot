@@ -359,75 +359,25 @@ _VETERAN_BOOST_RANK = """CASE
     ) THEN 0 ELSE 1
 END"""
 
-_ORDER_LIMIT = f"""
-ORDER BY {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
+# Description-based population boost: floats services whose description
+# matches a regex pattern to the top. Used for disabled, reentry,
+# dv_survivor, pregnant, senior populations. The pattern is passed as
+# :pop_boost_pattern bind parameter.
+_DESCRIPTION_BOOST_RANK = """CASE
+    WHEN s.description ~* :pop_boost_pattern THEN 0 ELSE 1
+END"""
 
-_ORDER_LIMIT_LGBTQ_BOOST = f"""
-ORDER BY {_LGBTQ_BOOST_RANK},
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
+# Distance expression for proximity-based ORDER BY.
+_DISTANCE_RANK = (
+    "ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography)"
+)
 
-_ORDER_LIMIT_VETERAN_BOOST = f"""
-ORDER BY {_VETERAN_BOOST_RANK},
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
-
-_ORDER_LIMIT_BOTH_BOOST = f"""
-ORDER BY {_LGBTQ_BOOST_RANK},
-         {_VETERAN_BOOST_RANK},
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
-
-# Distance-aware ORDER BY — used when proximity params are present.
-# Distance first, then open-now, then freshness.
-_ORDER_BY_DISTANCE_LIMIT = f"""
-ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
-
-_ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST = f"""
-ORDER BY {_LGBTQ_BOOST_RANK},
-         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
-
-_ORDER_BY_DISTANCE_LIMIT_VETERAN_BOOST = f"""
-ORDER BY {_VETERAN_BOOST_RANK},
-         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
-
-_ORDER_BY_DISTANCE_LIMIT_BOTH_BOOST = f"""
-ORDER BY {_LGBTQ_BOOST_RANK},
-         {_VETERAN_BOOST_RANK},
-         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
+# Base sort tiebreakers: open-now first, then freshness, then name.
+_BASE_ORDER_PARTS = [
+    _OPEN_NOW_RANK,
+    "l.last_validated_at DESC NULLS LAST",
+    "s.name",
+]
 
 _DEFAULT_MAX_RESULTS = 10
 
@@ -806,21 +756,35 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
     if "max_results" not in params:
         params["max_results"] = _DEFAULT_MAX_RESULTS
 
-    # Use distance-aware ordering when proximity search is active.
-    # Use population-boosted ordering when user identifies as LGBTQ or veteran.
+    # -----------------------------------------------------------------
+    # Dynamic ORDER BY builder
+    # -----------------------------------------------------------------
+    # Builds the ORDER BY clause from active boost ranks + base sort.
+    # This replaces pre-defined ORDER BY constants (which required a
+    # combinatorial explosion of variants for each boost combination).
     _lgbtq_boost = params.pop("lgbtq_boost", False)
     _veteran_boost = params.pop("veteran_boost", False)
-
     _has_distance = "lat" in params and "lon" in params
+    _has_pop_boost = "pop_boost_pattern" in params
 
-    if _lgbtq_boost and _veteran_boost:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT_BOTH_BOOST if _has_distance else _ORDER_LIMIT_BOTH_BOOST
-    elif _lgbtq_boost:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST if _has_distance else _ORDER_LIMIT_LGBTQ_BOOST
-    elif _veteran_boost:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT_VETERAN_BOOST if _has_distance else _ORDER_LIMIT_VETERAN_BOOST
-    else:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT if _has_distance else _ORDER_LIMIT
+    order_parts = []
+
+    # 1. Population boosts (highest priority — floats matching services up)
+    if _lgbtq_boost:
+        order_parts.append(_LGBTQ_BOOST_RANK)
+    if _veteran_boost:
+        order_parts.append(_VETERAN_BOOST_RANK)
+    if _has_pop_boost:
+        order_parts.append(_DESCRIPTION_BOOST_RANK)
+
+    # 2. Distance (when proximity search is active)
+    if _has_distance:
+        order_parts.append(_DISTANCE_RANK)
+
+    # 3. Base tiebreakers: open-now, freshness, name
+    order_parts.extend(_BASE_ORDER_PARTS)
+
+    order_clause = f"\nORDER BY {', '.join(order_parts)}\nLIMIT :max_results\n"
 
     full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{order_clause}"
 
