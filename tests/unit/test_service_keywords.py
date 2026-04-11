@@ -400,7 +400,7 @@ class TestPeerNavigatorSampleQueries:
         assert r["service_type"] == "shelter"
         assert r["location"] == "soho"
         assert r["age"] == 21
-        assert r["gender"] == "lgbtq"
+        assert r["_gender"] == "lgbtq"
 
     def test_immigration_manhattan(self):
         r = extract_slots("Recently arrived in the US, need immigration help in Manhattan")
@@ -411,7 +411,7 @@ class TestPeerNavigatorSampleQueries:
     def test_transman_clothing(self):
         r = extract_slots("I cannot afford clothes on Amazon. I am a transman")
         assert r["service_type"] == "clothing"
-        assert r["gender"] == "male"
+        assert r["_gender"] == "male"
 
     def test_bad_with_money(self):
         r = extract_slots("I am so bad with money.")
@@ -428,3 +428,59 @@ class TestPeerNavigatorSampleQueries:
         assert r["age"] == 19
         assert r["family_status"] == "with_children"
         assert r["urgency"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# YourPeer alignment — template and query verification
+# ---------------------------------------------------------------------------
+
+class TestYourPeerAlignment:
+    """Verify fixes from the YourPeer web app comparison audit.
+
+    These tests ensure the chatbot's query layer matches YourPeer's
+    search behavior for taxonomy coverage and schedule data source.
+    """
+
+    def test_legal_template_includes_advocates(self):
+        """Phase 0b: 'Advocates / Legal Aid' must be in legal taxonomy_names.
+        YourPeer includes this in TAXONOMY_CATEGORIES but the chatbot
+        was missing it — legal searches skipped an entire taxonomy."""
+        from app.rag.query_templates import TEMPLATES
+        legal_taxonomies = TEMPLATES["legal"]["default_params"]["taxonomy_names"]
+        assert "advocates / legal aid" in legal_taxonomies
+
+    def test_legal_template_includes_immigration(self):
+        from app.rag.query_templates import TEMPLATES
+        legal_taxonomies = TEMPLATES["legal"]["default_params"]["taxonomy_names"]
+        assert "immigration services" in legal_taxonomies
+
+    def test_legal_query_sql_includes_advocates(self):
+        """Verify the generated SQL actually queries the taxonomy."""
+        from app.rag.query_templates import build_query
+        _, params = build_query("legal", {"borough": "Manhattan"})
+        assert "advocates / legal aid" in params["taxonomy_names"]
+
+    def test_schedule_uses_holiday_schedules(self):
+        """Phase 0a: chatbot must read holiday_schedules (10,593 rows,
+        current hours) not regular_schedules (1,049 rows, stale).
+        YourPeer uses HolidaySchedules for all schedule display."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("food", {"borough": "Manhattan"})
+        assert "JOIN holiday_schedules" in sql
+        assert "JOIN regular_schedules" not in sql
+
+    def test_schedule_uses_covid19_occasion(self):
+        """All current schedule data has occasion='COVID19'."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("food", {"borough": "Manhattan"})
+        assert "occasion = 'COVID19'" in sql
+
+    def test_schedule_weekday_isodow(self):
+        """holiday_schedules uses 1-7 (ISODOW), not 0-6.
+        The join must NOT subtract 1 from ISODOW."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("food", {"borough": "Manhattan"})
+        # Should have ISODOW without "- 1"
+        assert "ISODOW FROM CURRENT_DATE)::int\n" in sql or \
+               "ISODOW FROM CURRENT_DATE)::int " in sql
+        assert "ISODOW FROM CURRENT_DATE)::int - 1" not in sql

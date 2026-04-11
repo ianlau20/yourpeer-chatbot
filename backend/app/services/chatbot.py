@@ -208,7 +208,7 @@ def generate_reply(
                     if _unified.get("family_status"):
                         early_extracted["family_status"] = _unified["family_status"]
                     if _unified.get("gender"):
-                        early_extracted["gender"] = _unified["gender"]
+                        early_extracted["_gender"] = _unified["gender"]
                     has_service_intent = True
 
                 if _unified.get("tone"):
@@ -1199,7 +1199,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             service_type=slots.get("service_type"),
             location=location,
             age=slots.get("age"),
-            gender=slots.get("gender"),
+            gender=slots.get("_gender"),
             latitude=slots.get("_latitude") if use_coords else None,
             longitude=slots.get("_longitude") if use_coords else None,
             family_status=slots.get("family_status"),

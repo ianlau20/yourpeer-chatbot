@@ -230,6 +230,6 @@ def _validate_result(data: dict) -> dict:
     gender = data.get("gender")
     if isinstance(gender, str):
         gender = gender.lower().strip()
-    result["gender"] = gender if gender in _VALID_GENDERS else None
+    result["_gender"] = gender if gender in _VALID_GENDERS else None
 
     return result

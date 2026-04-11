@@ -944,7 +944,7 @@ def extract_slots(message: str) -> dict:
         "urgency": _extract_urgency(message),
         "age": _extract_age(message),
         "family_status": _extract_family_status(message),
-        "gender": _extract_gender(message),
+        "_gender": _extract_gender(message),
     }
 
 

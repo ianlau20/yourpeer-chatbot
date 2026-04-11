@@ -137,17 +137,17 @@ class TestExtractSlotsGender:
 
     def test_gender_in_slots(self):
         result = self.extract_slots("21, LGBTQ, in Soho, need a bed tonight")
-        assert result["gender"] == "lgbtq"
+        assert result["_gender"] == "lgbtq"
         assert result["service_type"] == "shelter"
         assert result["age"] == 21
 
     def test_no_gender_in_slots(self):
         result = self.extract_slots("I need food in Brooklyn")
-        assert result["gender"] is None
+        assert result["_gender"] is None
 
     def test_transman_clothing(self):
         result = self.extract_slots("I am a transman and I need clothes")
-        assert result["gender"] == "male"
+        assert result["_gender"] == "male"
         assert result["service_type"] == "clothing"
 
 
@@ -163,12 +163,12 @@ class TestConfirmationGender:
         self.build_msg = _build_confirmation_message
 
     def test_lgbtq_label(self):
-        slots = {"service_type": "shelter", "location": "soho", "gender": "lgbtq"}
+        slots = {"service_type": "shelter", "location": "soho", "_gender": "lgbtq"}
         msg = self.build_msg(slots)
         assert "LGBTQ-friendly" in msg
 
     def test_no_label_for_male(self):
-        slots = {"service_type": "shelter", "location": "soho", "gender": "male"}
+        slots = {"service_type": "shelter", "location": "soho", "_gender": "male"}
         msg = self.build_msg(slots)
         assert "LGBTQ" not in msg
 
@@ -295,3 +295,71 @@ class TestGenderRedaction:
         gender_dets = [d for d in detections if d.pii_type == "gender"]
         assert len(gender_dets) == 0
         assert redacted == text
+
+
+# ---------------------------------------------------------------------------
+# 7. Gender slot privacy — _gender excluded from audit logs
+# ---------------------------------------------------------------------------
+
+class TestGenderSlotPrivacy:
+    """Verify that gender identity values don't leak into audit logs.
+
+    The session slot key is '_gender' (underscore prefix). The audit_log
+    module's _clean_slots() strips keys starting with '_', ensuring
+    gender values are excluded from logged events.
+    """
+
+    def test_clean_slots_excludes_gender(self):
+        from app.services.audit_log import _clean_slots
+        slots = {
+            "service_type": "shelter",
+            "_gender": "lgbtq",
+            "age": 21,
+        }
+        cleaned = _clean_slots(slots)
+        assert "_gender" not in cleaned
+        assert "service_type" in cleaned
+        assert "age" in cleaned
+
+    def test_clean_slots_excludes_gender_male(self):
+        from app.services.audit_log import _clean_slots
+        cleaned = _clean_slots({"_gender": "male", "location": "soho"})
+        assert "_gender" not in cleaned
+        assert "location" in cleaned
+
+    def test_clean_slots_matches_latitude_longitude_pattern(self):
+        """_gender uses same privacy pattern as _latitude/_longitude."""
+        from app.services.audit_log import _clean_slots
+        slots = {
+            "service_type": "food",
+            "_gender": "female",
+            "_latitude": 40.7233,
+            "_longitude": -73.9985,
+        }
+        cleaned = _clean_slots(slots)
+        assert "_gender" not in cleaned
+        assert "_latitude" not in cleaned
+        assert "_longitude" not in cleaned
+        assert "service_type" in cleaned
+
+    def test_extract_slots_returns_underscore_gender(self):
+        """extract_slots must return '_gender', not 'gender'."""
+        from app.services.slot_extractor import extract_slots
+        result = extract_slots("I'm a trans woman and need shelter")
+        assert "_gender" in result
+        assert "gender" not in result
+
+    def test_merge_slots_preserves_gender(self):
+        """merge_slots correctly handles _gender key."""
+        from app.services.slot_extractor import merge_slots
+        existing = {"service_type": "shelter", "_gender": None}
+        new = {"_gender": "lgbtq"}
+        merged = merge_slots(existing, new)
+        assert merged["_gender"] == "lgbtq"
+
+    def test_merge_slots_overwrites_gender(self):
+        from app.services.slot_extractor import merge_slots
+        existing = {"_gender": "lgbtq"}
+        new = {"_gender": "male"}
+        merged = merge_slots(existing, new)
+        assert merged["_gender"] == "male"

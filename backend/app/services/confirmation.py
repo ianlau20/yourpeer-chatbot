@@ -74,7 +74,7 @@ def _build_confirmation_message(slots: dict) -> str:
     # When the user identified as LGBTQ, note it in the confirmation
     # so they know the results will prioritize affirming services.
     # For binary/trans gender, the filter operates silently (like age).
-    gender = slots.get("gender")
+    gender = slots.get("_gender")
     if gender == "lgbtq":
         parts[0] = parts[0].replace(
             f"I'll search for {service_label}",
