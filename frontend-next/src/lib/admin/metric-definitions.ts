@@ -339,6 +339,43 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     rationale: "Helps identify if certain neighborhoods, service types, or user demographics have systematically lower success rates — enabling targeted data quality improvement.",
     phase: "Post-pilot",
   },
+  // --- New P0-P3 metrics (Run 23+) ---
+  "Bounce Rate": {
+    name: "Bounce Rate",
+    section: "P1.5",
+    definition: "% of sessions with exactly 1 user turn (user sent one message and never came back).",
+    formula: "sessions with 1 turn / total sessions",
+    target: "≤ 25%",
+    rationale: "High bounce rate suggests the welcome message or first response isn't engaging. Industry benchmark is 15-25%. Sessions where the bot fails to understand the first message have a 70% bounce rate (Calabrio).",
+    phase: "Pilot",
+  },
+  "Correction Rate": {
+    name: "Correction Rate",
+    section: "P0.2",
+    definition: "% of sessions where the user triggered the correction handler ('not what I meant').",
+    formula: "sessions with correction category / total sessions",
+    target: "≤ 5%",
+    rationale: "Directly measures misclassification. Each correction means the bot misunderstood the user's intent. High rates signal that the regex classifier or LLM gate needs improvement.",
+    phase: "Pilot",
+  },
+  "Negative Preference Rate": {
+    name: "Negative Preference Rate",
+    section: "P0.2",
+    definition: "% of sessions where the user rejected all offered results.",
+    formula: "sessions with negative_preference category / total sessions",
+    target: "≤ 10%",
+    rationale: "High rates signal poor search quality or mismatched service categories. The user found services but none were what they needed.",
+    phase: "Pilot",
+  },
+  "Bot Repetition Rate": {
+    name: "Bot Repetition Rate",
+    section: "P2.12",
+    definition: "% of sessions where the bot gives the exact same response text on two consecutive turns.",
+    formula: "sessions with identical consecutive bot responses / total sessions",
+    target: "≤ 5%",
+    rationale: "The eval judge specifically flags repetition. Calabrio's Bot Experience Score includes repetition as a negative factor. Directly measures the frustration loop problem.",
+    phase: "Pilot",
+  },
 };
 
 /**

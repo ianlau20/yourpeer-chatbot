@@ -39,7 +39,13 @@ User Message
     ├─ Message classification (2-stage: regex → LLM fallback)
     ├─ Route by category:
     │   ├─ crisis → crisis_detector (regex + Sonnet LLM) → hotline resources
-    │   ├─ greeting/thanks/help/reset/escalation/frustration → canned response
+    │   ├─ correction → clears pending state, shows alternatives
+    │   ├─ negative_preference → acknowledges rejection, offers alternatives
+    │   ├─ greeting/thanks/help/reset/escalation → canned response
+    │   ├─ frustration → 3-tier escalation (counter-based, varied responses)
+    │   ├─ emotional → static emotion-specific response (no LLM, 6 emotion keys)
+    │   ├─ post-results → deterministic answers from stored cards (no LLM)
+    │   ├─ disambiguation → clarifying options when intent is ambiguous
     │   ├─ service request → slot extraction (regex or Haiku LLM for complex inputs)
     │   │   ├─ slots incomplete → follow-up question
     │   │   ├─ slots complete → confirmation prompt with quick replies
@@ -65,8 +71,9 @@ information, preventing hallucination.
 | `backend/app/services/crisis_detector.py` | Two-stage crisis detection (regex + Sonnet LLM), category-specific hotlines |
 | `backend/app/services/slot_extractor.py` | Regex-based slot extraction with keyword matching |
 | `backend/app/services/llm_slot_extractor.py` | LLM slot extraction via Claude Haiku tool calling |
+| `backend/app/services/llm_classifier.py` | Unified LLM classification gate — single Haiku call returning service_type, location, tone, action when regex fails |
 | `backend/app/services/session_store.py` | In-memory session state with 30-min TTL (max 500 sessions) |
-| `backend/app/services/audit_log.py` | Anonymized event logging (capped ring buffer) |
+| `backend/app/services/audit_log.py` | Anonymized event logging (capped ring buffer), P0-P3 metrics aggregation (confidence, recovery rates, session metrics, no-result by service, time-of-day, geographic demand, frustration tiers, session duration, repetition rate, LLM call metrics) |
 | `backend/app/llm/claude_client.py` | Anthropic client (lazy init), model constants, shared helpers |
 | `backend/app/rag/__init__.py` | `query_services()` entry point |
 | `backend/app/rag/query_executor.py` | DB execution, location normalization, borough/neighborhood PostGIS logic |
@@ -95,11 +102,22 @@ information, preventing hallucination.
 - **Crisis detection**: regex + Sonnet LLM, covers suicide/self-harm, DV, trafficking, medical emergency, violence, youth runaway; fail-open policy returns safety response if LLM unavailable
 - **PII redaction**: phone, SSN, email, DOB, address, name detection/redaction on every message
 - **Service cards**: structured results with name, org, address, phone, hours, fees, open/closed status, referral badges, action links
-- **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, bot identity, confusion, location-unknown
+- **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, emotional, negative preference, bot identity, confusion, location-unknown, correction
+- **Emotional handling (static-first)**: 6 emotion-specific static responses (scared, sad, rough_day, shame, grief, alone) selected by `_pick_emotional_response()` — LLM is NOT called. Single "Talk to a person" button, no service menu. Follows AVR pattern from clinical chatbot research
+- **Frustration 3-tier escalation**: persistent `_frustration_count` counter with varied responses — 1st: full empathetic, 2nd: shorter/direct, 3rd+: immediate navigator only. Counter survives intermediate messages
+- **Negative preference handling**: detects rejection of all offered options ("none of those", "not what I need" — 19 phrases). Acknowledges rejection explicitly, offers alternative service categories + peer navigator
+- **Conversational awareness guard**: casual chat patterns ("how are you", "just wanted to chat") suppress service category buttons. Prevents first-turn casual greetings from showing the full service menu
+- **Privacy routing exception**: `bot_question` overrides `has_service_intent` in routing — privacy questions like "do they get my info?" aren't swallowed by the service flow even when service keywords are present
+- **Intensifier stripping**: `_strip_intensifiers()` removes 19 common adverbs (really, very, so, just, etc.) before phrase matching. Combined with contraction normalization, `_classify_tone()` checks 4 variants per message
+- **Post-normalization emotional phrases**: `_EMOTIONAL_PHRASES` includes both contraction ("i'm scared") and expanded ("i am scared") forms for 13 emotional states (135 total phrases)
 - **Location-unknown interceptor**: when the bot asks for location and the user says "I don't know" / "anywhere" / "here", offers geolocation and borough buttons instead of falling into the confused handler. Guards: only fires when service_type is set, location is missing, and no pending confirmation
 - **Service flow continuation**: when a user already has a service_type and provides new slot data (e.g., "near me", "close by", "I'm 25", "with my kids") in a message not classified as "service", the system treats it as a service flow continuation rather than falling through to the LLM
 - **Narrative extraction**: long messages (20+ words) are detected as narratives and processed with urgency-aware slot extraction that prioritizes shelter/safety over food/employment. Regex fallback handles narrative extraction when LLM is unavailable
 - **Bot self-knowledge**: live capability sourcing from actual code (service categories, PII types, location count) rather than hardcoded facts. Topic matching for 12+ question types with LLM context generation
+- **Confidence scoring**: every routing decision is tagged with a confidence level (high/medium/low/disambiguated) and stored in audit events. Regex matches = high, LLM classification = medium, fallback = low
+- **Disambiguation prompts**: when a message is ambiguous between a post-results question and a new service request, the bot asks the user to clarify instead of guessing. Presents quick-reply buttons for both interpretations
+- **"Not what I meant" recovery**: correction phrases ("not what I meant", "you misunderstood") trigger a handler that clears pending state, shows what the bot was doing, and offers alternatives. "❌ Not what I meant" button appears on low-confidence responses
+- **Post-results escape hatch**: new service requests ("I need X", "where can I go", "looking for") are no longer intercepted by the post-results handler. Messages with a new location clear stored results automatically
 - **LLM conversational fallback**: Haiku handles general/off-topic messages
 - **Admin console**: conversation viewer, event log, metrics dashboard, in-browser eval runner
 - **LLM-as-judge eval**: 142 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
@@ -113,16 +131,18 @@ information, preventing hallucination.
 - **Stability**: 1,000-char message length limit (frontend + backend), coordinate validation (lat ±90, lng ±180), 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
 - **Observability**: `X-Request-ID` correlation IDs flow from frontend → Next.js proxy → FastAPI backend → audit log, enabling end-to-end request tracing
 - **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
-- **Test suite**: 34 pytest files (1,335 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
+- **Test suite**: 36 pytest files (1,392 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, ambiguity handling (confidence scoring, disambiguation, correction recovery), post-results boundary routing, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
 
 ## Known Gaps / In Progress
 
-- **Multi-intent requests** — extraction, split-classifier routing, and service queue are complete. Multiple service types are extracted, the first is searched with tone-aware framing, and remaining services are offered sequentially after results. Remaining: LLM extractor multi-service schema (PR 4). 30 multi-intent eval scenarios cover queue flow, decline, location change mid-queue, shame tone, cross-service slot conflicts, and NYC persona-based flows. See `MULTI_INTENT_PLAN.md`
-- **Real-time location** — browser geolocation supported (opt-in); falls back to text-based location when denied
+- **Adversarial LLM false positives** — The unified classification gate classifies nonsensical service requests ("helicopter ride") as `service_type=other` instead of returning null. Fix: tighten the LLM prompt to restrict "other" to known social service subcategories. Priority for Run 24.
+- **Slot overwrite on contradiction** — `multiturn_change_mind` (3.25): when user says "actually, shelter" mid-conversation, the filled slot is not overwritten. Requires contradiction detection.
+- **Multi-intent: per-service location** — Phase 4 per-service location binding is implemented but `multi_cross_borough` (3.88) shows it doesn't fire in all cases. Needs investigation.
 - **Multilingual support** — English only
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage
 - **`additional_info` field** — 99.7% null in DB, always empty in results
-- **Persistent storage** — when `PILOT_DB_PATH` is set, audit events and sessions are persisted to SQLite (WAL mode) and hydrated on startup. When unset, in-memory only. DB queries are not cached
+- **LLM call instrumentation** — `log_llm_call()` API is defined in audit_log.py but not yet wired into `claude_client.py` call sites. Metrics section shows "No data" until instrumentation is added.
+- **Persistent storage** — when `PILOT_DB_PATH` is set, audit events and sessions are persisted to SQLite (WAL mode) and hydrated on startup. When unset, in-memory only
 
 ## Running Tests
 

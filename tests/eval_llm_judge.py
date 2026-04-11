@@ -2316,6 +2316,646 @@ SCENARIOS = [
             "age": 19,
         },
     },
+
+        # ===================================================================
+    # PEER NAVIGATOR SCENARIOS — Real queries from Streetlives staff
+    # ===================================================================
+    # These scenarios come from actual peer navigator testing sessions.
+    # They test the system against the population it serves: LGBTQ youth,
+    # young parents fleeing DV, substance use treatment seekers, and
+    # post-crisis families. Expected results reference specific NYC
+    # services from the YourPeer database (Ali Forney, Covenant House,
+    # PATH, Safe Horizon, etc.).
+    # ===================================================================
+
+    {
+        "id": "peer_lgbtq_youth_shelter_soho",
+        "name": "LGBTQ youth 21 — bed tonight in Soho",
+        "category": "multi_intent",
+        "description": "21-year-old LGBTQ person in Soho needing emergency "
+                       "shelter. Ali Forney Center is the primary LGBTQ youth "
+                       "shelter in NYC (ages 16-24). DYCD Youth Drop-in Centers "
+                       "also serve this age range. No gender provided — system "
+                       "should NOT assume. Age and LGBTQ identity are both "
+                       "relevant for eligibility filtering.",
+        "user_turns": [
+            "21, LGBTQ, in Soho, need a bed tonight.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "soho",
+            "age": 21,
+            "should_reach_confirmation": True,
+            "urgency": "high",
+            "notes": "Results should include Ali Forney Center and/or "
+                     "DYCD Youth Drop-in Centers. LGBTQ identity is stated "
+                     "but no gender/identity slot exists yet — system should "
+                     "still extract age (21) and location (Soho). Tone should "
+                     "be warm and not assume gender.",
+        },
+    },
+    {
+        "id": "peer_transman_clothing",
+        "name": "Trans man needs affordable clothing",
+        "category": "natural_language",
+        "description": "User identifies as a trans man and needs clothing they "
+                       "can't afford. The phrasing is indirect — 'I cannot "
+                       "afford clothes on Amazon' implies a need for free "
+                       "clothing, not a specific service request. System should "
+                       "extract clothing as the service type and ask for "
+                       "location. Gender identity is stated but no slot exists.",
+        "user_turns": [
+            "I cannot afford clothes on Amazon. I am a transman",
+            "East Village",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "clothing",
+            "location_contains": "east village",
+            "should_reach_confirmation": True,
+            "notes": "Catholic Worker (CW) in East Village should appear in "
+                     "results. System should ask for location (not provided "
+                     "in first message). Tone should be respectful and not "
+                     "comment on gender identity.",
+        },
+    },
+    {
+        "id": "peer_dv_toddler_emergency",
+        "name": "19 with toddler fleeing DV — emergency shelter tonight",
+        "category": "crisis",
+        "description": "19-year-old parent with a toddler fleeing domestic "
+                       "violence and needing somewhere safe tonight. This is "
+                       "an active crisis: DV + child + urgent. Crisis step-down "
+                       "should fire (domestic_violence with service intent). "
+                       "Expected: DV hotlines + offer to search for shelter.",
+        "user_turns": [
+            "19, with a toddler, fleeing domestic violence, need "
+            "somewhere safe tonight.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "should_detect_crisis": True,
+            "crisis_category": "domestic_violence",
+            "age": 19,
+            "family_status": "with_children",
+            "urgency": "high",
+            "should_reach_confirmation": True,
+            "notes": "Crisis step-down should fire: DV resources shown AND "
+                     "shelter search offered. Results should include Covenant "
+                     "House, PATH, and/or Safe Horizon. Age 19 + with_children "
+                     "should be extracted.",
+        },
+    },
+    {
+        "id": "peer_young_mom_multiple_needs",
+        "name": "19-year-old mom — shelter, diapers, food, healthcare",
+        "category": "multi_intent",
+        "description": "Young mother with a baby needing four services at once: "
+                       "shelter, diapers (food/WIC), food, and basic healthcare. "
+                       "Tests multi-service extraction with 3+ services. System "
+                       "should extract shelter as primary (most urgent), queue "
+                       "food and medical, and note family_status=with_children.",
+        "user_turns": [
+            "19-year-old mom with a baby, need shelter, diapers, food, "
+            "and basic healthcare right now.",
+            "Manhattan",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "manhattan",
+            "age": 19,
+            "family_status": "with_children",
+            "urgency": "high",
+            "should_reach_confirmation": True,
+            "should_queue_additional": True,
+            "notes": "Should extract shelter as primary, food and medical as "
+                     "additional. 'Diapers' maps to food (WIC). Results should "
+                     "include Covenant House and/or PATH. After shelter results, "
+                     "should offer food search, then medical.",
+        },
+    },
+    {
+        "id": "peer_detox_manhattan",
+        "name": "Detox from alcohol and opiates in Manhattan",
+        "category": "happy_path",
+        "description": "User needs substance use detox in Manhattan. 'Detox' "
+                       "maps to mental_health (substance abuse treatment). "
+                       "Expected results include Mount Sinai Beth Israel "
+                       "Addiction Institute, Realization Center, and Project "
+                       "Renewal 3rd Street Rehabilitation Program — all in "
+                       "Manhattan and verified in the YourPeer database.",
+        "user_turns": [
+            "I need to detox from Alcohol and Opiates. Where can I "
+            "go in Manhattan?",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "mental_health",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+            "notes": "Results should include Mount Sinai Beth Israel Addiction "
+                     "Institute, Realization Center, and/or Project Renewal "
+                     "3rd Street Rehabilitation Program. Confirmation should "
+                     "mention 'mental health' or 'substance use' — not just "
+                     "the generic category label.",
+        },
+    },
+    {
+        "id": "peer_escaped_abuse_child_next_steps",
+        "name": "Escaped abuse with child — safe now, needs shelter + next steps",
+        "category": "crisis",
+        "description": "Parent who escaped abuse with their child. Critically, "
+                       "they say 'safe for the moment' — this is post-crisis, "
+                       "not active danger. System should detect DV context "
+                       "(step-down) and offer shelter search, but tone should "
+                       "acknowledge current safety rather than treating it as "
+                       "an active emergency. 'Next steps' implies legal/advocacy "
+                       "needs beyond shelter.",
+        "user_turns": [
+            "Escaped abuse with my child, safe for the moment, need "
+            "help with shelter and next steps.",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "should_detect_crisis": True,
+            "crisis_category": "domestic_violence",
+            "family_status": "with_children",
+            "should_reach_confirmation": True,
+            "notes": "Crisis step-down should fire (DV + service intent). "
+                     "Response should acknowledge 'safe for the moment' — "
+                     "tone should validate safety rather than escalate urgency. "
+                     "Results should include Covenant House, Safe Horizon, "
+                     "and/or Family Justice Center (FJC) Manhattan. 'Next "
+                     "steps' implies legal needs — system could queue legal "
+                     "as additional service.",
+        },
+    },
+
+    # ===================================================================
+    # REAL-WORLD EDGE CASES — Natural language from the population served
+    # ===================================================================
+    # These scenarios use the actual phrasing homeless and at-risk youth,
+    # parents, veterans, immigrants, and formerly incarcerated people use
+    # when asking for help. They test the unified LLM gate, indirect
+    # service needs, NYC slang, and underrepresented service categories.
+    #
+    # 7 of 20 fail regex extraction — they require the unified LLM gate
+    # or Track 2 classification to route correctly.
+    # ===================================================================
+
+    # --- Financial literacy / "I don't know what I need" ---
+
+    {
+        "id": "peer_bad_with_money",
+        "name": "Financial literacy — 'I am so bad with money'",
+        "category": "natural_language",
+        "description": "User expresses a financial literacy need without naming a "
+                       "specific service. Streetlives peer navigators expect this to "
+                       "surface DYCD Youth Drop-in Centers (financial advisors), "
+                       "RiseBoro, or doobneek. System needs follow-up to determine "
+                       "age (DYCD requires under 25). Maps to 'other' service type.",
+        "user_turns": [
+            "I am so bad with money.",
+            "I'm 22",
+            "East Village",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "other",
+            "location_contains": "east village",
+            "age": 22,
+            "should_reach_confirmation": True,
+            "notes": "Indirect need — no service keyword present. The unified "
+                     "LLM gate should classify as 'other' (financial services). "
+                     "If regex misses, the system should still ask clarifying "
+                     "questions rather than showing a generic response.",
+        },
+    },
+    {
+        "id": "peer_dont_know_where_to_start",
+        "name": "Overwhelmed — 'I just need help, don't know where to start'",
+        "category": "edge_case",
+        "description": "User is overwhelmed and can't articulate a specific need. "
+                       "Should NOT route to the help handler (capability description). "
+                       "Should acknowledge the feeling and gently offer service "
+                       "categories or peer navigator.",
+        "user_turns": [
+            "I just need help, I don't know where to start",
+        ],
+        "expected": {
+            "should_show_empathy": True,
+            "should_offer_categories": True,
+            "notes": "This should route to confused or emotional handler, NOT "
+                     "the help handler. 'I don't know where to start' is "
+                     "overwhelm, not a bot capability question. Quick-reply "
+                     "buttons for common services + peer navigator.",
+        },
+    },
+
+    # --- Formerly incarcerated / re-entry ---
+
+    {
+        "id": "peer_out_the_system",
+        "name": "Re-entry — 'just got out the system'",
+        "category": "natural_language",
+        "description": "'The system' is common vernacular for incarceration or "
+                       "foster care. 'Need somewhere to go' = shelter. Regex "
+                       "misses both — requires LLM to understand context.",
+        "user_turns": [
+            "just got out the system, need somewhere to go",
+            "South Bronx",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "south bronx",
+            "should_reach_confirmation": True,
+            "notes": "Regex fails: 'the system' is not a keyword, 'somewhere "
+                     "to go' is not in the shelter list. Unified LLM gate "
+                     "should catch this. Fortune Society and Doe Fund serve "
+                     "this population.",
+        },
+    },
+    {
+        "id": "peer_felon_employment",
+        "name": "Employment — 'looking for a job that hires felons'",
+        "category": "natural_language",
+        "description": "Formerly incarcerated person seeking employment. The word "
+                       "'felons' signals re-entry context. 'Job' maps to employment "
+                       "via regex. Tests whether the system handles stigmatized "
+                       "language without judgment.",
+        "user_turns": [
+            "looking for a job that hires felons",
+            "Bushwick",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "employment",
+            "location_contains": "bushwick",
+            "should_reach_confirmation": True,
+            "notes": "Regex should catch 'job' → employment. Tone should be "
+                     "warm and non-judgmental — no commentary on criminal "
+                     "history. Doe Fund, STRIVE, and Center for Employment "
+                     "Opportunities serve this population.",
+        },
+    },
+
+    # --- Immigration / undocumented ---
+
+    {
+        "id": "peer_undocumented_papers",
+        "name": "Immigration — 'undocumented, need help with papers'",
+        "category": "natural_language",
+        "description": "'Papers' is common shorthand for immigration documents. "
+                       "Regex misses it — 'papers' is not a legal keyword. "
+                       "Privacy is critical: user is disclosing undocumented "
+                       "status. Response must NOT store immigration status as PII.",
+        "user_turns": [
+            "undocumented, need help with papers in Queens",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "legal",
+            "location_contains": "queens",
+            "should_reach_confirmation": True,
+            "notes": "Regex fails on 'papers'. Unified LLM gate should map to "
+                     "legal (immigration). Make the Road NY, Cabrini Immigrant "
+                     "Services, and UnLocal serve this population. Privacy: "
+                     "'undocumented' should be treated as sensitive context.",
+        },
+    },
+
+    # --- Veterans ---
+
+    {
+        "id": "peer_veteran_sleeping_in_car",
+        "name": "Veteran — sleeping in car, needs help",
+        "category": "natural_language",
+        "description": "Veteran experiencing homelessness but not using the word "
+                       "'shelter' or 'homeless'. 'Sleeping in my car' is a common "
+                       "way people describe their situation. Regex misses it.",
+        "user_turns": [
+            "veteran, sleeping in my car, need help",
+            "Lower East Side",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "lower east side",
+            "should_reach_confirmation": True,
+            "notes": "Regex fails: 'sleeping in my car' is not a shelter keyword. "
+                     "Unified LLM gate should map to shelter. VA and Bowery "
+                     "Residents Committee serve veterans. 'Veteran' context "
+                     "is relevant for eligibility but no veteran slot exists yet.",
+        },
+    },
+
+    # --- Pregnancy / expecting ---
+
+    {
+        "id": "peer_pregnant_couple_tonight",
+        "name": "Pregnant couple — need a place tonight",
+        "category": "multi_intent",
+        "description": "Couple where the woman is 8 months pregnant needing "
+                       "shelter tonight. Tests: family_status extraction from "
+                       "'my girl' + '8 months' (pregnant), urgency from 'tonight', "
+                       "and shelter from 'need a place'. Regex misses 'a place "
+                       "tonight' as shelter.",
+        "user_turns": [
+            "me and my girl need a place tonight, she's 8 months pregnant",
+            "Bronx",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "bronx",
+            "family_status": "with_family",
+            "urgency": "high",
+            "should_reach_confirmation": True,
+            "notes": "Regex misses 'a place tonight'. LLM should catch shelter "
+                     "intent. '8 months pregnant' should be extracted but no "
+                     "pregnancy slot exists. PATH intake serves pregnant women.",
+        },
+    },
+    {
+        "id": "peer_pregnant_doctor_bronx",
+        "name": "Pregnant — need a doctor in the Bronx",
+        "category": "happy_path",
+        "description": "Pregnant woman needing prenatal care. Tests medical "
+                       "service extraction with pregnancy context.",
+        "user_turns": [
+            "I'm pregnant and need a doctor in the Bronx",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "medical",
+            "location_contains": "bronx",
+            "should_reach_confirmation": True,
+            "notes": "Regex should catch 'doctor' → medical. 'Pregnant' is "
+                     "context for eligibility, not a separate service. NYC "
+                     "Health + Hospitals serves uninsured pregnant women.",
+        },
+    },
+
+    # --- Medical edge cases ---
+
+    {
+        "id": "peer_diabetic_insulin",
+        "name": "Medical — 'diabetic and ran out of insulin'",
+        "category": "natural_language",
+        "description": "User has a chronic condition and ran out of medication. "
+                       "'Insulin' is not a medical keyword — regex misses it. "
+                       "Tests whether the LLM gate understands medication needs.",
+        "user_turns": [
+            "I'm diabetic and ran out of insulin",
+            "East Harlem",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "medical",
+            "location_contains": "east harlem",
+            "should_reach_confirmation": True,
+            "notes": "Regex fails on 'insulin'. Unified LLM gate should map to "
+                     "medical. NYC Health + Hospitals has sliding-scale clinics. "
+                     "This has some urgency — running out of insulin is "
+                     "medically dangerous.",
+        },
+    },
+    {
+        "id": "peer_got_beat_up",
+        "name": "Medical — 'just got beat up, need medical help'",
+        "category": "natural_language",
+        "description": "User was assaulted and needs medical attention. Could also "
+                       "trigger safety_concern crisis detection. Tests whether "
+                       "the system provides medical results AND safety resources.",
+        "user_turns": [
+            "just got beat up, need medical help in Harlem",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "medical",
+            "location_contains": "harlem",
+            "should_reach_confirmation": True,
+            "notes": "'Got beat up' may trigger safety_concern crisis detection. "
+                     "Step-down should fire: safety resources AND medical search. "
+                     "Tone should acknowledge the assault with concern.",
+        },
+    },
+
+    # --- Personal care / hygiene ---
+
+    {
+        "id": "peer_shower_penn_station",
+        "name": "Shower — 'anywhere I can take a shower near Penn Station'",
+        "category": "natural_language",
+        "description": "User looking for shower access near a specific NYC "
+                       "landmark. Tests personal_care extraction and location "
+                       "normalization for landmarks vs neighborhoods.",
+        "user_turns": [
+            "is there anywhere I can take a shower near Penn Station",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "personal_care",
+            "location_contains": "penn station",
+            "should_reach_confirmation": True,
+            "notes": "Regex should catch 'shower' → personal_care. 'Penn "
+                     "Station' is a known location. Confirmation should say "
+                     "'showers' not 'personal care' for natural phrasing.",
+        },
+    },
+
+    # --- Technology access ---
+
+    {
+        "id": "peer_charge_phone_wifi",
+        "name": "Technology — 'need to charge my phone and get wifi'",
+        "category": "multi_intent",
+        "description": "Technology access is a critical need for this population — "
+                       "phones are often the only connection to services, benefits, "
+                       "and safety. Both 'charging' and 'wifi' map to 'other'.",
+        "user_turns": [
+            "where can I charge my phone and get wifi",
+            "Midtown",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "other",
+            "location_contains": "midtown",
+            "should_reach_confirmation": True,
+            "notes": "Both 'charging' and 'wifi' are in the 'other' keyword "
+                     "list. Should extract correctly. Libraries and drop-in "
+                     "centers typically offer both.",
+        },
+    },
+
+    # --- Benefits / government services ---
+
+    {
+        "id": "peer_food_stamps_apply",
+        "name": "Benefits — 'can I get food stamps'",
+        "category": "happy_path",
+        "description": "Straightforward benefits request. 'Food stamps' maps to "
+                       "'other' (benefits category). Tests whether the system "
+                       "routes to benefits rather than food.",
+        "user_turns": [
+            "can I get food stamps",
+            "Brooklyn",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "other",
+            "location_contains": "brooklyn",
+            "should_reach_confirmation": True,
+            "notes": "'Food stamps' maps to 'other' (SNAP/EBT category), NOT "
+                     "'food'. Confirmation should mention 'benefits' or 'SNAP' "
+                     "rather than generic 'other services'.",
+        },
+    },
+    {
+        "id": "peer_free_id_manhattan",
+        "name": "ID replacement — 'can I get a free ID'",
+        "category": "happy_path",
+        "description": "User needs identification. 'Free ID' maps to 'other'. "
+                       "NYC ID (IDNYC) is free and available regardless of "
+                       "immigration status.",
+        "user_turns": [
+            "can I get a free ID somewhere in Manhattan",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "other",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+            "notes": "'Need an id' and 'state id' are both 'other' keywords. "
+                     "Should extract correctly. IDNYC locations expected.",
+        },
+    },
+
+    # --- Pets ---
+
+    {
+        "id": "peer_shelter_with_dog",
+        "name": "Shelter — 'need a place where my dog can come too'",
+        "category": "natural_language",
+        "description": "Many homeless individuals won't go to shelter because they "
+                       "can't bring their pet. 'A place where my dog can come' = "
+                       "shelter + pet-friendly. Regex misses 'a place' as shelter.",
+        "user_turns": [
+            "I need a place where my dog can come too",
+            "Manhattan",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "shelter",
+            "location_contains": "manhattan",
+            "should_reach_confirmation": True,
+            "notes": "Regex misses 'a place' as shelter (only 'place to stay' "
+                     "matches). LLM gate should catch shelter intent. No "
+                     "pet-friendly filter exists — results won't be filtered "
+                     "by pet policy, but the search should still run.",
+        },
+    },
+
+    # --- Foster care aging out ---
+
+    {
+        "id": "peer_aging_out_foster",
+        "name": "Foster youth — 'aging out of foster care next month'",
+        "category": "edge_case",
+        "description": "Foster youth aging out at 21 face a cliff of lost services. "
+                       "This is a 'I don't know what I need' scenario — the system "
+                       "should recognize the urgency and offer multiple service "
+                       "categories (shelter, employment, benefits, legal).",
+        "user_turns": [
+            "aging out of foster care next month, what do I do",
+        ],
+        "expected": {
+            "should_show_empathy": True,
+            "should_offer_categories": True,
+            "notes": "No specific service keyword — 'aging out' and 'foster "
+                     "care' describe a situation, not a service. System should "
+                     "acknowledge the transition and offer relevant categories "
+                     "(shelter, employment, benefits) or connect to peer "
+                     "navigator. DYCD and ACS aftercare programs serve this "
+                     "population.",
+        },
+    },
+
+    # --- Winter / seasonal ---
+
+    {
+        "id": "peer_winter_coat_giveaway",
+        "name": "Clothing — 'where do they give out winter coats'",
+        "category": "happy_path",
+        "description": "Seasonal clothing need. Tests clothing extraction from "
+                       "natural phrasing. 'Give out' is informal but clear.",
+        "user_turns": [
+            "where do they give out winter coats",
+            "Harlem",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "clothing",
+            "location_contains": "harlem",
+            "should_reach_confirmation": True,
+            "notes": "'Coat' is a clothing keyword. Should extract correctly. "
+                     "Catholic Worker, Bowery Mission, and churches often do "
+                     "seasonal coat drives.",
+        },
+    },
+
+    # --- Substance use / methadone ---
+
+    {
+        "id": "peer_methadone_access",
+        "name": "Medical — 'need to get on methadone'",
+        "category": "happy_path",
+        "description": "User seeking medication-assisted treatment (MAT) for "
+                       "opioid use disorder. 'Methadone' maps to medical. "
+                       "Tests substance-use-specific service routing.",
+        "user_turns": [
+            "I need to get on methadone",
+            "Lower East Side",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "medical",
+            "location_contains": "lower east side",
+            "should_reach_confirmation": True,
+            "notes": "'Methadone' is a medical keyword. Should extract "
+                     "correctly. Mount Sinai and Project Renewal serve "
+                     "this population in LES.",
+        },
+    },
+
+    # --- Laundry ---
+
+    {
+        "id": "peer_wash_clothes",
+        "name": "Personal care — 'need somewhere to wash my clothes'",
+        "category": "happy_path",
+        "description": "Laundry is a personal_care service. Tests extraction "
+                       "from informal phrasing.",
+        "user_turns": [
+            "need somewhere to wash my clothes",
+            "East Village",
+            "Yes, search",
+        ],
+        "expected": {
+            "service_type": "personal_care",
+            "location_contains": "east village",
+            "should_reach_confirmation": True,
+            "notes": "'Wash' is a personal_care keyword via word boundary "
+                     "matching. Should extract correctly. Drop-in centers "
+                     "often have laundry facilities.",
+        },
+    },
+
 ]
 
 

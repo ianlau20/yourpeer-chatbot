@@ -3,7 +3,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.chat import router as chat_router
 from app.routes.admin import router as admin_router
-from app.dependencies import RateLimitMiddleware, CSRFMiddleware, get_allowed_origins
+from app.dependencies import (
+    RateLimitMiddleware, CSRFMiddleware, BodySizeLimitMiddleware,
+    BotDetectionMiddleware, get_allowed_origins,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,6 +52,14 @@ app.add_middleware(CSRFMiddleware)
 # --- Rate limiting ---
 # Protects /chat/ and /chat/feedback. Admin and health routes are exempt.
 app.add_middleware(RateLimitMiddleware)
+
+# --- Body size limit ---
+# Rejects oversized request bodies before parsing (50KB cap).
+app.add_middleware(BodySizeLimitMiddleware)
+
+# --- Bot detection ---
+# Blocks known scanner User-Agents and bans IPs that probe honeypot paths.
+app.add_middleware(BotDetectionMiddleware)
 
 # --- API routes ---
 app.include_router(chat_router)

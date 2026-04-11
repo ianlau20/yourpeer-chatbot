@@ -36,7 +36,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Use the shared Anthropic client and model constants
-from app.llm.claude_client import get_client, SLOT_EXTRACTION_MODEL
+from app.llm.claude_client import get_client, SLOT_EXTRACTION_MODEL, _track_llm_call
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +249,7 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
     additional_service_types defaults to [].
     """
     try:
+        _track_llm_call("slot_extraction")
         client = get_client()
 
         # Build messages with conversation history for context
@@ -340,6 +341,7 @@ def extract_slots_narrative(message: str, conversation_history: list = None) -> 
     Falls back to _narrative_regex_fallback() when LLM is unavailable.
     """
     try:
+        _track_llm_call("narrative_extraction")
         client = get_client()
 
         messages = []
@@ -416,7 +418,9 @@ def _narrative_regex_fallback(message: str) -> dict:
         detail = regex_result.get("service_detail")
         all_services.append((primary, detail))
 
-    for svc, detail in regex_result.get("additional_services", []):
+    for item in regex_result.get("additional_services", []):
+        svc = item[0]
+        detail = item[1] if len(item) > 1 else None
         all_services.append((svc, detail))
 
     if len(all_services) <= 1:
@@ -646,15 +650,18 @@ def _merge_additional_services(primary_result: dict, regex_result: dict) -> dict
     combined_additional = []
 
     # Regex additional first — they have detail info (e.g., "food stamps")
-    for svc, detail in regex_additional:
+    for item in regex_additional:
+        svc = item[0]
+        detail = item[1] if len(item) > 1 else None
+        loc = item[2] if len(item) > 2 else None
         if svc not in seen:
-            combined_additional.append((svc, detail))
+            combined_additional.append((svc, detail, loc))
             seen.add(svc)
 
     # LLM additional — only services regex didn't already find.
     for svc in llm_additional:
         if svc not in seen:
-            combined_additional.append((svc, None))
+            combined_additional.append((svc, None, None))
             seen.add(svc)
             logger.info(
                 f"LLM detected additional service '{svc}' "

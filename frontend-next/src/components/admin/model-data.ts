@@ -52,7 +52,7 @@ export type ConfigId = "recommended" | "allHaiku" | "allSonnet" | "sonnetHeavy";
 export interface ConfigModels {
   conv: "haiku" | "sonnet";
   slots: "haiku" | "sonnet";
-  classification: "haiku" | "sonnet";
+  classification: "haiku" | "sonnet"; // unified gate (pre-routing classification + extraction)
   crisis: "haiku" | "sonnet";
   emotionalAck: "haiku" | "sonnet";
   botQuestion: "haiku" | "sonnet";
@@ -153,7 +153,7 @@ export const TASKS: TaskDef[] = [
     id: "slotExtraction",
     name: "Slot extraction (tool calling)",
     icon: Brain,
-    desc: "LLM-based structured extraction of service type, location, age, urgency, gender from natural language via Claude function calling.",
+    desc: "LLM-based structured extraction of service type, location, age, urgency, gender from natural language via Claude function calling. Runs after routing when the message is classified as a service request, with conversation history for multi-turn context. The unified classification gate handles first-pass extraction for messages regex misses; this call adds conversation-history enrichment.",
     inputTokens: 450,
     outputTokens: 60,
     requirements: [
@@ -162,28 +162,31 @@ export const TASKS: TaskDef[] = [
       "Resolve conflicting signals (\u2018in Queens but need food in Brooklyn\u2019)",
       "Extract from context (\u2018my son is 12\u2019 \u2192 age=12)",
       "Only extract what\u2019s stated, don\u2019t guess",
+      "Use conversation history for multi-turn slot accumulation",
     ],
     recommendation: "haiku",
     rationale:
-      "Simple schema (5 optional fields), codebase routes only complex messages to LLM (regex handles simple cases), and Haiku\u2019s tool-calling is reliable for bounded schemas. Monitor accuracy \u2014 first task to upgrade to Sonnet if edge cases increase.",
+      "Simple schema (5 optional fields), codebase routes only complex messages to LLM (regex handles simple cases), and Haiku\u2019s tool-calling is reliable for bounded schemas. The unified gate already extracted slots pre-routing; this call re-extracts with conversation history for better multi-turn accuracy. Monitor accuracy \u2014 first task to upgrade to Sonnet if edge cases increase.",
   },
   {
     id: "classification",
-    name: "Message classification",
+    name: "Unified classification gate",
     icon: Route,
-    desc: "Route ambiguous messages to the correct handler when regex keyword matching falls through. Only invoked on messages longer than 3 words that regex classified as \u201Cgeneral.\u201D",
-    inputTokens: 300,
-    outputTokens: 10,
+    desc: "When regex finds no service type, no action, and no tone on a 4+ word message, a single Haiku call returns all classification dimensions: service_type, location, tone, action, additional_services, urgency, age, and family_status. Replaces the old separate classification + slot enrichment calls.",
+    inputTokens: 400,
+    outputTokens: 120,
     requirements: [
-      "Classify into one of 16 routing categories (service, greeting, emotional, bot_question, etc.)",
-      "Distinguish \u2018I need help with housing\u2019 (service) from \u2018how does this work\u2019 (bot_question)",
-      "Distinguish \u2018I\u2019m feeling really down\u2019 (emotional) from \u2018I don\u2019t know what to do\u2019 (confused)",
-      "Handle indirect service needs (\u2018I was just released\u2019 \u2192 service)",
-      "Return single category name, validated against known set",
+      "Return structured JSON with all classification dimensions in one call",
+      "Distinguish intent from mention (\u2018I saw a doctor on TV\u2019 \u2192 null, not medical)",
+      "Handle indirect service needs (\u2018roof over my head\u2019 \u2192 shelter, \u2018I\u2019m starving\u2019 \u2192 food)",
+      "Detect tone (emotional, frustrated, urgent, confused) from natural language",
+      "Detect action (confirm_yes, escalation, etc.) from informal language (\u2018bet\u2019, \u2018aight\u2019)",
+      "Extract NYC location from context",
+      "Only fires when regex found nothing (~25% of messages)",
     ],
     recommendation: "haiku",
     rationale:
-      "This is a simple classification task (pick 1 of 16 labels) with a short output (single word). Regex handles the clear cases; the LLM only sees messages where regex already failed, so the bar is \u2018better than general\u2019 not \u2018perfect.\u2019 Haiku\u2019s speed keeps the latency impact minimal for real-time chat. If the LLM fails, the system falls back to the regex result (general) \u2014 no safety risk.",
+      "This is the regex safety net \u2014 it only fires when regex found nothing useful, so the bar is \u2018better than nothing\u2019 not \u2018perfect.\u2019 The JSON output schema is bounded (9 fields, all with finite valid values). Haiku\u2019s structured output and instruction following are strong for this type of task [5]. Speed matters because the gate adds latency to ~25% of messages. The existing classify_message_llm fallback is kept as a secondary safety net.",
   },
   {
     id: "crisisDetection",
@@ -245,7 +248,7 @@ export const TASKS: TaskDef[] = [
     id: "jury",
     name: "LLM-as-a-jury evaluation",
     icon: Scale,
-    desc: "Run the existing eval suite (83 scenarios across 17 categories) with both Haiku and Sonnet performing each LLM task, then have a judge model score both. Produces empirical model-selection data to validate or override the recommendations above.",
+    desc: "Run the existing eval suite (142 scenarios across 20 categories) with both Haiku and Sonnet performing each LLM task, then have a judge model score both. Produces empirical model-selection data to validate or override the recommendations above.",
     inputTokens: 800,
     outputTokens: 400,
     requirements: [
@@ -268,7 +271,7 @@ export const TASKS: TaskDef[] = [
       {
         name: "Run paired evaluations",
         detail:
-          "Execute the full 83-scenario suite under two configs: (A) All-Haiku and (B) Recommended mix. Each run produces per-scenario scores across 8 dimensions.",
+          "Execute the full 142-scenario suite under two configs: (A) All-Haiku and (B) Recommended mix. Each run produces per-scenario scores across 8 dimensions.",
       },
       {
         name: "Head-to-head judging",
@@ -278,7 +281,7 @@ export const TASKS: TaskDef[] = [
       {
         name: "Focus on crisis + edge cases",
         detail:
-          "The 9 crisis scenarios, 9 edge-case scenarios, and 10 natural-language scenarios are where model differences are most likely. Flag any scenario where Haiku scored \u22643 on safety_crisis.",
+          "The 10 crisis scenarios, 14 edge-case scenarios, 30 multi-intent scenarios, and 18 natural-language scenarios are where model differences are most likely. Flag any scenario where Haiku scored \u22643 on safety_crisis.",
       },
       {
         name: "Produce decision matrix",
@@ -287,9 +290,9 @@ export const TASKS: TaskDef[] = [
       },
     ],
     juryCost:
-      "~$15-20 per full eval run (83 scenarios \u00d7 ~10 turns \u00d7 judge call). Two paired runs + judging \u2248 $45-55 total.",
+      "~$25-35 per full eval run (142 scenarios \u00d7 ~10 turns \u00d7 judge call). Two paired runs + judging \u2248 $75-100 total.",
     juryInfra:
-      "eval_llm_judge.py already has the scenario bank (83 cases across 17 categories), conversation simulator, 8-dimension rubric, and judge prompt. Main change: parameterize which model handles each LLM call.",
+      "eval_llm_judge.py already has the scenario bank (142 cases across 20 categories), conversation simulator, 8-dimension rubric, and judge prompt. Main change: parameterize which model handles each LLM call.",
   },
   {
     id: "futureMultilang",

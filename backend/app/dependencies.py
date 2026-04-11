@@ -211,6 +211,104 @@ def _build_429(retry_after: int) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Bot detection — block scanners, honeypot banning
+# ---------------------------------------------------------------------------
+
+# User-Agent substrings associated with vulnerability scanners and SEO bots.
+# Not foolproof, but eliminates low-effort automated traffic.
+_BLOCKED_USER_AGENTS = [
+    "sqlmap", "nikto", "nmap", "masscan", "zgrab",
+    "semrush", "ahrefs", "mj12bot", "dotbot", "petalbot",
+    "censys", "shodan", "nuclei", "httpx", "gobuster",
+    "dirbuster", "wfuzz", "ffuf",
+]
+
+# Paths that real users never hit but scanners always try.
+# Any IP hitting these gets temporarily banned.
+_HONEYPOT_PATHS = {
+    "/wp-admin", "/wp-login.php", "/.env", "/phpmyadmin",
+    "/.git/config", "/actuator", "/debug", "/console",
+    "/admin.php", "/xmlrpc.php", "/wp-content",
+}
+
+# Temporarily banned IPs (IP → expiry timestamp)
+_banned_ips: dict[str, float] = {}
+_BAN_DURATION = 3600  # 1 hour
+
+import time as _time
+
+
+class BotDetectionMiddleware(BaseHTTPMiddleware):
+    """Block known scanners and honeypot-triggered IPs.
+
+    Three layers:
+    1. Check if IP is temporarily banned (from honeypot hit)
+    2. Block requests from known scanner User-Agents
+    3. Ban IPs that probe honeypot paths (/wp-admin, /.env, etc.)
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
+        from app.dependencies import get_client_ip
+
+        client_ip = get_client_ip(request)
+        path = request.url.path.rstrip("/")
+        now = _time.monotonic()
+
+        # 1. Check if IP is banned
+        ban_expiry = _banned_ips.get(client_ip)
+        if ban_expiry and now < ban_expiry:
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+        elif ban_expiry:
+            _banned_ips.pop(client_ip, None)  # expired
+
+        # 2. Block known scanner User-Agents
+        ua = (request.headers.get("user-agent") or "").lower()
+        if any(bot in ua for bot in _BLOCKED_USER_AGENTS):
+            logger.info(f"Blocked scanner UA from {client_ip}: {ua[:80]}")
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+        # 3. Honeypot — ban IP on probe
+        if path in _HONEYPOT_PATHS or path.lower() in _HONEYPOT_PATHS:
+            logger.warning(f"Honeypot triggered by {client_ip}: {path}")
+            _banned_ips[client_ip] = now + _BAN_DURATION
+            # Evict expired bans to prevent memory growth
+            if len(_banned_ips) > 1000:
+                _banned_ips.clear()
+            return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+        return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Body size limit — reject oversized requests before parsing
+# ---------------------------------------------------------------------------
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests with Content-Length exceeding MAX_BODY_BYTES.
+
+    FastAPI reads and parses the full request body before Pydantic
+    validation. Without this, an attacker could send a 100MB JSON body
+    that gets loaded into memory before the 10,000-char message limit
+    rejects it. This middleware short-circuits before any parsing.
+    """
+
+    MAX_BODY_BYTES = 50_000  # 50KB — generous for a chat message
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > self.MAX_BODY_BYTES:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large"},
+                    )
+            except ValueError:
+                pass  # malformed header — let downstream handle it
+        return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
 # CORS / CSRF — shared origin list
 # ---------------------------------------------------------------------------
 

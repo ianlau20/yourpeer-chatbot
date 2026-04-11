@@ -194,6 +194,8 @@ TOPICS = {
         "keywords": [
             "benefits", "case worker", "caseworker", "shelter see",
             "affect my", "will this affect", "impact my",
+            "do they get my", "does the shelter know", "does the provider",
+            "will they know", "can they see", "do they know i searched",
         ],
         "answer": (
             "Using this chat won't affect your benefits or case status. "
@@ -210,6 +212,8 @@ TOPICS = {
             "who can see", "anyone see", "see what i", "see my",
             "recording", "record", "listening",
             "share", "sharing", "shared with", "tell anyone",
+            "is this anonymous", "is this confidential",
+            "who gets my", "who sees my",
         ],
         "answer": (
             "No one else can see your conversation. I don't record audio "

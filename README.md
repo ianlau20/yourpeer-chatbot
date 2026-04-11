@@ -58,15 +58,15 @@ User → Chat UI → FastAPI → Message Classifier → Slot Extraction → Conf
    buttons                (regex + Sonnet)            ↓          or changes slots                         ↓
                           → Step-down when       Session Store                                       YourPeer links
                             service intent           ↓
-                          Greeting / Reset       Claude Haiku (fallback
-                          Thanks / Help          for general conversation
-                          Escalation             and DB failures only)
-                          Frustration (AVR)
-                          Emotional (AVR)
-                          Bot identity
-                          Confused/overwhelmed
-                          Confirmation
-                          handling
+                          Greeting / Reset       Unified LLM Gate
+                          Thanks / Help          (Haiku — when regex
+                          Escalation             finds nothing, returns
+                          Frustration (AVR)      service_type + tone +
+                          Emotional (AVR)        action in one call)
+                          Bot identity                ↓
+                          Confused/overwhelmed   Claude Haiku (fallback
+                          Confirmation           for general conversation
+                          handling               and DB failures only)
 
 Staff → Admin Console (/admin) → Audit Log API → Anonymized transcripts, query logs, crisis events, stats
                                        ↓
@@ -76,7 +76,7 @@ Staff → Admin Console (/admin) → Audit Log API → Anonymized transcripts, q
 
 The system follows a **Safer, Limited RAG** pattern with four phases:
 
-1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Multi-service extraction detects all services in a message ("I need food and shelter") and queues them for sequential search. Quick-reply buttons let users tap instead of type. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a tiered approach runs regex first and calls Claude Haiku for complex or ambiguous inputs. Crisis detection runs on every message before anything else, using regex pre-check followed by Claude Sonnet LLM classification when regex misses — with an emotional phrase guard that prevents sub-crisis expressions ("feeling scared", "I'm struggling") from being over-escalated to crisis. When crisis fires alongside service intent, a step-down flow shows crisis resources while preserving the service context. The message classifier routes greetings, resets, escalation, frustration, bot-identity questions, confusion, and help before slot extraction runs. Emotional handling follows the Acknowledge-Validate-Redirect (AVR) pattern from clinical chatbot research. PII is redacted from stored transcripts.
+1. **Intake** — Slot extraction collects structured fields (service type, location, age, urgency, gender) through multi-turn conversation. Multi-service extraction detects all services in a message ("I need food and shelter") and queues them for sequential search, with per-service location binding when different locations are mentioned ("food in Brooklyn and shelter in Manhattan"). Quick-reply buttons let users tap instead of type. Uses regex by default; when `ANTHROPIC_API_KEY` is set, a **unified LLM classification gate** fires on messages where regex finds no service type, no action, and no tone — a single Haiku call returns all classification dimensions (service_type, location, tone, action) in one JSON response, fixing the 52% regex miss rate on natural language. Crisis detection runs on every message before anything else, using regex pre-check followed by Claude Sonnet LLM classification when regex misses — with an emotional phrase guard that prevents sub-crisis expressions ("feeling scared", "I'm struggling") from being over-escalated to crisis. When crisis fires alongside service intent, a step-down flow shows crisis resources while preserving the service context (supported for safety_concern, domestic_violence, and youth_runaway categories). The message classifier routes greetings, resets, escalation, frustration, bot-identity questions, confusion, and help before slot extraction runs. Emotional handling follows the Acknowledge-Validate-Redirect (AVR) pattern from clinical chatbot research. NYC youth slang is supported for confirmations ("bet", "aight", "word") and declines ("nah I'm good"). PII is redacted from stored transcripts.
 2. **Confirmation** — When service type and location are filled, the bot summarizes the search ("I'll search for food in Brooklyn") and presents quick-reply options: confirm, change location, change service, or start over. The database is only queried after explicit user confirmation.
 3. **Query** — Pre-defined, parameterized SQL templates run against the Streetlives PostgreSQL database. Borough-level queries use the `pa.borough` column directly — more reliable than expanding city name lists. Neighborhood queries use PostGIS proximity search (`ST_DWithin`) with coordinates for 59 NYC neighborhoods. If the strict query returns no results, filters are automatically relaxed while keeping location boundaries. Data-informed nearby borough suggestions are offered when results are thin.
 4. **Rendering** — Results are returned as structured service cards, never as LLM-generated text. Cards include address, hours, phone, fees, a "Referral may be required" badge for membership-gated services, and direct links to YourPeer.
@@ -103,13 +103,15 @@ Two Claude models are used across the system, each assigned to specific tasks ba
 
 ### Claude Haiku (`claude-haiku-4-5-20251001`)
 
-**Used for:** Conversational fallback and slot extraction.
+**Used for:** Conversational fallback, slot extraction, and unified classification.
 
 **Conversational fallback** — General responses to messages that don't match any routing category and don't contain service slots. Only runs when all other routing paths have been exhausted. The vast majority of messages never reach the LLM. It handles genuinely open-ended conversational turns: a user telling a story before stating their need, an ambiguous follow-up after results are delivered, or a message the classifier couldn't route. Also used as a database fallback — if a database query throws an exception, the bot calls Haiku with a prompt asking it to acknowledge the issue and keep the user engaged. Haiku never generates service data. Its system prompt explicitly prohibits fabricating service names, addresses, or phone numbers.
 
 **Slot extraction** — Extracting structured fields (service type, location, age, urgency, gender) from natural language. Only runs for messages classified as "complex" by a lightweight complexity check. Simple, clear requests ("I need food in Brooklyn") are handled by regex alone. Haiku runs for long messages, implicit needs, slang, or conflicting signals. Uses the `extract_intake_slots` tool with a strict JSON schema — the model is constrained to return only the defined fields and enum values.
 
-**Why Haiku:** Speed. Haiku is 4-5x faster than Sonnet, which directly improves chat UX for real-time conversation. Both tasks have simple output constraints (1-3 sentences for conversation, 5-field JSON for slots) where Sonnet's deeper reasoning adds no measurable value.
+**Unified classification gate** — When regex finds no service type, no action, and no tone on a 4+ word message, a single Haiku call returns all classification dimensions (service_type, location, tone, action, additional_services, urgency, age, family_status) in one JSON response. This fires on ~25% of messages — the ones where regex genuinely has nothing useful. The prompt distinguishes intent from mention ("I saw a doctor on TV" → null, not medical) to prevent false positives.
+
+**Why Haiku:** Speed. Haiku is 4-5x faster than Sonnet, which directly improves chat UX for real-time conversation. All three tasks have simple output constraints (1-3 sentences for conversation, 5-field JSON for slots, 9-field JSON for classification) where Sonnet's deeper reasoning adds no measurable value.
 
 **Requires:** `ANTHROPIC_API_KEY` in `.env`.
 
@@ -153,11 +155,11 @@ These are tracked issues identified during DB audits and pilot testing, deferred
 | [CHATBOT_BEHAVIOR.md](docs/CHATBOT_BEHAVIOR.md) | Chatbot behavior — routing pipeline, message categories, emotional handling design (AVR pattern), crisis step-down, LLM usage, guardrails, conversation modes, limitations, how to extend |
 | [CRISIS_DETECTION.md](docs/CRISIS_DETECTION.md) | Crisis detection — two-stage architecture, category definitions, fail-open policy, emotional phrase guard, crisis step-down, phrase list design, LLM prompt, and how to extend |
 | [PII_REDACTION.md](docs/PII_REDACTION.md) | PII redaction — six detection categories, pattern details, tradeoffs, known gaps, and future improvements |
-| [METRICS.md](docs/METRICS.md) | Success metrics — 24+ metrics across 6 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
-| [EVAL_RESULTS.md](docs/EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 17 runs |
+| [METRICS.md](docs/METRICS.md) | Success metrics — 35+ metrics across 7 layers with definitions, targets, measurement methods, and pilot vs. post-pilot phasing |
+| [EVAL_RESULTS.md](docs/EVAL_RESULTS.md) | Eval history — per-scenario scores, critical failures, and fixes across all 23 runs |
 | [SETUP.md](docs/SETUP.md) | Local development setup — virtual environment, dependencies, API keys, running locally |
 | [DEPLOY.md](docs/DEPLOY.md) | Render deployment — environment variables, build commands, auto-deploy, starter tier notes |
-| [TESTING.md](docs/TESTING.md) | Test suite guide — 1355 tests across 29 files + 142-scenario LLM-as-judge evaluation framework |
+| [TESTING.md](docs/TESTING.md) | Test suite guide — 1385+ tests across 30 files + 142-scenario LLM-as-judge evaluation framework |
 | [scripts/DB_AUDIT.md](scripts/DB_AUDIT.md) | Database audit script — why it exists, how to run it, when to run it, and how to interpret results |
 
 ## Related Repositories

@@ -113,7 +113,7 @@ Based on research from NCBI clinical studies on homeless populations, ISEAR emot
 
 ---
 
-## Planned: PR 3 — Service Queue
+## Completed: PR 3 — Service Queue
 
 ### Goal
 After delivering results for the first service, proactively offer the next queued service. "I need food and shelter in Brooklyn" → food results → "You also mentioned shelter — want me to search for that too?"
@@ -251,7 +251,7 @@ if (extracted.get("service_type") and existing.get("service_type")
 
 ---
 
-## Planned: PR 4 — LLM Extractor Updates
+## Completed: PR 4 — LLM Extractor Updates
 
 ### Current state
 
@@ -408,7 +408,5 @@ Research identified shame/embarrassment as a distinct emotional state in this po
 
 **Eval coverage:** 3 scenarios test shame/embarrassment detection and normalizing responses: `multi_shame_food_bank_first_time`, `multi_shame_shelter_stigma`, `multi_shame_single_service`.
 
-### Cross-service slot conflicts
-"I need food in Brooklyn and shelter in Manhattan" — only one location is extracted. Future improvement: extract per-service locations. Would require significant slot extractor changes and is rare enough to not block the queue feature.
-
-**Eval coverage:** 2 scenarios test this known limitation: `multi_cross_borough_food_brooklyn_shelter_manhattan` (Brooklyn vs Manhattan), `multi_cross_neighborhood_shower_les_food_chinatown` (LES vs Chinatown). Both verify the system still functions correctly despite extracting only the first-mentioned location.
+### Cross-service slot conflicts (Completed — Run 23, Phase 4)
+"I need food in Brooklyn and shelter in Manhattan" — per-service location binding implemented. `_extract_all_locations()` finds all location matches with text positions. `extract_slots()` binds each service to its nearest location. Queue offers include per-service location ("You also mentioned shelter in Manhattan"). Quick reply values include location for slot extraction on acceptance. The `multi_cross_borough` eval scenario (3.88) shows the binding doesn't fire in all cases — needs investigation.

@@ -86,6 +86,20 @@ def classify_post_results_question(message: str) -> Optional[dict]:
     """
     lower = message.lower().strip()
 
+    # --- New-request escape hatch ---
+    # If the message looks like a NEW service request rather than a question
+    # about displayed results, bail out and let the main router handle it.
+    # Signals: "I need", "can I get", "looking for", "find me", "help me find",
+    # "search for", or a location + need verb combination.
+    _NEW_REQUEST_RE = re.compile(
+        r"\b(i need|i'm looking|im looking|looking for|can i get|find me|"
+        r"help me find|search for|can you find|can you search|"
+        r"where can i (?:go|find|get)|i want to find|"
+        r"do you have|is there)\b", re.I
+    )
+    if _NEW_REQUEST_RE.search(lower):
+        return None
+
     # Specific service by index: "the first one", "#2", "number 3"
     idx = _extract_service_index(lower)
     if idx is not None:
@@ -333,7 +347,7 @@ def _handle_specific_index(index: int, services: list[dict]) -> dict:
 
 def _handle_specific_name(query: str, services: list[dict]) -> dict:
     """Show detail view for a service matched by name."""
-    query_lower = query.lower()
+    query_lower = query.lower().rstrip("?.,!;:")
 
     # Try exact substring match on service name or organization
     matches = [
@@ -366,15 +380,7 @@ def _handle_specific_name(query: str, services: list[dict]) -> dict:
     if len(fuzzy) == 1:
         return _service_detail_response(fuzzy[0], services)
 
-    return {
-        "response": (
-            f"I couldn't find a service matching \"{query}\" in the results. "
-            f"Which one would you like to know more about?"
-        ),
-        "services": [],
-        "quick_replies": _numbered_qrs(services) + [_NEW_SEARCH_QR],
-        "category": "post_results",
-    }
+    return None  # No match — fall through to normal routing
 
 
 def _handle_ask_field(field: str, services: list[dict]) -> dict:

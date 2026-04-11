@@ -8,11 +8,23 @@ For crisis detection details, see [CRISIS_DETECTION.md](CRISIS_DETECTION.md). Fo
 
 ## Message Routing Pipeline
 
-Every incoming message passes through three stages: slot extraction, classification, and combined routing. Slots are always extracted first so service intent is known before routing decisions.
+Every incoming message passes through four stages: slot extraction, unified LLM classification (when regex fails), split classification, and combined routing. Slots are always extracted first so service intent is known before routing decisions.
 
 ### Stage 1 — Slot Extraction (always runs first)
 
 Regex-based slot extraction runs on every message before classification. This extracts service type(s), location, age, urgency, family status, and service detail. The result determines `has_service_intent` — whether the message contains a service request.
+
+When multiple services are detected with different locations (e.g. "food in Brooklyn and shelter in Manhattan"), per-service location binding matches each service to its nearest location by text position. The primary service gets the first-mentioned location; queued services get their bound locations stored as 3-tuples `(service_type, detail, location)`.
+
+### Stage 1b — Unified LLM Classification Gate (Run 23+)
+
+When regex finds **no service_type AND no action AND no tone AND 4+ words**, a single Haiku call (`classify_unified()` in `llm_classifier.py`) returns all classification dimensions in one JSON response: service_type, location, additional_services, tone, action, urgency, age, family_status.
+
+This replaces two separate LLM calls (Phase 2 slot enrichment + LLM category fallback) with one combined call. It fires on ~25% of messages — the ones where regex has nothing useful. The other ~75% are handled by regex alone at zero cost.
+
+The gate skips for short messages and messages where regex already found something useful (confirmations, greetings, resets, etc.). If the LLM call fails, the system falls through to regex results.
+
+The prompt instructs the LLM to distinguish **intent from mention**: "I saw a doctor on TV" → null (not medical), "I need to see a doctor" → medical. This addresses the 50% false positive rate found in the regex audit.
 
 ### Stage 2 — Split Classification
 
@@ -23,13 +35,15 @@ Two independent classifiers run in parallel:
 | Action | Trigger | Example |
 |---|---|---|
 | `reset` | "start over", "new search", "cancel" | "start over" |
+| `correction` | "not what I meant", "you misunderstood", "that's wrong", "try again" | "not what I meant" |
+| `negative_preference` | "none of those", "not what I need", "I don't want any of those", "those don't help" | "none of those work" |
 | `bot_identity` | "are you a robot", "am I talking to a person" | "are you AI?" |
 | `bot_question` | "why can't you", "how does this work", "is this private", "can ICE see" | "is this safe?" |
-| `escalation` | "peer navigator", "talk to a person" | "connect with peer navigator" |
+| `escalation` | "peer navigator", "talk to a person", "speak with someone", "transfer me", "can someone call me", "actual person" | "connect with peer navigator" |
 | `confirm_change_service` | "change service", "different service" | "change service" |
 | `confirm_change_location` | "change location", "different area" | "change location" |
-| `confirm_yes` | "yes", "sure", "go ahead", "yes search" | "yes, search" |
-| `confirm_deny` | "no", "nah", "nope", "not yet" | "no" |
+| `confirm_yes` | "yes", "sure", "go ahead", "yes search", "bet", "aight", "word", "fasho", "say less", "that works", "sounds good", "for sure", "lets go" | "bet" |
+| `confirm_deny` | "no", "nah", "nope", "not yet", "i'm good", "nah i'm good", "all good", "no need", "i don't want to", "i don't want that" | "nah i'm good" |
 | `greeting` | "hi", "hello", "hey" (only if ≤3 words) | "hello" |
 | `thanks` | "thank you", "thanks" (no continuation) | "thanks" |
 | `help` | "what can you do", "list services"; "help" (word-boundary, excludes "helpful"/"not helpful") | "help" |
@@ -39,8 +53,8 @@ Two independent classifiers run in parallel:
 | Tone | Trigger | Example |
 |---|---|---|
 | `crisis` | Regex + LLM crisis detection (see [CRISIS_DETECTION.md](CRISIS_DETECTION.md)) | "I want to hurt myself" |
-| `frustrated` | "not helpful", "waste of time", "already tried" | "that wasn't helpful" |
-| `emotional` | "feeling down", "rough day", "I'm scared", "nobody cares" | "I'm feeling really down" |
+| `frustrated` | "not helpful", "waste of time", "already tried", "you're no help", "going in circles", "whatever", "smh", "this is bs", "this ain't working" | "that wasn't helpful" |
+| `emotional` | "feeling down", "rough day", "I'm scared", "nobody cares", "can't take it anymore", "end of my rope", "crying all day", "I hate my life", "what's the point", "I'm broken", "feel empty inside", "giving up" | "I'm feeling really down" |
 | `confused` | "I don't know what to do", "I'm overwhelmed" | "I'm lost" |
 | `urgent` | "right now", "tonight", "nowhere to go", "on the street", "desperate", "kicked out today" | "I need shelter right now" |
 
@@ -54,18 +68,21 @@ The routing priority is:
 
 | Priority | Condition | Route |
 |---|---|---|
-| 1 | `tone == crisis` | Crisis handler (always wins) |
+| 0 | Post-results: `_last_results` set + message is a follow-up question | Post-results handler (deterministic, no LLM). New-request phrases, new locations, frustrated tone, and negative_preference messages escape to normal routing. Unmatched name → disambiguation prompt |
+| 1 | `tone == crisis` | Crisis handler (always wins). Step-down for `safety_concern`, `domestic_violence`, and `youth_runaway` — shows crisis resources AND offers service search when `has_service_intent` is true |
 | 2 | `action == reset` | Reset handler |
+| 2a | `action == correction` ("not what I meant") | Correction handler — clears pending state, shows alternatives |
+| 2b | `action == negative_preference` ("none of those") | Acknowledges rejection, offers alternative service categories + peer navigator |
 | 3 | `action` is confirmation/bot/greeting/thanks | Action handler |
-| 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exception: escalation + service without location stays as escalation |
+| 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exceptions: (a) escalation + service without location stays as escalation; (b) `bot_question` overrides service intent — privacy questions like "do they get my info?" are NOT swallowed by the service flow |
 | 4a | Location-unknown phrases + service_type set + no location | Location-unknown handler (geolocation + borough buttons) |
 | 5 | `action == help` | Help handler |
 | 6 | `action == escalation` | Escalation handler |
 | 7 | `tone == frustrated` | Frustration handler |
 | 8 | `tone == emotional` | Emotional handler |
 | 9 | `tone == confused` | Confused handler |
-| 10 | LLM classification (>3 words) | LLM-determined category |
-| 11 | None of the above | General conversation |
+| 10 | LLM classification (>3 words) | LLM-determined category (confidence: medium) |
+| 11 | None of the above | General conversation (confidence: low) |
 
 The key insight is **row 4**: when service intent is present, it wins over help/escalation/emotional/confused. Those become tone modifiers on the service flow, not separate routes. This eliminates the ad-hoc guards that previously re-checked slots inside the help and escalation handlers.
 
@@ -81,9 +98,9 @@ The key insight is **row 4**: when service intent is present, it wins over help/
 | `urgent` | "I can see this is urgent — let me find something right away." |
 | None | (no prefix) |
 
-### LLM Fallback (only when nothing else matches)
+### LLM Fallback (secondary safety net)
 
-If no regex pattern matches and the message is longer than 3 words, Claude Haiku classifies the message into one of the standard categories. This catches indirect service needs ("I just got out of the hospital"), ambiguous messages, and edge cases that keyword lists can't cover.
+The unified LLM classification gate (Stage 1b) handles most messages where regex fails. If the unified gate didn't fire (message too short, or regex already found something), and no other route matches, Claude Haiku classifies the message into one of the standard categories as a last-resort fallback. This catches edge cases the unified gate missed.
 
 If the LLM is unavailable or returns an unrecognized category, the system falls back to `general`.
 
@@ -102,6 +119,31 @@ Crisis resources are shown immediately. The session is NOT cleared — the user 
 ### Reset
 
 Clears all session state (slots, transcript, pending confirmation). Shows a fresh welcome message with service category buttons. Triggered by "start over", "new search", "begin again", or "cancel".
+
+### Correction ("Not what I meant")
+
+Triggered by phrases like "not what I meant", "you misunderstood", "wrong thing", "I didn't ask for that" (15 phrases total). Clears `_pending_confirmation`, `_last_action`, and `_last_results` to prevent the user from re-entering the wrong flow, but preserves `service_type` and `location` so they don't lose their search context entirely.
+
+Shows a context-aware response: if the user had an active search, acknowledges it ("Sorry about that! I was searching for food in Brooklyn."). Presents the full service menu plus a peer navigator button. Logged with `confidence="low"` for ambiguity tracking.
+
+The "❌ Not what I meant" quick reply button appears on responses where the system's confidence is medium or low (LLM-classified messages and unrecognized service redirects). Tapping it sends "not what I meant" which triggers this handler.
+
+### Disambiguation
+
+Triggered when a message is ambiguous between a post-results follow-up question and a new service request. Specifically, when:
+1. The user has results displayed (`_last_results` is set)
+2. The post-results classifier matched a `specific_name` pattern (e.g., "What about X?")
+3. But the name doesn't match any displayed result
+
+Instead of silently falling through to normal routing (which would lose the user's context about why the response changed), the bot asks: "I'm not sure if you're asking about the results I showed, or if you'd like to search for something new. Which would you prefer?" with three quick-reply buttons: "🔍 Search for [query]", "📋 More about results", "🔍 New search".
+
+This follows the industry-standard "clarification-before-classification" pattern. Messages with clear new-request signals ("I need X", "where can I go", "looking for") bypass disambiguation entirely via the post-results escape hatch — they're unambiguously new requests.
+
+### Negative Preference
+
+Detects when the user rejects all offered options — "none of those", "I don't want any of those", "those don't help", "not what I need". Instead of falling through to the general handler or frustration handler (which wouldn't acknowledge the specific rejection), the bot explicitly acknowledges that the options aren't right, offers alternative service categories via `_WELCOME_QUICK_REPLIES`, and includes a peer navigator option. Sets `_last_action = "negative_preference"`.
+
+This is distinct from frustration (which is about the bot failing) and correction (which is about the bot misunderstanding). Negative preference is: "you understood me, but the results aren't what I need."
 
 ### Bot Identity
 
@@ -142,15 +184,37 @@ Returns a brief "you're welcome" message with service buttons in case the user w
 
 ### Frustration
 
-Acknowledges the frustration empathetically without being defensive. Shows two buttons: "🔍 New search" and "🤝 Peer navigator". Sets `_last_action = "frustration"` so "yes" connects to a peer navigator (the handler's messaging pushes toward navigator: "I think a peer navigator would be more helpful") and "New search" sends "Start over" directly via quick reply.
+Acknowledges the frustration empathetically without being defensive. Uses a persistent `_frustration_count` counter (not `_last_action` check) so frustration tracking survives intermediate messages.
 
-**Repeated frustration detection:** If the user expresses frustration a second time in a row (i.e., `_last_action` is already `"frustration"`), the bot produces a shorter, different response that avoids repeating the same wall of text. The second response acknowledges the bot isn't helping, strongly recommends a peer navigator, and mentions 311 as a backup.
+**3-tier response escalation:**
+
+| Count | Response style | Buttons |
+|---|---|---|
+| 1st | Full empathetic `_FRUSTRATION_RESPONSE` — acknowledges frustration, validates feelings, suggests trying a different search or peer navigator | "🔍 Try different search" + "👤 Peer navigator" |
+| 2nd | Shorter, more direct — acknowledges the bot isn't finding what they need, strongly recommends peer navigator, mentions 311 | "🤝 Peer navigator" + "🔄 Start over" |
+| 3rd+ | Immediate navigator offer — very short, apologetic, navigator-only | "🤝 Talk to a person" only |
+
+Sets `_last_action = "frustration"` so "yes" connects to a peer navigator.
 
 ### Emotional
 
-Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the clinical chatbot literature (see [Emotional Handling Design](#emotional-handling-design) below). Acknowledges the user's feelings with warmth before doing anything else. Uses an LLM-generated response when available, with a specialized prompt that focuses on empathy and explicitly prohibits listing services, giving advice, or diagnosing. Falls back to a static response that validates the feeling, offers peer navigator, and gently mentions practical help is available.
+Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the clinical chatbot literature (see [Emotional Handling Design](#emotional-handling-design) below). Uses a **static-first approach** — the LLM is NOT called for emotional messages, because it frequently steers toward service-finding mode despite prompt instructions. Instead, `_pick_emotional_response(message)` selects from 6 emotion-specific static responses keyed by detected emotion:
 
-Shows only two buttons — "🔍 New search" and "🤝 Peer navigator" — not the full service menu. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with only a navigator button (not the full service menu — per the AVR principle of not pushing task-oriented responses after emotional distress).
+| Emotion | Trigger words | Response focus |
+|---|---|---|
+| `scared` | scared, afraid, frightened, terrified, fear | Normalizes fear, offers navigator |
+| `sad` | feeling down/sad/bad, depressed, not okay | Validates courage to speak up |
+| `rough_day` | rough/bad/tough/hard day, falling apart | Acknowledges heaviness |
+| `shame` | embarrassed, ashamed, pathetic, failure | Removes stigma, affirms strength |
+| `grief` | died, passed away, grieving, mourning | Acknowledges loss |
+| `alone` | alone, no one, nobody, no friends/family | Affirms visibility and courage |
+| (default) | Other emotional phrases | Generic warm acknowledgment |
+
+None of the emotion-specific responses mention services — they focus purely on empathy. The generic fallback also avoids listing specific services.
+
+Shows only one button — "🤝 Talk to a person" — not the service menu or "New search". This prevents the experience of sharing something vulnerable and immediately being shown task-oriented options. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with only a navigator button.
+
+**Phrase matching** uses three techniques to maximize recall without false positives: (a) contraction normalization ("I'm" → "I am"), (b) intensifier stripping ("I'm really scared" → "I'm scared"), and (c) post-normalization variants ("i am scared" in the phrase list alongside "i'm scared").
 
 ### Location-Unknown
 
@@ -200,9 +264,11 @@ Catch-all for messages that don't fit any other category. Uses Claude Haiku for 
 
 - **With service intent** (user has partially filled slots): gently reminds them they can continue their search.
 - **Without service intent**: just responds naturally without pushing services.
-- **Unrecognized service request** (user has a location but no recognized service type after 2+ turns): redirects gracefully with "I'm not sure I can help with that specifically, but I can search for services in [location]" and shows the full service menu. This handles requests for impossible services (e.g., "helicopter ride") that would otherwise loop indefinitely.
+- **Unrecognized service request**: detects "I need X" / "find me X" patterns where X doesn't map to any known service type, even on the first turn without a location. Also catches the existing case of location set + no service type after 2+ turns. Both redirect gracefully with "I'm not sure I can help with that specifically" and show the service menu. This handles requests for impossible services (e.g., "unicorn ride", "helicopter") that would otherwise loop indefinitely.
 
-Service category buttons are only shown on the first conversational turn when the user has no service intent. After that, general responses have no buttons to avoid feeling transactional.
+**Conversational awareness guard:** Casual chat patterns ("how are you", "just wanted to chat", "good morning") are detected via `_CASUAL_CHAT_RE` and suppress service category buttons. Without this guard, "hey how are you doing today" would show the full service menu on first turn, which the eval judge flags as "pushing the service menu repeatedly."
+
+Service category buttons are only shown on the first conversational turn when the user has no service intent AND the message is not casual chat. After that, general responses have no buttons to avoid feeling transactional.
 
 ---
 
@@ -215,11 +281,29 @@ Three LLM-powered features are used in production, each with a specific model as
 | Conversational fallback | Haiku | Message classified as `general` | 1–3 sentence response |
 | Slot extraction | Haiku | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender, family_status |
 | Message classification | Haiku | Messages >3 words that regex can't classify | Single category name |
-| Emotional acknowledgment | Haiku | Messages classified as `emotional` | 2–3 sentence empathetic response |
 | Bot question answer | Haiku | Messages classified as `bot_question` | 2–3 sentence factual answer |
 | Crisis detection (Stage 2) | Sonnet | Ambiguous messages where regex didn't fire | JSON: {crisis: bool, category: string} |
 
 See the Model Analysis tab in the admin console for cost/capability analysis and the rationale for each model assignment.
+
+---
+
+## Confidence & Ambiguity Handling
+
+Every routing decision is tagged with a confidence level, stored in the audit log for analysis:
+
+| Confidence | When it's set | What it means |
+|---|---|---|
+| `high` | Regex classification match, service keyword extracted, confirmation action | The system is confident about the user's intent — standard handling |
+| `medium` | LLM classification | The system used the LLM to determine intent — correct in most cases but may misinterpret indirect language |
+| `low` | General fallback, unrecognized service redirect, correction handler | The system is uncertain — the response may not match what the user wanted |
+| `disambiguated` | Disambiguation prompt shown | The system detected ambiguity and asked the user to clarify |
+
+When confidence is `medium` or `low`, the response includes a "❌ Not what I meant" quick reply button so the user can recover immediately if the system misinterpreted their message.
+
+The post-results handler has its own ambiguity detection: when a message pattern-matches as a post-results question (e.g., "What about X?") but the extracted name doesn't match any displayed result, the system presents a disambiguation prompt rather than guessing. This prevents users from getting trapped in the post-results flow when they're trying to start a new search.
+
+Confidence data in the audit log enables tracking misclassification rates across routing categories. Messages logged with `confidence="low"` or `confidence="disambiguated"` can be reviewed in the admin console to identify patterns that need additional phrase coverage or routing logic.
 
 ---
 
@@ -378,9 +462,13 @@ Based on this research, the following principles govern emotional handling in th
 
 Add to `_EMOTIONAL_PHRASES` in `chatbot.py`. Avoid phrases that overlap with service keywords ("feeling hungry" should route to food service, not emotional acknowledgment). Add a test case to `test_emotional_classification`. Thanks to contraction normalization, you only need the expanded form — e.g., adding "not okay" will automatically match "isn't okay", "wasnt okay", "aren't okay", etc.
 
-### Contraction normalization
+### Contraction normalization and intensifier stripping
 
 `_normalize_contractions()` in `chatbot.py` expands 37 common contractions (e.g., "isn't" → "is not", "i'm" → "i am") before phrase matching in `_classify_tone()` and the help negators in `_classify_action()`. This means phrase lists only need the expanded "not" form to match all contraction variants. Normalization is NOT applied to crisis detection — crisis uses explicit enumeration for safety. To add a new contraction, add it to `_CONTRACTION_MAP` in `chatbot.py` and add a test in `test_contraction_normalization.py`.
+
+`_strip_intensifiers()` removes 19 common intensifier adverbs (really, very, so, super, extremely, just, kinda, etc.) from text before phrase matching. This allows "I'm really scared" to match "i'm scared" in the phrase list without needing every intensifier×emotion combination. Both `_classify_tone()` and `_classify_message()` check four variants of each message: cleaned, normalized (contractions expanded), stripped (intensifiers removed), and stripped_normalized (both). Intensifier stripping is NOT applied to crisis detection.
+
+**Post-normalization phrase variants.** Because contraction normalization converts "I'm" → "I am", the `_EMOTIONAL_PHRASES` list includes both forms: "i'm scared" and "i am scared". Without these, "I'm scared" → normalized "i am scared" → no match. The post-normalization variants cover scared, sad, down, anxious, lonely, hopeless, depressed, stuck, stressed, and pathetic.
 
 ### Modifying guardrails
 
@@ -393,7 +481,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 180 tests in `test_chatbot.py`, 56 context routing tests in `test_context_routing.py`, 29 integration scenario tests in `test_integration_scenarios.py`, 28 structural fix tests in `test_structural_fixes.py`, 41 phrase audit tests in `test_phrase_audit.py`, 19 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 34 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 180 tests in `test_chatbot.py`, 56 context routing tests in `test_context_routing.py`, 31 post-results boundary tests in `test_post_results_boundary.py`, 26 ambiguity handling tests in `test_ambiguity_handling.py`, 29 integration scenario tests in `test_integration_scenarios.py`, 28 structural fix tests in `test_structural_fixes.py`, 41 phrase audit tests in `test_phrase_audit.py`, 19 contraction normalization tests in `test_contraction_normalization.py`, 29 edge-case tests in `test_edge_cases.py`, 36 crisis detection tests in `test_crisis_detector.py`, and 34 PII redaction tests in `test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

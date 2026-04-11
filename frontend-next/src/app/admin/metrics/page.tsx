@@ -102,6 +102,19 @@ export default function MetricsPage() {
   const queueAcceptRate =
     queueOffers > 0 ? (queueOffers - queueDeclines) / queueOffers : null;
 
+  // --- New P0-P3 metrics ---
+  const confidence = stats.confidence;
+  const recovery = stats.recovery_rates;
+  const sessionMetrics = stats.session_metrics;
+  const noResultBySvc = stats.no_result_by_service;
+  const timeOfDay = stats.time_of_day;
+  const postResultsEng = stats.post_results_engagement;
+  const geoDemand = stats.geographic_demand;
+  const frustTiers = stats.frustration_tiers;
+  const sessionDur = stats.session_duration;
+  const repRate = stats.repetition_rate;
+  const llmMetrics = stats.llm_metrics;
+
   return (
     <>
       <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-3.5 py-2.5 text-sm text-neutral-500 mb-6">
@@ -110,7 +123,7 @@ export default function MetricsPage() {
         <strong>Click any metric name</strong> for a detailed explanation with
         formula and target rationale from{" "}
         <a
-          href="https://github.com/ianlau20/yourpeer-chatbot/blob/llm-power/docs/METRICS.md"
+          href="https://github.com/ianlau20/yourpeer-chatbot/blob/main/docs/METRICS.md"
           target="_blank"
           className="text-amber-600 hover:underline"
         >
@@ -187,6 +200,18 @@ export default function MetricsPage() {
           value={fmtMetric(noResultRate, true)}
           status={statusClass(noResultRate, 0.15, "lte", 0.25)}
         />
+        {noResultBySvc && Object.keys(noResultBySvc).length > 0 && (
+          <MetricRow
+            name="No-Result by Service"
+            subtitle={Object.entries(noResultBySvc as Record<string, { total_queries: number; no_result_rate: number }>)
+              .sort(([, a], [, b]) => b.no_result_rate - a.no_result_rate)
+              .map(([svc, info]) => `${svc}: ${Math.round(info.no_result_rate * 100)}% (${info.total_queries}q)`)
+              .join(" · ")}
+            target="≤ 10% for food/shelter"
+            value={`${Object.keys(noResultBySvc).length} categories`}
+            status="tracking"
+          />
+        )}
         <MetricRow
           name="Relaxed Query Rate" onClick={onMetricClick}
           subtitle="% of queries that only returned results after relaxing strict filters"
@@ -285,6 +310,21 @@ export default function MetricsPage() {
           value={fmtMetric(stats.conversation_quality?.conversational_discovery_rate ?? null, true)}
           status="tracking"
         />
+        <MetricRow
+          name="Frustration Tier Distribution"
+          subtitle={frustTiers ? `${frustTiers.total_frustrated_sessions} frustrated sessions: T1=${frustTiers.tiers?.tier_1 || 0}, T2=${frustTiers.tiers?.tier_2 || 0}, T3+=${frustTiers.tiers?.tier_3_plus || 0}` : "No frustrated sessions yet"}
+          target="Most at T1 (defused)"
+          value={fmtMetric(frustTiers?.tier_1_rate ?? null, true)}
+          status={frustTiers?.tier_3_plus_rate != null && frustTiers.tier_3_plus_rate > 0.3 ? "warning" : frustTiers?.total_frustrated_sessions ? "tracking" : "no-data"}
+          statusOverride={frustTiers?.tier_3_plus_rate != null ? `T3+: ${Math.round(frustTiers.tier_3_plus_rate * 100)}%` : undefined}
+        />
+        <MetricRow
+          name="Bot Repetition Rate"
+          subtitle={`Sessions where bot gave identical consecutive responses (${repRate?.sessions_with_repetition || 0} sessions)`}
+          target="≤ 5%"
+          value={fmtMetric(repRate?.repetition_rate ?? null, true)}
+          status={statusClass(repRate?.repetition_rate ?? null, 0.05, "lte", 0.15)}
+        />
       </MetricsSection>
 
       {/* 4b · Routing Distribution */}
@@ -331,6 +371,14 @@ export default function MetricsPage() {
           value={`${routing?.buckets?.safety || 0} turns`}
           status={totalCategorized > 0 ? "tracking" : "no-data"}
           statusOverride={totalCategorized > 0 ? `${Math.round(((routing?.buckets?.safety || 0) / totalCategorized) * 100)}%` : undefined}
+        />
+        <MetricRow
+          name="Recovery (Correction / Disambiguation)"
+          subtitle="User corrected a misunderstanding, clarified ambiguity, or rejected results"
+          target="—"
+          value={`${routing?.buckets?.recovery || 0} turns`}
+          status={totalCategorized > 0 ? "tracking" : "no-data"}
+          statusOverride={totalCategorized > 0 ? `${Math.round(((routing?.buckets?.recovery || 0) / totalCategorized) * 100)}%` : undefined}
         />
         <MetricRow
           name="⚠ General (LLM-Generated)" onClick={onMetricClick}
@@ -424,6 +472,231 @@ export default function MetricsPage() {
           status={queueAcceptRate !== null ? "tracking" : "no-data"}
           statusOverride={queueAcceptRate !== null ? `${Math.round(queueAcceptRate * 100)}% accepted` : undefined}
         />
+      </MetricsSection>
+
+      {/* 4e · Session & Engagement */}
+      <MetricsSection
+        title="4e · Session & Engagement"
+        description="Session-level engagement metrics. Bounce rate and turns per session are industry-standard chatbot KPIs. Session duration validates the capacity model's 3/7/15-minute tier assumptions."
+      >
+        <MetricRow
+          name="Bounce Rate" onClick={onMetricClick}
+          subtitle={`% of sessions with exactly 1 turn (${sessionMetrics?.bounce_count || 0} bounces)`}
+          target="≤ 25%"
+          value={fmtMetric(sessionMetrics?.bounce_rate ?? null, true)}
+          status={statusClass(sessionMetrics?.bounce_rate ?? null, 0.25, "lte", 0.4)}
+        />
+        <MetricRow
+          name="Avg Turns per Session"
+          subtitle={`Median: ${sessionMetrics?.median_turns_per_session ?? "n/a"} · ${sessionMetrics?.total_sessions || 0} sessions`}
+          target="3-6 for triage"
+          value={sessionMetrics?.avg_turns_per_session != null ? String(sessionMetrics.avg_turns_per_session) : null}
+          status={sessionMetrics?.avg_turns_per_session != null ? "tracking" : "no-data"}
+        />
+        {sessionMetrics?.distribution && (
+          <MetricRow
+            name="Turn Distribution"
+            subtitle={Object.entries(sessionMetrics.distribution as Record<string, number>)
+              .map(([bucket, count]) => `${bucket.replace(/_/g, " ")}: ${count}`)
+              .join(" · ")}
+            target="—"
+            value={`${sessionMetrics.total_sessions} sessions`}
+            status="tracking"
+          />
+        )}
+        <MetricRow
+          name="Avg Session Duration"
+          subtitle={sessionDur?.median_duration_sec != null ? `Median: ${Math.round(sessionDur.median_duration_sec)}s · p95: ${sessionDur.p95_duration_sec ?? "n/a"}s` : "Needs multi-turn sessions"}
+          target="3-7 min for navigator"
+          value={sessionDur?.avg_duration_sec != null ? `${Math.round(sessionDur.avg_duration_sec)}s` : null}
+          status={sessionDur?.avg_duration_sec != null ? "tracking" : "no-data"}
+        />
+        {sessionDur?.buckets && sessionDur.total_multi_turn_sessions > 0 && (
+          <MetricRow
+            name="Duration Buckets"
+            subtitle={Object.entries(sessionDur.buckets as Record<string, number>)
+              .map(([bucket, count]) => `${bucket.replace(/_/g, " ")}: ${count}`)
+              .join(" · ")}
+            target="—"
+            value={`${sessionDur.total_multi_turn_sessions} sessions`}
+            status="tracking"
+          />
+        )}
+        <MetricRow
+          name="Post-Results Engagement"
+          subtitle={`Of ${postResultsEng?.sessions_with_results || 0} sessions with results, ${postResultsEng?.sessions_engaged || 0} asked follow-up questions`}
+          target="Baseline tracking"
+          value={fmtMetric(postResultsEng?.engagement_rate ?? null, true)}
+          status={postResultsEng?.engagement_rate != null ? "tracking" : "no-data"}
+        />
+      </MetricsSection>
+
+      {/* 4f · Classifier Quality */}
+      <MetricsSection
+        title="4f · Classifier Quality"
+        description="Health of the regex+LLM classification pipeline. High confidence = regex handling most messages. Rising correction rate = misclassification. This is the operational dashboard for the unified gate."
+      >
+        <MetricRow
+          name="High Confidence Rate"
+          subtitle={`Regex matched clearly — ${confidence?.distribution?.high || 0} of ${confidence?.total_with_confidence || 0} turns`}
+          target="≥ 60%"
+          value={fmtMetric(confidence?.high_rate ?? null, true)}
+          status={statusClass(confidence?.high_rate ?? null, 0.6, "gte", 0.4)}
+        />
+        <MetricRow
+          name="Low Confidence Rate"
+          subtitle={`LLM fallback — ${confidence?.distribution?.low || 0} turns. High = regex needs expansion`}
+          target="≤ 15%"
+          value={fmtMetric(confidence?.low_rate ?? null, true)}
+          status={statusClass(confidence?.low_rate ?? null, 0.15, "lte", 0.25)}
+        />
+        {confidence?.distribution && Object.keys(confidence.distribution).length > 0 && (
+          <MetricRow
+            name="Full Confidence Breakdown"
+            subtitle={Object.entries(confidence.distribution as Record<string, number>)
+              .sort(([, a], [, b]) => b - a)
+              .map(([level, count]) => `${level}: ${count}`)
+              .join(" · ")}
+            target="—"
+            value={`${confidence.total_with_confidence} turns`}
+            status="tracking"
+          />
+        )}
+        <MetricRow
+          name="Correction Rate" onClick={onMetricClick}
+          subtitle={`% of sessions where user said "not what I meant" (${recovery?.correction_turns || 0} turns)`}
+          target="≤ 5%"
+          value={fmtMetric(recovery?.correction_session_rate ?? null, true)}
+          status={statusClass(recovery?.correction_session_rate ?? null, 0.05, "lte", 0.1)}
+        />
+        <MetricRow
+          name="Disambiguation Rate"
+          subtitle={`% of sessions with clarifying prompts (${recovery?.disambiguation_turns || 0} turns)`}
+          target="Baseline tracking"
+          value={fmtMetric(recovery?.disambiguation_session_rate ?? null, true)}
+          status={recovery?.disambiguation_session_rate != null ? "tracking" : "no-data"}
+        />
+        <MetricRow
+          name="Negative Preference Rate"
+          subtitle={`% of sessions where user rejected all results (${recovery?.negative_preference_turns || 0} turns)`}
+          target="≤ 10%"
+          value={fmtMetric(recovery?.negative_preference_session_rate ?? null, true)}
+          status={statusClass(recovery?.negative_preference_session_rate ?? null, 0.1, "lte", 0.2)}
+        />
+      </MetricsSection>
+
+      {/* 4g · Operational Insights */}
+      <MetricsSection
+        title="4g · Operational Insights"
+        description="When and where users need help. Informs peer navigator staffing, database coverage priorities, and service area focus."
+        defaultOpen={false}
+      >
+        <MetricRow
+          name="Peak Hour (UTC)"
+          subtitle={timeOfDay?.total_events ? `${timeOfDay.total_events} events across ${Object.keys(timeOfDay.daily || {}).length} days` : "No data yet"}
+          target="Staffing alignment"
+          value={timeOfDay?.peak_hour_utc != null ? `${timeOfDay.peak_hour_utc}:00 UTC` : null}
+          status={timeOfDay?.peak_hour_utc != null ? "tracking" : "no-data"}
+        />
+        {timeOfDay?.hourly && Object.keys(timeOfDay.hourly).length > 0 && (
+          <MetricRow
+            name="Hourly Distribution"
+            subtitle={Object.entries(timeOfDay.hourly as Record<string, number>)
+              .filter(([, count]) => count > 0)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 6)
+              .map(([hour, count]) => `${hour}h: ${count}`)
+              .join(" · ") + " (top 6)"}
+            target="—"
+            value={`${timeOfDay.total_events} events`}
+            status="tracking"
+          />
+        )}
+        {geoDemand && Object.keys(geoDemand).length > 0 && (
+          <>
+            <MetricRow
+              name="Top Locations"
+              subtitle={Object.entries(geoDemand as Record<string, { total_queries: number; share: number; no_result_rate: number }>)
+                .slice(0, 5)
+                .map(([loc, info]) => `${loc}: ${info.total_queries}q (${Math.round(info.share * 100)}%)`)
+                .join(" · ")}
+              target="—"
+              value={`${Object.keys(geoDemand).length} locations`}
+              status="tracking"
+            />
+            <MetricRow
+              name="Location No-Result Rates"
+              subtitle={Object.entries(geoDemand as Record<string, { total_queries: number; no_result_rate: number }>)
+                .filter(([, info]) => info.no_result_rate > 0)
+                .sort(([, a], [, b]) => b.no_result_rate - a.no_result_rate)
+                .slice(0, 5)
+                .map(([loc, info]) => `${loc}: ${Math.round(info.no_result_rate * 100)}%`)
+                .join(" · ") || "All locations returning results"}
+              target="Identify underserved areas"
+              value={null}
+              status="tracking"
+            />
+          </>
+        )}
+      </MetricsSection>
+
+      {/* 4h · LLM Cost & Performance */}
+      <MetricsSection
+        title="4h · LLM Cost & Performance"
+        description="Cost, latency, and volume metrics for LLM API calls. Essential for capacity planning — the scenarios doc estimates 36,000 sessions/month at scale."
+        defaultOpen={false}
+      >
+        <MetricRow
+          name="Total LLM Calls"
+          subtitle={llmMetrics?.avg_calls_per_session != null ? `Avg ${llmMetrics.avg_calls_per_session} calls/session` : "No calls logged yet"}
+          target="Baseline tracking"
+          value={llmMetrics?.total_calls != null ? String(llmMetrics.total_calls) : null}
+          status={llmMetrics?.total_calls ? "tracking" : "no-data"}
+        />
+        <MetricRow
+          name="Estimated LLM Cost"
+          subtitle={`${llmMetrics?.total_input_tokens || 0} input + ${llmMetrics?.total_output_tokens || 0} output tokens`}
+          target="Track for capacity model"
+          value={llmMetrics?.estimated_cost != null ? `$${llmMetrics.estimated_cost.toFixed(4)}` : null}
+          status={llmMetrics?.estimated_cost ? "tracking" : "no-data"}
+        />
+        <MetricRow
+          name="Latency p50 / p95"
+          subtitle="Median and 95th percentile LLM response time"
+          target="p50 ≤ 600ms"
+          value={llmMetrics?.latency_p50_ms != null ? `${llmMetrics.latency_p50_ms}ms / ${llmMetrics.latency_p95_ms ?? "n/a"}ms` : null}
+          status={llmMetrics?.latency_p50_ms != null ? (llmMetrics.latency_p50_ms <= 600 ? "on-target" : "warning") : "no-data"}
+        />
+        <MetricRow
+          name="LLM Failure Rate"
+          subtitle="% of LLM calls that failed (timeout, error, invalid response)"
+          target="≤ 2%"
+          value={fmtMetric(llmMetrics?.failure_rate ?? null, true)}
+          status={statusClass(llmMetrics?.failure_rate ?? null, 0.02, "lte", 0.05)}
+        />
+        {llmMetrics?.by_task && Object.keys(llmMetrics.by_task).length > 0 && (
+          <MetricRow
+            name="Calls by Task"
+            subtitle={Object.entries(llmMetrics.by_task as Record<string, { calls: number; avg_latency_ms: number }>)
+              .sort(([, a], [, b]) => b.calls - a.calls)
+              .map(([task, info]) => `${task}: ${info.calls} (${info.avg_latency_ms}ms avg)`)
+              .join(" · ")}
+            target="—"
+            value={`${Object.keys(llmMetrics.by_task).length} tasks`}
+            status="tracking"
+          />
+        )}
+        {llmMetrics?.by_model && Object.keys(llmMetrics.by_model).length > 0 && (
+          <MetricRow
+            name="Calls by Model"
+            subtitle={Object.entries(llmMetrics.by_model as Record<string, number>)
+              .map(([model, count]) => `${model.replace("claude-", "").replace("-20251001", "")}: ${count}`)
+              .join(" · ")}
+            target="—"
+            value={`${Object.values(llmMetrics.by_model as Record<string, number>).reduce((a, b) => a + b, 0)} total`}
+            status="tracking"
+          />
+        )}
       </MetricsSection>
 
       {/* 5 · System Quality */}
