@@ -172,6 +172,20 @@ Tests cover:
 - Bot response PII redaction via `_log_turn` and audit log
 - ICE/police routing in `_static_bot_answer` (ICE word-boundary prevents "police" collision)
 
+## PII-Adjacent Session Data
+
+Some session slot values are sensitive enough to exclude from audit log serialization but are NOT PII requiring redaction from transcripts. These use the `_` prefix naming convention:
+
+| Slot | Convention | Rationale |
+|---|---|---|
+| `_gender` | `_` prefix | Gender identity is PII-adjacent. Stored in session for query filtering but excluded from audit log events |
+| `_latitude`, `_longitude` | `_` prefix | Browser geolocation coordinates. Stored for proximity search but excluded from audit logs |
+| `_populations` | `_` prefix | Population context (veteran, disabled, reentry, dv_survivor, pregnant, senior). Identity-revealing but needed for query boosts. Excluded from audit logs via the same `_` prefix convention |
+
+The `_` prefix convention is enforced by audit log serialization — fields starting with `_` are automatically excluded when session state is written to audit events. This ensures these values influence search behavior without being persisted in reviewable logs.
+
+**Note:** Gender identity *terms* in the raw user message (e.g., "I'm a trans man") ARE redacted from transcripts by the PII redactor (replaced with `[GENDER]`). The `_gender` slot stores the extracted value (`"male"`) separately — it's the extracted value that uses the `_` prefix convention, not the raw text.
+
 ## Future Improvements
 
 **Context-aware DOB detection.** Add optional keyword proximity check ("born", "birthday", "DOB", "date of birth") within N words of the date pattern. This would reduce false positives on non-birthday dates while still catching most real disclosures. Start with both modes (strict keyword-required + current catch-all) and compare false positive rates before switching.

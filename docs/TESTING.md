@@ -2,7 +2,7 @@
 
 ## Overview
 
-The test suite covers 1,475 tests across 39 test files, plus an LLM-as-judge evaluation framework with 142 scenarios. Tests are organized into `tests/unit/` (23 files — no DB or LLM needed) and `tests/integration/` (15 files — use mocked DB/LLM via `send()`/`send_multi()` helpers), with a separate `tests/eval/` directory for the LLM judge. Tests validate every backend module: slot extraction (regex and LLM-based), gender/LGBTQ identity extraction, PII redaction (including gender identity terms), conversational routing, crisis detection, crisis step-down, emotional handling (AVR pattern with 6 emotion-specific static responses), frustration routing (3-tier counter-based escalation), negative preference handling, conversational awareness guard, privacy routing exception, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, intensifier stripping, post-normalization emotional phrase variants, location boundary enforcement, query template correctness, confirmation flow, quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), database schema/query integration, bot self-knowledge (live capability sourcing, topic matching), boundary drift detection (mock/Pydantic/SQL/format sync), context-aware routing (state transitions, frustration counting, implicit service changes), integration scenarios (narrative flows, cross-feature interactions, eval approximations), narrative extraction (urgency-aware slot extraction for long messages), ambiguity handling (confidence scoring, disambiguation prompts, correction recovery, "Not what I meant" button), and post-results boundary routing (new-request escape hatch, location-based result clearing, name-match fallthrough). Unit tests run without external services (database and Claude API are mocked). DB integration tests require DATABASE_URL and are automatically skipped without it.
+The test suite covers 1,700 tests across 40 test files, plus an LLM-as-judge evaluation framework with 172 scenarios. Tests are organized into `tests/unit/` (25 files — no DB or LLM needed) and `tests/integration/` (15 files — use mocked DB/LLM via `send()`/`send_multi()` helpers), with a separate `tests/eval/` directory for the LLM judge. Tests validate every backend module: slot extraction (regex and LLM-based), gender/LGBTQ identity extraction, population context extraction (veteran, disabled, reentry, DV survivor, pregnant, senior — with false-positive guards, multi-population support, query boost verification, DV crisis injection), PII redaction (including gender identity terms), conversational routing, crisis detection, crisis step-down (including DV population injection), emotional handling (AVR pattern with 6 emotion-specific static responses), frustration routing (3-tier counter-based escalation), negative preference handling, conversational awareness guard, privacy routing exception, phrase list audit coverage (C-SSRS, Joiner IPT, DV control, shame/stigma, grief, NYC service terms), contraction normalization, intensifier stripping, post-normalization emotional phrase variants, location boundary enforcement, query template correctness (including dynamic ORDER BY generation with population boosts), confirmation flow (including population-aware prefixes), quick replies, audit logging, admin API routes, chat HTTP endpoint, Pydantic model validation, Claude client initialization, API configuration, session management, geolocation, rate limiting, request correlation IDs, privacy question handling, family composition, multi-service extraction, split classifier (action + tone), shelter taxonomy enrichment, word-boundary keyword collision prevention, nearby borough suggestions, bug fix regressions (7 targeted fixes with 30 tests), post-results question handling, crisis safety edge cases (research-sourced C-SSRS, HITS/SAFE, Polaris, SAMHSA), co-located multi-service queries, gap coverage (freshness, admin stats shape, skip_llm pipeline, prompt builders), quick reply button audit, SQLite pilot persistence (write-through, hydration, disabled mode), database schema/query integration, bot self-knowledge (live capability sourcing, topic matching), boundary drift detection (mock/Pydantic/SQL/format sync), context-aware routing (state transitions, frustration counting, implicit service changes), integration scenarios (narrative flows, cross-feature interactions, eval approximations), narrative extraction (urgency-aware slot extraction for long messages), ambiguity handling (confidence scoring, disambiguation prompts, correction recovery, "Not what I meant" button), and post-results boundary routing (new-request escape hatch, location-based result clearing, name-match fallthrough). Unit tests run without external services (database and Claude API are mocked). DB integration tests require DATABASE_URL and are automatically skipped without it.
 
 ## Running Tests
 
@@ -68,8 +68,8 @@ All 21 backend modules and all public functions are covered. Tests are in `tests
 | `phrase_lists.py` | `unit/test_phrase_audit.py` | 41 | Full |
 | `responses.py` | `integration/test_chatbot.py`, `integration/test_gap_coverage.py` | (inline) | Full |
 | `confirmation.py` | `unit/test_edge_cases.py`, `unit/test_gender_extraction.py`, `integration/test_chatbot.py` | (inline) | Full |
-| `slot_extractor.py` | `unit/test_slot_extractor.py`, `unit/test_gender_extraction.py`, `unit/test_edge_cases.py`, `unit/test_location_boundaries.py` | 200+ | Full |
-| `rag/__init__.py` | `unit/test_query_templates.py`, `integration/test_geolocation.py`, `integration/test_db_integration.py` | 90+ | Full |
+| `slot_extractor.py` | `unit/test_slot_extractor.py`, `unit/test_gender_extraction.py`, `unit/test_edge_cases.py`, `unit/test_location_boundaries.py`, `unit/test_populations.py` | 280+ | Full |
+| `rag/__init__.py` | `unit/test_query_templates.py`, `unit/test_populations.py`, `integration/test_geolocation.py`, `integration/test_db_integration.py` | 100+ | Full |
 | `query_templates.py` | `unit/test_query_templates.py`, `unit/test_location_boundaries.py` | 49+ | Full |
 | `query_executor.py` | `unit/test_location_boundaries.py`, `unit/test_edge_cases.py` | 65 | Full |
 | `audit_log.py` | `unit/test_audit_log.py`, `integration/test_bug_fixes.py`, `integration/test_admin.py`, `integration/test_ambiguity_handling.py` | 70+ | Full |
@@ -546,6 +546,33 @@ Validates the four industry-recommended ambiguity handling patterns: confidence 
 | "Not what I meant" button | 1 | Correction button on unrecognized service responses |
 | Ambiguity logging | 4 | Correction category logged, disambiguation category logged, confidence field in events, high confidence stored |
 
+### `test_populations.py` — 88 tests
+
+Validates Phase 3 (population context extraction and query boosts) and Phase 5 (DV crisis → population injection). Covers the full pipeline: regex extraction → session merge → query parameter generation → ORDER BY SQL → confirmation message → LLM schema compliance.
+
+| Category | Tests | What's covered |
+|---|---|---|
+| Population extraction | 7 | Veteran (6 phrases), disabled (6), reentry (6), dv_survivor (6), pregnant (3), senior (4), no-population returns empty |
+| Multiple populations | 5 | Disabled veteran (2 extracted), pregnant + DV, senior + disabled, reentry + veteran, sorted deterministic output |
+| False positive guards | 5 | Salvation Army ≠ veteran, disabled account ≠ disabled, veterans day, veterans memorial, blind spot |
+| Pregnant coexistence | 2 | family_status=with_children AND populations=pregnant both fire |
+| extract_slots integration | 3 | Populations in extract_slots output, empty list when none, service type not shadowed |
+| Merge semantics | 5 | List union across messages, deduplication, preserves when new empty, creates from empty, sorted output |
+| Senior auto-infer | 4 | age=65 adds senior, age=30 no senior, age=62 boundary, explicit senior not doubled |
+| Veteran taxonomy boost | 3 | veteran_boost set, non-veteran no boost, no population no boost |
+| Description boost (ORDER BY) | 6 | Disabled pattern, reentry pattern, dv_survivor pattern, pregnant pattern, multiple populations combine, separate from Phase 4 sub-category filter |
+| Confirmation message | 7 | Veteran-friendly, accessible, reentry-friendly, senior without age, senior suppressed with age, no prefix when empty, LGBTQ takes priority |
+| No-boost guard | 2 | Empty list and None both produce no boost params |
+| Accessibility on cards | 2 | Present and absent cases |
+| has_new_slots guard | 2 | Empty _populations doesn't trigger, population + service_type does |
+| LLM schema | 3 | Tool schema includes populations, empty_slots returns [], classifier prompt mentions populations |
+| Word boundary | 7 | "vet" matches, not in veterinarian/veto/vetted, "army" matches, not in salvation army (2 variants) |
+| Service keyword overlap | 6 | "disabled" as both service and population, disability services, wheelchair + food, disabled veteran food, reentry + employment |
+| Confirmation prefix integrity | 3 | LGBTQ + veteran (LGBTQ wins), LGBTQ + disabled, no gender + veteran |
+| LLM merge | 3 | Union of LLM + regex populations, LLM empty + regex has data, both empty |
+| ORDER BY builder | 5 | pop_boost_pattern in SQL, absent when not set, LGBTQ coexist, veteran coexist, distance coexist |
+| DV crisis injection | 8 | With service intent, without service intent, non-DV no injection, preserves existing, no duplicate, step-down offers search, persists after confirm, follow-up gets boost |
+
 ## LLM-as-Judge Evaluation (`eval_llm_judge.py`)
 
 Beyond unit tests, the system includes an end-to-end evaluation framework that uses Claude as an impartial judge to score full conversations. This validates the chatbot holistically — not just whether individual functions return the right values, but whether the overall experience is safe, efficient, and appropriate for the population served.
@@ -588,7 +615,7 @@ ANTHROPIC_API_KEY=sk-ant-... python tests/eval_llm_judge.py --scenario-id shelte
 
 ### Scenario coverage
 
-142 scenarios across 20 categories: happy_path, multi_turn, crisis, confirmation, privacy, edge_case, natural_language, adversarial, accessibility, taxonomy_regression, borough_filter, no_result, staten_island, neighborhood_routing, schedule, referral, data_quality, emotional, bot_question, guard (emotional+service overlap), and multi_intent.
+172 scenarios across 20 categories: happy_path, multi_turn, crisis, confirmation, privacy, edge_case, natural_language, adversarial, accessibility, taxonomy_regression, borough_filter, no_result, staten_island, neighborhood_routing, schedule, referral, data_quality, emotional, bot_question, guard (emotional+service overlap), and multi_intent.
 
 Notable additions: 2 frustration escalation scenarios (repeated frustration loop with 3-tier counter, frustration-to-resolution arc), and 10 scenarios informed by the WA Homelessness Portal covering rough sleepers, unsafe housing, family with children, substance use + shelter, dual needs, negative preferences, non-English speakers, youth runaways, privacy around data sharing, and multi-need storytelling.
 

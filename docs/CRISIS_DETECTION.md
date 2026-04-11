@@ -187,6 +187,8 @@ User: "My family kicked me out and I need shelter in Brooklyn"
 
 **"No" after step-down:** Acknowledges gracefully ("The resources above are available anytime. If you'd like to search for services later, I'm here.") with navigator and search buttons.
 
+**DV population injection (Phase 5):** When the crisis category is `domestic_violence`, `dv_survivor` is injected into the session's `_populations` list. This ensures that when the user confirms the service search (or starts a new search later), DV-specific services are boosted to the top of results via description-based ORDER BY ranking. The injection fires in both branches — with service intent (step-down path) and without (crisis-only path). This bridges a coverage gap: the crisis detector has 54 DV phrases (e.g., "he hits me", "afraid to go home") but the population extractor only matches 10 of them (e.g., "domestic violence", "abusive relationship"). Without the injection, a user who says "he hits me and I need shelter" would get generic shelter results instead of DV-specialized services like Safe Horizon or Family Justice Centers.
+
 ## Extending the System
 
 ### Adding a new regex phrase
