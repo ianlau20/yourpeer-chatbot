@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # LLM CLIENT — uses shared Anthropic client from claude_client.py
 # ---------------------------------------------------------------------------
 
-from app.llm.claude_client import get_client, CRISIS_DETECTION_MODEL
+from app.llm.claude_client import get_client, CRISIS_DETECTION_MODEL, _track_llm_call
 
 # Whether LLM crisis detection is enabled (requires ANTHROPIC_API_KEY)
 _USE_LLM_DETECTION = bool(os.getenv("ANTHROPIC_API_KEY"))
@@ -115,6 +115,13 @@ _SUICIDE_SELF_HARM_PHRASES = [
     "no point in going on",
     "make it all stop", "wish it would all stop",
     "im done with everything",
+    # Indirect ideation — passive desire to not exist (regex audit)
+    "don't want to be here anymore", "dont want to be here anymore",
+    "i don't want to be here", "i dont want to be here",
+    "nobody would miss me", "no one would miss me",
+    "want to disappear", "i just want to disappear",
+    "life isn't worth living", "life isnt worth living",
+    "wouldn't matter if i was gone", "wouldnt matter if i was gone",
 ]
 
 _VIOLENCE_PHRASES = [
@@ -147,6 +154,7 @@ _DOMESTIC_VIOLENCE_PHRASES = [
     "he's going to hurt me", "she's going to hurt me",
     "going to hurt me",
     "threatened to hurt me", "threatened to kill me",
+    "threatens to hurt me", "threatens to kill me",
     "he threatened me", "she threatened me",
     "said he would hurt me", "said she would hurt me",
     "said he'd hurt me", "said she'd hurt me",
@@ -157,6 +165,17 @@ _DOMESTIC_VIOLENCE_PHRASES = [
     "he controls everything", "she controls everything",
     "controls my money", "takes my money",
     "won't let me leave the house", "wont let me leave the house",
+    # Physical violence — strangulation / choking (regex audit)
+    "chokes me", "choked me", "chokes me out",
+    "strangles me", "strangled me", "strangling me",
+    "grabs me by the neck", "grabs my neck",
+    "put his hands on me", "puts his hands on me",
+    "put her hands on me", "puts her hands on me",
+    # Post-crisis / escaped DV (peer navigator scenarios)
+    "escaped abuse", "escaped my abuser",
+    "fleeing abuse", "fled abuse", "fled my abuser",
+    "left my abuser", "ran from my abuser",
+    "got away from my abuser",
 ]
 
 # General safety concerns — not clearly DV or suicidal, but the person
@@ -220,6 +239,16 @@ _MEDICAL_EMERGENCY_PHRASES = [
     "overdosing", "od'ing", "oding",
     "unconscious", "not breathing", "stopped breathing",
     "choking", "allergic reaction", "anaphylaxis",
+    # Overdose / poisoning (regex audit)
+    "took too many pills", "swallowed too many pills",
+    "took a bunch of pills", "took all my pills",
+    # Bleeding / injury (regex audit)
+    "can't stop bleeding", "cant stop bleeding",
+    "bleeding really bad", "bleeding a lot",
+    # Explicit emergency (regex audit)
+    "medical emergency", "having an emergency",
+    "need an ambulance", "call an ambulance",
+    "call 911",
 ]
 
 
@@ -361,6 +390,7 @@ def _detect_crisis_llm(text: str) -> Optional[Tuple[str, str]]:
     decide, so we resolve that uncertainty toward safety.
     """
     try:
+        _track_llm_call("crisis_detection")
         client = get_client()
 
         response = client.messages.create(

@@ -100,6 +100,43 @@ def get_client():
 
 
 # ---------------------------------------------------------------------------
+# LLM CALL TRACKING — daily counter with alerting
+# ---------------------------------------------------------------------------
+
+_daily_call_count = 0
+_daily_call_date = None
+DAILY_CALL_LIMIT = int(os.getenv("LLM_DAILY_CALL_LIMIT", "5000"))
+
+
+def _track_llm_call(task: str = "unknown") -> None:
+    """Track LLM API calls and alert when daily threshold is exceeded.
+
+    Called at the start of every LLM function (claude_reply,
+    classify_message_llm, etc.). Logs CRITICAL when the daily limit
+    is reached — this should trigger alerting in production.
+    """
+    global _daily_call_count, _daily_call_date
+    from datetime import datetime
+    today = datetime.now().date()
+    if _daily_call_date != today:
+        if _daily_call_count > 0:
+            logger.info(f"Daily LLM call count reset (yesterday: {_daily_call_count})")
+        _daily_call_count = 0
+        _daily_call_date = today
+    _daily_call_count += 1
+    if _daily_call_count == DAILY_CALL_LIMIT:
+        logger.critical(
+            f"Daily LLM call limit reached: {DAILY_CALL_LIMIT} calls. "
+            f"Task: {task}. Check for abuse or bot traffic."
+        )
+    elif _daily_call_count == DAILY_CALL_LIMIT // 2:
+        logger.warning(
+            f"Daily LLM calls at 50%: {_daily_call_count}/{DAILY_CALL_LIMIT}. "
+            f"Task: {task}."
+        )
+
+
+# ---------------------------------------------------------------------------
 # CONVERSATIONAL REPLY (replaces gemini_reply)
 # ---------------------------------------------------------------------------
 
@@ -114,6 +151,7 @@ def claude_reply(prompt: str) -> str:
     safe static message.
     """
     try:
+        _track_llm_call("conversational")
         client = get_client()
         response = client.messages.create(
             model=CONVERSATIONAL_MODEL,
@@ -181,6 +219,7 @@ def classify_message_llm(text: str) -> str | None:
     (so the caller can fall back to regex classification).
     """
     try:
+        _track_llm_call("classification")
         client = get_client()
         response = client.messages.create(
             model=CLASSIFICATION_MODEL,

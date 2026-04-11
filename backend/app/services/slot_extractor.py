@@ -71,6 +71,7 @@ SERVICE_KEYWORDS = {
         "mental health", "counseling", "counselor", "therapist", "therapy",
         "depression", "anxiety", "trauma", "ptsd",
         "substance abuse", "addiction", "rehab", "recovery",
+        "detox", "detoxification",
         "aa meeting", "na meeting", "narcotics anonymous", "alcoholics anonymous",
         "support group", "emotional support", "psychiatric",
         "psychiatrist", "crisis counseling",
@@ -502,12 +503,18 @@ def _extract_urgency(text: str) -> Optional[str]:
 
 
 def _extract_age(text: str) -> Optional[int]:
-    # e.g. "I am 17", "age 22", "22 years old", "I'm 22"
+    # e.g. "I am 17", "age 22", "22 years old", "I'm 22", "19-year-old", "21, LGBTQ"
     patterns = [
         r"\bi[' ]?m (\d{1,3})\b",
         r"\bi am (\d{1,3})\b",
         r"\bage (\d{1,3})\b",
         r"\b(\d{1,3}) years old\b",
+        # Hyphenated: "19-year-old", "21-yr-old"
+        r"\b(\d{1,2})-?year-?old\b",
+        r"\b(\d{1,2})-?yr-?old\b",
+        # Bare number at start or after newline, followed by comma/space+context
+        # "21, LGBTQ" or "19, with a toddler"
+        r"(?:^|\n)(\d{1,2})\s*,",
     ]
     for p in patterns:
         m = re.search(p, text.lower())

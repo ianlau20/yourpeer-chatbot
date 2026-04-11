@@ -2494,6 +2494,12 @@ def generate_reply(
     if "transcript" not in merged:
         merged["transcript"] = []
     merged["transcript"].append({"role": "user", "text": redacted_message})
+    # Security: cap transcript to prevent memory exhaustion from long sessions.
+    # The LLM slot extractor only uses the last 6 turns — no conversation
+    # needs more than 20 stored. Oldest entries are dropped.
+    _MAX_TRANSCRIPT = 20
+    if len(merged["transcript"]) > _MAX_TRANSCRIPT:
+        merged["transcript"] = merged["transcript"][-_MAX_TRANSCRIPT:]
 
     # Queue additional services for offering after the primary search.
     # Only set when new additional services are extracted — don't overwrite

@@ -36,7 +36,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Use the shared Anthropic client and model constants
-from app.llm.claude_client import get_client, SLOT_EXTRACTION_MODEL
+from app.llm.claude_client import get_client, SLOT_EXTRACTION_MODEL, _track_llm_call
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +249,7 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
     additional_service_types defaults to [].
     """
     try:
+        _track_llm_call("slot_extraction")
         client = get_client()
 
         # Build messages with conversation history for context
@@ -340,6 +341,7 @@ def extract_slots_narrative(message: str, conversation_history: list = None) -> 
     Falls back to _narrative_regex_fallback() when LLM is unavailable.
     """
     try:
+        _track_llm_call("narrative_extraction")
         client = get_client()
 
         messages = []
