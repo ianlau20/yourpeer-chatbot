@@ -59,6 +59,7 @@ All 17 backend modules and all public functions are covered:
 | `audit_log.py` | `test_audit_log.py`, `test_bug_fixes.py`, `test_admin.py`, `test_ambiguity_handling.py` | 70+ | Full |
 | `crisis_detector.py` | `test_crisis_detector.py`, `test_bug_fixes.py`, `test_crisis_safety_edges.py` | 60+ | Full |
 | `llm_slot_extractor.py` | `test_llm_slot_extractor.py`, `test_narrative_extraction.py` | 44 | Full |
+| `llm_classifier.py` | `test_llm_classifier.py` | 30 | Full |
 | `bot_knowledge.py` | `test_bot_knowledge.py` | 37 | Full |
 | `post_results.py` | `test_post_results.py`, `test_post_results_boundary.py` | 100 | Full |
 | `pii_redactor.py` | `test_pii_redactor.py`, `test_edge_cases.py` | 34+ | Full |

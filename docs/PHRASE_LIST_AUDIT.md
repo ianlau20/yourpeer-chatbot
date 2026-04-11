@@ -293,6 +293,35 @@ These would only be added to the crisis regex list to ensure safety coverage. Fu
 | P5 | Spanish crisis phrases | ~5 phrases | Low | Safety for Spanish speakers | Deferred |
 | P6 | Bot question phrase expansion | 13 privacy/info phrases | Medium | Catches "what happens to my information" variants | ✅ Done |
 | P7 | Emotional enhancement blocklist | 56 items (15 service + 11 soft-push + 7 steering + 6 adjacent + 10 vague hints + 7 other) | High | Prevents LLM from inserting service-push into emotional responses | ✅ Done |
+| **P8** | **Track 1 — Regex Audit Quick Wins (Run 23)** | **~90 phrases across 7 lists** | **Low** | **Addresses 52-100% miss rates found in comprehensive regex audit** | **✅ Done** |
+
+### Track 1 Additions (Run 23 — Regex Audit)
+
+A comprehensive regex audit tested 133 natural-language inputs and found miss rates of 52% (slot extraction), 100% (emotional), 82% (confirm_yes), 58% (frustration), 50% (escalation), and 82% (crisis regex-only). Track 1 added phrases to close the most critical gaps:
+
+**Confirm yes (+11 exact, +7 startswith):** NYC youth slang — bet, aight, ight, word, fasho, fo sho, facts, say less, yea, cool, absolutely, that works, sounds good, lets go, for sure, yea search.
+
+**Frustration (+12):** you're no help, going in circles, keeps asking the same thing, this is bs, whatever, smh, bruh, this ain't working, this aint working, yo this trash, this is trash.
+
+**Emotional (+16):** can't take it anymore, at the end of my rope, crying all day, been crying, i hate my life, have nothing left, what's the point, i feel broken, i'm broken, feel empty inside, giving up, everything is so hard.
+
+**Escalation (+10):** speak with someone, talk to a human, transfer me, can someone call me, person i can call, actual person, get me a person, real human.
+
+**Crisis — suicide (+8):** don't want to be here anymore, nobody would miss me, want to disappear, life isn't worth living, wouldn't matter if i was gone.
+
+**Crisis — DV (+10):** chokes me, choked me, strangled me, strangles me, grabs me by the neck, put his/her hands on me, threatens to kill me.
+
+**Crisis — medical emergency (+9):** took too many pills, can't stop bleeding, bleeding really bad, medical emergency, need an ambulance, call 911.
+
+**Confirm deny — narrowing:** "i don't want" → "i don't want to" / "i don't want that" (prevents shame false positive on "I don't want anyone to know").
+
+**Confirm deny — additions (+6):** i'm good, im good, nah i'm good, nah im good, all good, no need.
+
+**Slot extractor — shelter (+1):** "somewhere to stay" (was missing; "place to stay" and "somewhere to sleep" existed).
+
+**Slot extractor — employment (+5):** finding work, help finding work, help with work, finding a job, help finding a job.
+
+**Total phrases added:** ~90 across chatbot.py, crisis_detector.py, and slot_extractor.py. Post-Track 1 detection rates on audit test set: confirm_yes 18%→100%, frustration 42%→100%, emotional 0%→100%, escalation 50%→100%, crisis suicidal ideation 18%→82%, crisis DV 50%→100%, crisis medical 0%→100%.
 
 **Implementation note:** 130+ phrases added across 7 files. Total phrase inventory: 770 → 850+. Three systematic preprocessing functions eliminate future gaps: contraction normalization (37 mappings), intensifier stripping (20 adverbs), and emotional enhancement validation (56-item blocklist). Bot self-knowledge module (`bot_knowledge.py`) provides 15 topic entries with keyword matching for static bot question answers. Zero test regressions (939 passed locally, same 4 pre-existing feature gaps).
 

@@ -8,11 +8,23 @@ For crisis detection details, see [CRISIS_DETECTION.md](CRISIS_DETECTION.md). Fo
 
 ## Message Routing Pipeline
 
-Every incoming message passes through three stages: slot extraction, classification, and combined routing. Slots are always extracted first so service intent is known before routing decisions.
+Every incoming message passes through four stages: slot extraction, unified LLM classification (when regex fails), split classification, and combined routing. Slots are always extracted first so service intent is known before routing decisions.
 
 ### Stage 1 — Slot Extraction (always runs first)
 
 Regex-based slot extraction runs on every message before classification. This extracts service type(s), location, age, urgency, family status, and service detail. The result determines `has_service_intent` — whether the message contains a service request.
+
+When multiple services are detected with different locations (e.g. "food in Brooklyn and shelter in Manhattan"), per-service location binding matches each service to its nearest location by text position. The primary service gets the first-mentioned location; queued services get their bound locations stored as 3-tuples `(service_type, detail, location)`.
+
+### Stage 1b — Unified LLM Classification Gate (Run 23+)
+
+When regex finds **no service_type AND no action AND no tone AND 4+ words**, a single Haiku call (`classify_unified()` in `llm_classifier.py`) returns all classification dimensions in one JSON response: service_type, location, additional_services, tone, action, urgency, age, family_status.
+
+This replaces two separate LLM calls (Phase 2 slot enrichment + LLM category fallback) with one combined call. It fires on ~25% of messages — the ones where regex has nothing useful. The other ~75% are handled by regex alone at zero cost.
+
+The gate skips for short messages and messages where regex already found something useful (confirmations, greetings, resets, etc.). If the LLM call fails, the system falls through to regex results.
+
+The prompt instructs the LLM to distinguish **intent from mention**: "I saw a doctor on TV" → null (not medical), "I need to see a doctor" → medical. This addresses the 50% false positive rate found in the regex audit.
 
 ### Stage 2 — Split Classification
 
@@ -27,11 +39,11 @@ Two independent classifiers run in parallel:
 | `negative_preference` | "none of those", "not what I need", "I don't want any of those", "those don't help" | "none of those work" |
 | `bot_identity` | "are you a robot", "am I talking to a person" | "are you AI?" |
 | `bot_question` | "why can't you", "how does this work", "is this private", "can ICE see" | "is this safe?" |
-| `escalation` | "peer navigator", "talk to a person" | "connect with peer navigator" |
+| `escalation` | "peer navigator", "talk to a person", "speak with someone", "transfer me", "can someone call me", "actual person" | "connect with peer navigator" |
 | `confirm_change_service` | "change service", "different service" | "change service" |
 | `confirm_change_location` | "change location", "different area" | "change location" |
-| `confirm_yes` | "yes", "sure", "go ahead", "yes search" | "yes, search" |
-| `confirm_deny` | "no", "nah", "nope", "not yet" | "no" |
+| `confirm_yes` | "yes", "sure", "go ahead", "yes search", "bet", "aight", "word", "fasho", "say less", "that works", "sounds good", "for sure", "lets go" | "bet" |
+| `confirm_deny` | "no", "nah", "nope", "not yet", "i'm good", "nah i'm good", "all good", "no need", "i don't want to", "i don't want that" | "nah i'm good" |
 | `greeting` | "hi", "hello", "hey" (only if ≤3 words) | "hello" |
 | `thanks` | "thank you", "thanks" (no continuation) | "thanks" |
 | `help` | "what can you do", "list services"; "help" (word-boundary, excludes "helpful"/"not helpful") | "help" |
@@ -41,8 +53,8 @@ Two independent classifiers run in parallel:
 | Tone | Trigger | Example |
 |---|---|---|
 | `crisis` | Regex + LLM crisis detection (see [CRISIS_DETECTION.md](CRISIS_DETECTION.md)) | "I want to hurt myself" |
-| `frustrated` | "not helpful", "waste of time", "already tried" | "that wasn't helpful" |
-| `emotional` | "feeling down", "rough day", "I'm scared", "nobody cares" | "I'm feeling really down" |
+| `frustrated` | "not helpful", "waste of time", "already tried", "you're no help", "going in circles", "whatever", "smh", "this is bs", "this ain't working" | "that wasn't helpful" |
+| `emotional` | "feeling down", "rough day", "I'm scared", "nobody cares", "can't take it anymore", "end of my rope", "crying all day", "I hate my life", "what's the point", "I'm broken", "feel empty inside", "giving up" | "I'm feeling really down" |
 | `confused` | "I don't know what to do", "I'm overwhelmed" | "I'm lost" |
 | `urgent` | "right now", "tonight", "nowhere to go", "on the street", "desperate", "kicked out today" | "I need shelter right now" |
 
@@ -56,8 +68,8 @@ The routing priority is:
 
 | Priority | Condition | Route |
 |---|---|---|
-| 0 | Post-results: `_last_results` set + message is a follow-up question | Post-results handler (deterministic, no LLM). New-request phrases and new locations escape to normal routing. Unmatched name → disambiguation prompt |
-| 1 | `tone == crisis` | Crisis handler (always wins) |
+| 0 | Post-results: `_last_results` set + message is a follow-up question | Post-results handler (deterministic, no LLM). New-request phrases, new locations, frustrated tone, and negative_preference messages escape to normal routing. Unmatched name → disambiguation prompt |
+| 1 | `tone == crisis` | Crisis handler (always wins). Step-down for `safety_concern`, `domestic_violence`, and `youth_runaway` — shows crisis resources AND offers service search when `has_service_intent` is true |
 | 2 | `action == reset` | Reset handler |
 | 2a | `action == correction` ("not what I meant") | Correction handler — clears pending state, shows alternatives |
 | 2b | `action == negative_preference` ("none of those") | Acknowledges rejection, offers alternative service categories + peer navigator |
@@ -86,9 +98,9 @@ The key insight is **row 4**: when service intent is present, it wins over help/
 | `urgent` | "I can see this is urgent — let me find something right away." |
 | None | (no prefix) |
 
-### LLM Fallback (only when nothing else matches)
+### LLM Fallback (secondary safety net)
 
-If no regex pattern matches and the message is longer than 3 words, Claude Haiku classifies the message into one of the standard categories. This catches indirect service needs ("I just got out of the hospital"), ambiguous messages, and edge cases that keyword lists can't cover.
+The unified LLM classification gate (Stage 1b) handles most messages where regex fails. If the unified gate didn't fire (message too short, or regex already found something), and no other route matches, Claude Haiku classifies the message into one of the standard categories as a last-resort fallback. This catches edge cases the unified gate missed.
 
 If the LLM is unavailable or returns an unrecognized category, the system falls back to `general`.
 

@@ -71,8 +71,9 @@ information, preventing hallucination.
 | `backend/app/services/crisis_detector.py` | Two-stage crisis detection (regex + Sonnet LLM), category-specific hotlines |
 | `backend/app/services/slot_extractor.py` | Regex-based slot extraction with keyword matching |
 | `backend/app/services/llm_slot_extractor.py` | LLM slot extraction via Claude Haiku tool calling |
+| `backend/app/services/llm_classifier.py` | Unified LLM classification gate — single Haiku call returning service_type, location, tone, action when regex fails |
 | `backend/app/services/session_store.py` | In-memory session state with 30-min TTL (max 500 sessions) |
-| `backend/app/services/audit_log.py` | Anonymized event logging (capped ring buffer) |
+| `backend/app/services/audit_log.py` | Anonymized event logging (capped ring buffer), P0-P3 metrics aggregation (confidence, recovery rates, session metrics, no-result by service, time-of-day, geographic demand, frustration tiers, session duration, repetition rate, LLM call metrics) |
 | `backend/app/llm/claude_client.py` | Anthropic client (lazy init), model constants, shared helpers |
 | `backend/app/rag/__init__.py` | `query_services()` entry point |
 | `backend/app/rag/query_executor.py` | DB execution, location normalization, borough/neighborhood PostGIS logic |
@@ -134,12 +135,14 @@ information, preventing hallucination.
 
 ## Known Gaps / In Progress
 
-- **Multi-intent requests** — extraction, split-classifier routing, and service queue are complete. Multiple service types are extracted, the first is searched with tone-aware framing, and remaining services are offered sequentially after results. Remaining: LLM extractor multi-service schema (PR 4). 30 multi-intent eval scenarios cover queue flow, decline, location change mid-queue, shame tone, cross-service slot conflicts, and NYC persona-based flows. See `MULTI_INTENT_PLAN.md`
-- **Real-time location** — browser geolocation supported (opt-in); falls back to text-based location when denied
+- **Adversarial LLM false positives** — The unified classification gate classifies nonsensical service requests ("helicopter ride") as `service_type=other` instead of returning null. Fix: tighten the LLM prompt to restrict "other" to known social service subcategories. Priority for Run 24.
+- **Slot overwrite on contradiction** — `multiturn_change_mind` (3.25): when user says "actually, shelter" mid-conversation, the filled slot is not overwritten. Requires contradiction detection.
+- **Multi-intent: per-service location** — Phase 4 per-service location binding is implemented but `multi_cross_borough` (3.88) shows it doesn't fire in all cases. Needs investigation.
 - **Multilingual support** — English only
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage
 - **`additional_info` field** — 99.7% null in DB, always empty in results
-- **Persistent storage** — when `PILOT_DB_PATH` is set, audit events and sessions are persisted to SQLite (WAL mode) and hydrated on startup. When unset, in-memory only. DB queries are not cached
+- **LLM call instrumentation** — `log_llm_call()` API is defined in audit_log.py but not yet wired into `claude_client.py` call sites. Metrics section shows "No data" until instrumentation is added.
+- **Persistent storage** — when `PILOT_DB_PATH` is set, audit events and sessions are persisted to SQLite (WAL mode) and hydrated on startup. When unset, in-memory only
 
 ## Running Tests
 

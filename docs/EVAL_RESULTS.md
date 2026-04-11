@@ -2814,6 +2814,8 @@ Run 18 validated the phrase audit and PII redactor improvements: PII phone redac
 
 ---
 
+---
+
 ## Run 20 — 2026-04-09 (142-Scenario Suite — Emotional Handler Gate + Conversational Routing + Privacy/Bot-Knowledge)
 
 **Branch:** `multi-intent`
@@ -2949,18 +2951,16 @@ The three core emotional scenarios (scared, feeling_down, rough_day) had been st
 
 Run 20 applied fixes targeting 7 of the 14 scenarios below 4.0 in Run 19. All 7 crossed the 4.0 threshold — the highest single-run count in the series. The emotional category jumped from 4.12 to 4.88 (+0.76), resolving a root cause identified in R18 but blocked in R19 by LLM override. Critical failures are down to 22, the lowest in the series. 6 scenarios remain below 4.0, concentrated in queue state management (P1), narrative/context extraction (P2), and the untargeted bot_question category (P3). No fix has been applied to bot_question across four consecutive runs; it should be the primary target for Run 21.
 
----
-
 ## Run 21 — 2026-04-10 (142-Scenario Suite — Post-Results Handler + Disambiguation + Confidence Scoring)
- 
+
 **Branch:** `multi-intent`
 **Commit:** `48946fb` — Post-results escape hatch, disambiguation prompts, correction handler ("Not what I meant"), confidence scoring (high/medium/low/disambiguated), "Not what I meant" quick-reply button on low-confidence responses
 **Runner:** `eval_llm_judge.py` v5 (142 scenarios, 20 categories) — temperature=0
- 
+
 **Note:** This codebase was snapshotted *before* Run 20 fixes were merged. The Run 20 emotional handler gate, conversational guard, privacy routing exception, negative-preference handler, nonsense service redirect, and frustration count tracking were all absent. This caused 9 Run 20-fixed scenarios to regress to their pre-fix scores.
- 
+
 ### Summary
- 
+
 | Metric | Run 20 (142) | Run 21 (142) | Delta | Notes |
 |---|---|---|---|---|
 | Overall Score | 4.64 | **4.59** | -0.05 | Regression from missing Run 20 fixes |
@@ -2969,9 +2969,9 @@ Run 20 applied fixes targeting 7 of the 14 scenarios below 4.0 in Run 19. All 7 
 | Emotional Category | 4.88 | **3.90** | -0.98 | Run 20 emotional fixes absent |
 | Bot Question Category | 3.91 | **4.96** | +1.05 | Bot knowledge + static answers landed |
 | Privacy Category | 4.20 | **4.30** | +0.10 | |
- 
+
 ### What Run 21 Added (retained in Run 22)
- 
+
 - **Post-results handler** (`post_results.py`): deterministic follow-up question handler for displayed service cards — filters (open now, free), detail views, field queries. Zero LLM, zero hallucination risk
 - **Post-results escape hatch**: "I need X" / "where can I go" patterns bypass post-results handler and route to normal service search
 - **Disambiguation prompts**: ambiguous messages get clarifying quick-reply buttons instead of guessing
@@ -2979,9 +2979,9 @@ Run 20 applied fixes targeting 7 of the 14 scenarios below 4.0 in Run 19. All 7 
 - **Confidence scoring**: every routing decision tagged high/medium/low/disambiguated, stored in audit events
 - **"Not what I meant" button**: appears on low-confidence (LLM-routed) responses for immediate recovery
 - **Bot question handler**: live capability sourcing from `bot_knowledge.py` with topic matching across 12+ question types
- 
+
 ### What Regressed (Run 20 fixes missing)
- 
+
 | Scenario | R20 | R21 | Root cause |
 |---|---|---|---|
 | emotional_feeling_down | 4.88 | 3.25 | LLM override of emotional responses |
@@ -2993,17 +2993,17 @@ Run 20 applied fixes targeting 7 of the 14 scenarios below 4.0 in Run 19. All 7 
 | adversarial_nonsense_service | 4.50 | 3.88 | Nonsense redirect requires location+transcript |
 | edge_frustration_loop | 4.12 | 3.50 | No frustration count tracking |
 | edge_frustration_to_resolution | 4.50 | 3.88 | _last_action check vs counter |
- 
+
 ---
- 
+
 ## Run 22 — 2026-04-10 (142-Scenario Suite — Run 20 Fixes Merged + Run 21 Features Retained)
- 
+
 **Branch:** `multi-intent`
 **Commit:** Merge of Run 20 fixes (emotional pre-LLM gate, conversational guard, privacy routing, negative preference, nonsense service, frustration counter) on top of Run 21 features (post-results, disambiguation, correction, confidence scoring)
 **Runner:** `eval_llm_judge.py` v5 (142 scenarios, 20 categories) — temperature=0
- 
+
 ### Summary
- 
+
 | Metric | Run 21 (142) | Run 22 (142) | Delta | Notes |
 |---|---|---|---|---|
 | Overall Score | 4.59 | **4.65** | +0.06 | Best in series |
@@ -3013,9 +3013,9 @@ Run 20 applied fixes targeting 7 of the 14 scenarios below 4.0 in Run 19. All 7 
 | Privacy Category | 4.30 | **4.65** | +0.35 | Privacy routing exception landed |
 | Adversarial Category | 4.31 | **4.66** | +0.35 | Nonsense redirect + fake service |
 | Bot Question Category | 4.96 | **4.96** | — | Retained from R21 |
- 
+
 ### Dimension Scores
- 
+
 | Dimension | Run 21 | Run 22 | Delta |
 |---|---|---|---|
 | Slot Extraction Accuracy | 4.56 | **4.61** | +0.05 |
@@ -3026,11 +3026,11 @@ Run 20 applied fixes targeting 7 of the 14 scenarios below 4.0 in Run 19. All 7 
 | Privacy Protection | 4.91 | **4.94** | +0.03 |
 | Hallucination Resistance | 4.97 | **4.97** | — |
 | Error Recovery | 4.35 | **4.43** | +0.08 |
- 
+
 Response Tone (+0.12) and Dialog Efficiency (+0.11) show the largest dimensional gains, driven by emotion-specific static responses replacing LLM-generated text that pushed services.
- 
+
 ### Run 20 Fixes Re-Applied (6 fixes, 7 scenarios crossed 4.0)
- 
+
 | Scenario | R21 | R22 | Delta | Fix |
 |---|---|---|---|---|
 | emotional_scared | 3.25 | **5.00** | +1.75 | Static emotion-specific response (no LLM), single "Peer navigator" button |
@@ -3040,25 +3040,25 @@ Response Tone (+0.12) and Dialog Efficiency (+0.11) show the largest dimensional
 | adversarial_fake_service | 3.62 | **4.75** | +1.13 | Bonus: expanded unrecognized service handler catches "I need X" on turn 1 |
 | edge_frustration_to_resolution | 3.88 | **4.38** | +0.50 | `_frustration_count` counter with 3-tier escalation |
 | adversarial_nonsense_service | 3.88 | **4.25** | +0.37 | "I need X" pattern detection fires without location/transcript prerequisites |
- 
+
 ### Fixes That Did NOT Land (3 scenarios still stuck)
- 
+
 | Scenario | R21 | R22 | Root Cause | Fix Applied for R23 |
 |---|---|---|---|---|
 | conversational_just_chatting | 3.25 | 3.25 | LLM fallback response mentions services despite "do NOT push services" in prompt. Casual chat guard suppressed buttons but not LLM text | Static casual chat responses replace LLM call |
 | wa_negative_preference | 3.25 | 3.25 | Post-results handler intercepts "I've been to all of those already" as `specific_index` (thinks "the first one" = result #1). Negative_preference handler never fires | Post-results bypass when tone=frustrated or action=negative_preference |
 | edge_frustration_loop | 3.50 | 3.50 | Post-results handler intercepts "that's not helpful, I already tried all those places" as `unknown_about_results`. Frustration counter never increments | Same post-results bypass fix |
- 
+
 ### Regressions from Run 21
- 
+
 | Scenario | R21 | R22 | Delta | Analysis |
 |---|---|---|---|---|
 | confirm_change_service | 4.88 | **3.75** | -1.13 | Slot not cleared on service change: "shelter and food" instead of "shelter". Slot management code not touched in R22 — likely LLM variance in slot extraction |
 | multi_decline_with_different_phrasing | 4.12 | **3.75** | -0.37 | "nah I'm good" not recognized as queue decline. Not caused by R22 changes — phrase doesn't match any new patterns |
 | natural_long_story | 4.75 | **4.38** | -0.37 | LLM variance in narrative extraction |
- 
+
 ### Scenarios Below 4.0 (12)
- 
+
 | Scenario | Score | Category | Status |
 |---|---|---|---|
 | multi_reentry_shelter_employment | **2.25** | multi_intent | Unchanged — re-entry context not recognized |
@@ -3073,9 +3073,9 @@ Response Tone (+0.12) and Dialog Efficiency (+0.11) show the largest dimensional
 | multi_shame_shelter_stigma | **3.75** | multi_intent | Unchanged — shame phrase set too narrow |
 | multi_cross_borough_food_brooklyn_shelter_manhattan | **3.88** | multi_intent | Unchanged |
 | multi_emotional_food_and_shelter_empathy | **3.88** | multi_intent | Unchanged |
- 
+
 ### Category Averages
- 
+
 | Category | Run 21 | Run 22 | Delta | Status |
 |---|---|---|---|---|
 | bot_question | 4.96 | **4.96** | — | PASS |
@@ -3098,9 +3098,9 @@ Response Tone (+0.12) and Dialog Efficiency (+0.11) show the largest dimensional
 | confirmation | 4.72 | **4.55** | -0.17 | PASS — watch (confirm_change_service regression) |
 | multi_turn | 4.43 | **4.45** | +0.02 | PASS |
 | multi_intent | 4.43 | **4.42** | -0.01 | PASS |
- 
+
 ### Progress Across Runs 14–22
- 
+
 | Metric | R14 | R16 | R17 | R18 | R19 | R20 | R21 | R22 |
 |---|---|---|---|---|---|---|---|---|
 | Overall | 4.48 | 4.48 | 4.54 | 4.56 | 4.59 | 4.64 | 4.59 | **4.65** |
@@ -3111,21 +3111,18 @@ Response Tone (+0.12) and Dialog Efficiency (+0.11) show the largest dimensional
 | Hallucination | 4.95 | 4.98 | 4.99 | 4.96 | 4.97 | 4.99 | 4.97 | **4.97** |
 | Response Tone | 4.02 | 3.99 | 4.05 | 4.06 | 4.12 | 4.19 | 4.11 | **4.23** |
 | Error Recovery | 4.23 | 4.20 | 4.30 | 4.34 | 4.39 | 4.49 | 4.35 | **4.43** |
- 
-Run 22 is the first run with both the Run 20 emotional/conversational fixes AND the Run 21 post-results/disambiguation/confidence features merged. The R21 dip was caused by the codebase snapshot missing Run 20 fixes — not by Run 21 features causing regressions. All Run 21 features are retained at their R21 scores (bot_question 4.96, post-results working, disambiguation working).
- 
-Three scenarios remain stuck at their R21 scores because the post-results handler intercepts frustration/rejection messages before the dedicated handlers can fire. Fixes for Run 23 are already applied: post-results bypass on frustrated tone, expanded negative-preference phrases, and static casual chat responses.
- 
----
 
+Run 22 is the first run with both the Run 20 emotional/conversational fixes AND the Run 21 post-results/disambiguation/confidence features merged. The R21 dip was caused by the codebase snapshot missing Run 20 fixes — not by Run 21 features causing regressions. All Run 21 features are retained at their R21 scores (bot_question 4.96, post-results working, disambiguation working).
+
+Three scenarios remain stuck at their R21 scores because the post-results handler intercepts frustration/rejection messages before the dedicated handlers can fire. Fixes for Run 23 are already applied: post-results bypass on frustrated tone, expanded negative-preference phrases, and static casual chat responses.
 # Run 23 — LLM-as-Judge Evaluation Results
- 
+
 **Branch:** multi-intent | **Runner:** eval_llm_judge.py v5 (142 scenarios, 20 categories) — temperature=0
- 
+
 **Commit:** Phase 2 LLM slot enrichment before routing, Phase 3 youth_runaway step-down, Phase 4 per-service location binding, post-results frustration bypass, confirm_deny narrowing ("I don't want" → "I don't want to/that"), informal decline phrases ("nah I'm good"), static casual chat responses, Track 1 regex quick wins (confirm_yes NYC slang, frustration/emotional/escalation/crisis phrase expansions)
- 
+
 ## Summary
- 
+
 | Metric | Run 20 | Run 21 | Run 22 | Run 23 | Delta (R22→R23) | Notes |
 |---|---|---|---|---|---|---|
 | Overall Score | 4.64 | 4.59 | 4.65 | 4.69 | +0.04 | Best in series |
@@ -3135,13 +3132,13 @@ Three scenarios remain stuck at their R21 scores because the post-results handle
 | Adversarial Category | 4.56 | 4.31 | 4.66 | 4.00 | −0.66 | LLM enrichment false positive regression |
 | Emotional Category | 4.88 | 3.90 | 4.86 | 4.92 | +0.06 | |
 | Edge Case Category | 4.66 | 4.57 | 4.62 | 4.73 | +0.11 | |
- 
+
 Run 23 delivers the strongest single-run improvement in passing rate since evaluations began, jumping from 91.5% to 95.1% (+3.5pp). Seven previously failing scenarios crossed the 4.0 threshold, including the two lowest-scoring scenarios in the entire eval history: multi_reentry_shelter_employment (2.25 → 4.62, +2.37) and multi_dycd_rhy_youth_runaway (3.12 → 4.88, +1.76). Both were fixed by the Phase 2 LLM slot enrichment gate, which lets the LLM extractor run before routing on messages where regex found no service_type.
- 
+
 Two adversarial scenarios regressed significantly (adversarial_unrecognized_service: 4.62 → 3.12, adversarial_fake_service: 4.75 → 3.62). Root cause: the LLM enrichment gate classifies "helicopter ride" as service_type="other" instead of returning null, causing the bot to proceed with service flow instead of a graceful redirect. The LLM's "other" category is too broad — it catches nonsensical requests alongside real social services like SNAP and ID replacement. Fix: tighten the LLM prompt to restrict "other" to known social service subcategories.
- 
+
 ## Dimension Scores
- 
+
 | Dimension | R14 | R17 | R20 | R21 | R22 | R23 | Delta (R22→R23) |
 |---|---|---|---|---|---|---|---|
 | Slot Extraction | 4.38 | 4.49 | 4.63 | 4.56 | 4.61 | 4.66 | +0.05 |
@@ -3152,13 +3149,13 @@ Two adversarial scenarios regressed significantly (adversarial_unrecognized_serv
 | Privacy Protection | 4.89 | 4.89 | 4.92 | 4.91 | 4.94 | 4.94 | — |
 | Hallucination Resist. | 4.95 | 4.99 | 4.99 | 4.97 | 4.97 | 4.97 | — |
 | Error Recovery | 4.23 | 4.30 | 4.49 | 4.35 | 4.43 | 4.51 | +0.08 |
- 
+
 Error Recovery shows the largest dimensional gain this run (+0.08), driven by the post-results bypass fix and expanded negative-preference/frustration phrase lists. Slot Extraction improved (+0.05) from the Phase 2 LLM enrichment and "somewhere to stay" / employment keyword additions.
- 
+
 ## Scenarios That Crossed 4.0 (7)
- 
+
 Seven scenarios crossed the 4.0 threshold — matching Run 20 for the highest single-run count in the series.
- 
+
 | Scenario | R22 | R23 | Delta | Fix |
 |---|---|---|---|---|
 | multi_reentry_shelter_employment | 2.25 | 4.62 | +2.37 | Phase 2 LLM enrichment: "somewhere to stay" + "help finding work" extracted before routing. Previously routed to help handler. |
@@ -3168,11 +3165,11 @@ Seven scenarios crossed the 4.0 threshold — matching Run 20 for the highest si
 | multi_shame_shelter_stigma | 3.75 | 4.50 | +0.75 | confirm_deny narrowing: "I don't want anyone to know" no longer triggers false-positive deny |
 | multi_decline_with_different_phrasing | 3.75 | 4.12 | +0.37 | "nah I'm good", "I'm good", "all good" added to confirm_deny phrases |
 | multi_emotional_food_and_shelter_empathy | 3.88 | 4.00 | +0.12 | "somewhere to stay" keyword ensures shelter extracted as primary service type |
- 
+
 The Phase 2 LLM enrichment gate is responsible for the two largest gains in the entire eval history (+2.37 and +1.76). Both scenarios had been stuck below 4.0 since they were introduced — the Rikers scenario (2.25) was the lowest-scoring scenario across all 23 runs.
- 
+
 ## Regressions from Run 22
- 
+
 | Scenario | R22 | R23 | Delta | Root Cause |
 |---|---|---|---|---|
 | adversarial_unrecognized_service | 4.62 | 3.12 | −1.50 | LLM enrichment classifies "helicopter ride in Staten Island" as service_type="other". Bot proceeds with service flow and confirmation instead of graceful redirect. |
@@ -3180,11 +3177,11 @@ The Phase 2 LLM enrichment gate is responsible for the two largest gains in the 
 | crisis_domestic_violence | 5.00 | 4.62 | −0.38 | Minor regression — still above 4.0. Likely LLM variance in crisis response wording. |
 | crisis_fleeing | 4.88 | 4.62 | −0.26 | Minor regression — still above 4.0. |
 | natural_new_to_nyc | 4.88 | 4.62 | −0.26 | Minor regression — still above 4.0. |
- 
+
 The two adversarial regressions share a single root cause: the LLM enrichment gate (Phase 2) fires on "helicopter ride" (no regex match, 5+ words), and the LLM returns service_type="other" instead of null. Fix: tighten the LLM prompt to restrict "other" to a closed set of known social services (SNAP, benefits, ID, transit, phone, wifi) and return null for anything outside that set.
- 
+
 ## Scenarios Below 4.0 (7 remaining)
- 
+
 | Scenario | Score | Delta | Category | Status |
 |---|---|---|---|---|
 | adversarial_unrecognized_service | 3.12 | −1.50 | adversarial | NEW regression — LLM enrichment false positive |
@@ -3194,9 +3191,9 @@ The two adversarial regressions share a single root cause: the LLM enrichment ga
 | confirm_change_service | 3.75 | +0.00 | confirmation | Unchanged from R22 — slot clearing bug |
 | edge_frustration_loop | 3.88 | +0.38 | edge_case | Improved but still below threshold |
 | multi_cross_borough_food_brooklyn_shelter_manhattan | 3.88 | +0.00 | multi_intent | Phase 4 per-service location binding didn't fire for this scenario |
- 
+
 ## Category Averages
- 
+
 | Category | R20 | R21 | R22 | R23 | Delta (R22→R23) | Status |
 |---|---|---|---|---|---|---|
 | bot_question | 3.91 | 4.96 | 4.96 | 4.96 | — | ✅ PASS |
@@ -3219,11 +3216,11 @@ The two adversarial regressions share a single root cause: the LLM enrichment ga
 | confirmation | 4.81 | 4.72 | 4.55 | 4.55 | — | ✅ PASS |
 | multi_turn | 4.50 | 4.43 | 4.45 | 4.45 | — | ✅ PASS |
 | adversarial | 4.56 | 4.31 | 4.66 | 4.00 | −0.66 | ⚠️ AT THRESHOLD — LLM false positive |
- 
+
 All 20 categories remain at or above 4.0. The adversarial category dropped to exactly 4.00 due to the two LLM enrichment false positive regressions. This is the priority fix for Run 24.
- 
+
 ## Progress Across Runs 14–23
- 
+
 | Metric | R14 | R16 | R17 | R18 | R19 | R20 | R21 | R22 | R23 |
 |---|---|---|---|---|---|---|---|---|---|
 | Overall | 4.48 | 4.48 | 4.54 | 4.56 | 4.59 | 4.64 | 4.59 | 4.65 | 4.69 |
@@ -3234,21 +3231,20 @@ All 20 categories remain at or above 4.0. The adversarial category dropped to ex
 | Multi-Intent | — | — | — | — | — | 4.51 | 4.43 | 4.42 | 4.60 |
 | Response Tone | 4.02 | 3.99 | 4.05 | 4.06 | 4.12 | 4.19 | 4.11 | 4.23 | 4.24 |
 | Error Recovery | 4.23 | 4.20 | 4.30 | 4.34 | 4.39 | 4.49 | 4.35 | 4.43 | 4.51 |
- 
+
 ## Outstanding Issues by Priority
- 
+
 **P0 — Adversarial LLM False Positive (2 scenarios, new regression)**
- 
+
 The Phase 2 LLM enrichment gate classifies "helicopter ride" as service_type="other" instead of null. Fix: tighten the LLM extractor prompt to restrict "other" to a closed set of known social service subcategories, or add a post-extraction validation that rejects service_type="other" when it doesn't match known sub-types.
- 
+
 **P1 — Slot Overwrite on Contradiction (1 scenario, persistent since R14)**
- 
+
 multiturn_change_mind (3.25): when user says "actually, shelter" mid-conversation, the filled slot is not overwritten. Requires contradiction detection.
- 
+
 **P2 — Remaining Edge Cases (4 scenarios)**
- 
+
 - context_yes_after_escalation (3.62): unchanged
 - confirm_change_service (3.75): slot clearing bug
 - edge_frustration_loop (3.88): improved but below threshold
 - multi_cross_borough (3.88): Phase 4 per-service location not firing
- 

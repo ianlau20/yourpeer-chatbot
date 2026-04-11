@@ -260,6 +260,109 @@ These metrics answer the ultimate question: did the referral work? They require 
 
 ---
 
+## 4. Classifier & Pipeline Quality (Run 23+)
+
+### 4.1 Confidence Distribution
+
+| | |
+|---|---|
+| **Definition** | % of turns routed at high / medium / low / disambiguated confidence |
+| **Target** | High ≥ 60%, Low ≤ 15% |
+| **Method** | Aggregated from `confidence` kwarg on every `_log_turn()` call |
+| **Why** | Directly measures classifier quality. High "low" rate = regex failing, LLM carrying too much load |
+
+### 4.2 Recovery Rates (Correction / Disambiguation / Negative Preference)
+
+| | |
+|---|---|
+| **Definition** | Per-session rates for correction (misclassification), disambiguation (ambiguity), negative preference (result rejection) |
+| **Targets** | Correction ≤ 5%, Negative preference ≤ 10%, Disambiguation = baseline |
+| **Method** | Session-level counts of each category in audit log |
+| **Why** | Correction rate is the primary misclassification signal. Negative preference signals poor search quality |
+
+### 4.3 Bounce Rate
+
+| | |
+|---|---|
+| **Definition** | % of sessions with exactly 1 user turn |
+| **Target** | ≤ 25% (industry benchmark 15-25%) |
+| **Method** | Group turns by session_id, count sessions with 1 turn |
+| **Why** | High bounce rate suggests the welcome message or first response isn't engaging |
+
+### 4.4 No-Result Rate by Service Type
+
+| | |
+|---|---|
+| **Definition** | No-result rate broken down by service category |
+| **Target** | ≤ 10% for food and shelter |
+| **Method** | Group query_execution events by service_type, compute per-group no-result rate |
+| **Why** | Overall no-result rate hides category-level coverage gaps |
+
+### 4.5 Time-of-Day Demand Patterns
+
+| | |
+|---|---|
+| **Definition** | Distribution of sessions by hour and day of week |
+| **Target** | Baseline tracking — inform staffing |
+| **Method** | Extract hour from event timestamps, build histogram |
+| **Why** | Shelter searches spike in evening; food during day. Informs peer navigator scheduling |
+
+### 4.6 Post-Results Engagement Rate
+
+| | |
+|---|---|
+| **Definition** | Of sessions that receive results, what % ask follow-up questions about those results? |
+| **Target** | Baseline tracking |
+| **Method** | Sessions with post_results turns / sessions with query_execution + results |
+| **Why** | High engagement = results useful enough to explore. Cross-reference with feedback score |
+
+### 4.7 Geographic Demand Distribution
+
+| | |
+|---|---|
+| **Definition** | Query volume and no-result rate by borough/neighborhood |
+| **Target** | Identify underserved areas |
+| **Method** | Group queries by location slot, compute volume share and no-result rate per location |
+| **Why** | If 40% of searches are Brooklyn but only 15% of DB entries are Brooklyn, there's a coverage gap |
+
+### 4.8 Frustration Tier Distribution
+
+| | |
+|---|---|
+| **Definition** | Of sessions with frustration, how many reach tier 1/2/3+? |
+| **Target** | Most at tier 1 (defused by first response) |
+| **Method** | Count frustration turns per session, bucket into tiers |
+| **Why** | If most users hit tier 3, the bot is consistently failing. Validates the 3-tier escalation design |
+
+### 4.9 Session Duration
+
+| | |
+|---|---|
+| **Definition** | Time elapsed from first to last message in a session |
+| **Target** | 3-7 min for navigator sessions (capacity model) |
+| **Method** | First/last event timestamp per session, compute delta |
+| **Why** | Combined with turns-per-session, reveals whether long sessions are productive or stuck |
+
+### 4.10 Bot Repetition Rate
+
+| | |
+|---|---|
+| **Definition** | % of sessions where the bot gives identical consecutive responses |
+| **Target** | ≤ 5% |
+| **Method** | Compare consecutive bot_response values within each session |
+| **Why** | Directly measures the frustration loop problem that the eval judge flags |
+
+### 4.11 LLM Call Metrics
+
+| | |
+|---|---|
+| **Definition** | Total calls, tokens, estimated cost, latency p50/p95, failure rate, breakdown by task and model |
+| **Target** | p50 ≤ 600ms, failure rate ≤ 2% |
+| **Method** | `log_llm_call()` instrumentation in claude_client.py (pending wiring) |
+| **Why** | Essential for capacity planning. At 36,000 sessions/month, LLM cost per session determines monthly spend |
+
+---
+
 ## Metric Collection Infrastructure
 
 | Source | What It Captures | Available Now? |

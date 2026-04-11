@@ -181,7 +181,7 @@ User: "My family kicked me out and I need shelter in Brooklyn"
                   _last_action="crisis" SET
 ```
 
-**Which categories get step-down:** Only `safety_concern` and `domestic_violence`. These are situations where the user may need both safety resources AND practical help finding services. Acute categories (`suicide_self_harm`, `medical_emergency`, `trafficking`, `violence`) always show crisis resources only — the immediate safety concern overrides everything.
+**Which categories get step-down:** `safety_concern`, `domestic_violence`, and `youth_runaway` (Run 23+). These are situations where the user may need both safety resources AND practical help finding services. A 17-year-old runaway needs crisis hotline numbers AND shelter — the step-down provides both. Acute categories (`suicide_self_harm`, `medical_emergency`, `trafficking`, `violence`) always show crisis resources only — the immediate safety concern overrides everything.
 
 **"Yes" after step-down:** Executes the service search using the preserved slots. If enough slots are present, goes directly to results. If not, asks the follow-up question for the missing slot.
 
