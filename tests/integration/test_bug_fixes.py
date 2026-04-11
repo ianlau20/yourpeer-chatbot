@@ -67,27 +67,27 @@ class TestBug9ConfirmationPreposition:
     """Confirmation should say 'in Brooklyn', not 'Brooklyn'."""
 
     def test_confirmation_has_in_preposition(self):
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         slots = {"service_type": "food", "location": "Brooklyn"}
         msg = _build_confirmation_message(slots)
         assert "in Brooklyn" in msg
 
     def test_confirmation_borough_variants(self):
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         for borough in ["Manhattan", "Queens", "Bronx", "Staten Island"]:
             slots = {"service_type": "shelter", "location": borough}
             msg = _build_confirmation_message(slots)
             assert f"in {borough}" in msg, f"Missing 'in' for {borough}: {msg}"
 
     def test_confirmation_neighborhood(self):
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         slots = {"service_type": "food", "location": "harlem"}
         msg = _build_confirmation_message(slots)
         assert "in harlem" in msg
 
     def test_confirmation_near_location_no_in(self):
         """'near your location' should NOT get an extra 'in' prefix."""
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         slots = {
             "service_type": "food",
             "location": "__near_me__",
@@ -146,12 +146,12 @@ class TestBug10NobodyCares:
 
     def test_nobody_cares_routes_to_emotional(self):
         """In the chatbot, bare 'nobody cares' should hit emotional handler."""
-        from app.services.chatbot import _classify_tone
+        from app.services.classifier import _classify_tone
         tone = _classify_tone("nobody cares")
         assert tone == "emotional", f"Expected 'emotional', got '{tone}'"
 
     def test_no_one_cares_routes_to_emotional(self):
-        from app.services.chatbot import _classify_tone
+        from app.services.classifier import _classify_tone
         tone = _classify_tone("no one cares")
         assert tone == "emotional", f"Expected 'emotional', got '{tone}'"
 
@@ -165,7 +165,7 @@ class TestBug11DoubleCrisisCall:
 
     def test_classify_tone_accepts_precomputed_crisis(self):
         """_classify_tone should use crisis_result when provided."""
-        from app.services.chatbot import _classify_tone
+        from app.services.classifier import _classify_tone
         fake_result = ("suicide_self_harm", "Please call 988.")
         tone = _classify_tone("some random text", crisis_result=fake_result)
         assert tone == "crisis"
@@ -173,7 +173,7 @@ class TestBug11DoubleCrisisCall:
     def test_classify_tone_skips_detect_when_result_provided(self):
         """When crisis_result is explicitly passed (even None = no crisis),
         _classify_tone should NOT call detect_crisis again."""
-        from app.services.chatbot import _classify_tone
+        from app.services.classifier import _classify_tone
         # Pass None meaning "already checked, no crisis found"
         with patch("app.services.chatbot.detect_crisis") as mock_dc:
             _classify_tone("some text", crisis_result=None)
@@ -181,7 +181,7 @@ class TestBug11DoubleCrisisCall:
 
     def test_classify_tone_calls_detect_when_not_provided(self):
         """When crisis_result is omitted, _classify_tone calls detect_crisis."""
-        from app.services.chatbot import _classify_tone
+        from app.services.classifier import _classify_tone
         with patch("app.services.chatbot.detect_crisis", return_value=None) as mock_dc:
             _classify_tone("some text")
             mock_dc.assert_called_once()
@@ -217,18 +217,18 @@ class TestBug12UrgentPhrasesModuleLevel:
     """_URGENT_PHRASES should be a module-level constant."""
 
     def test_urgent_phrases_is_module_level(self):
-        from app.services.chatbot import _URGENT_PHRASES
+        from app.services.phrase_lists import _URGENT_PHRASES
         assert isinstance(_URGENT_PHRASES, list)
         assert len(_URGENT_PHRASES) > 0
 
     def test_urgent_phrases_identity_stable(self):
         """Same list object on every import (not recreated per call)."""
-        from app.services.chatbot import _URGENT_PHRASES as a
-        from app.services.chatbot import _URGENT_PHRASES as b
+        from app.services.phrase_lists import _URGENT_PHRASES as a
+        from app.services.phrase_lists import _URGENT_PHRASES as b
         assert a is b
 
     def test_urgent_tone_still_detected(self):
-        from app.services.chatbot import _classify_tone
+        from app.services.classifier import _classify_tone
         assert _classify_tone("I need help right now") == "urgent"
         assert _classify_tone("I have nowhere to go") == "urgent"
 
@@ -241,20 +241,20 @@ class TestBug13FrustrationNormalization:
     """_classify_message should catch frustration with contractions."""
 
     def test_wasnt_helpful(self):
-        from app.services.chatbot import _classify_message
+        from app.services.classifier import _classify_message
         assert _classify_message("that wasn't helpful") == "frustration"
 
     def test_isnt_working(self):
-        from app.services.chatbot import _classify_message
+        from app.services.classifier import _classify_message
         assert _classify_message("this isn't working at all") == "frustration"
 
     def test_doesnt_help(self):
-        from app.services.chatbot import _classify_message
+        from app.services.classifier import _classify_message
         assert _classify_message("that doesn't help me") == "frustration"
 
     def test_consistency_with_classify_tone(self):
         """_classify_message and _classify_tone should agree on frustration."""
-        from app.services.chatbot import _classify_message, _classify_tone
+        from app.services.classifier import _classify_message, _classify_tone
         test_phrases = [
             "that wasn't helpful",
             "this isn't working",

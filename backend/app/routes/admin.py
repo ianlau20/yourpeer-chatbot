@@ -49,7 +49,7 @@ router = APIRouter(
 
 # Path to the eval/test directory. Configurable via EVAL_DIR env var;
 # falls back to inferring from the file's location in the repo tree.
-_DEFAULT_TESTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "tests"
+_DEFAULT_TESTS_DIR = Path(__file__).resolve().parent.parent.parent / "tests"
 TESTS_DIR = Path(os.getenv("EVAL_DIR", str(_DEFAULT_TESTS_DIR)))
 
 

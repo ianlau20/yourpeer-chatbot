@@ -6,16 +6,11 @@ tests run without API keys or a database connection.
 Run: pytest tests/test_chatbot.py
 """
 from unittest.mock import patch, MagicMock
-from app.services.chatbot import (
-    _classify_message,
-    generate_reply,
-    _no_results_message,
-    _GREETING_RESPONSE,
-    _RESET_RESPONSE,
-    _THANKS_RESPONSE,
-    _HELP_RESPONSE,
-    _WELCOME_QUICK_REPLIES,
-)
+from app.services.classifier import _classify_message
+from app.services.confirmation import _no_results_message
+from app.services.phrase_lists import _WELCOME_QUICK_REPLIES
+from app.services.responses import _GREETING_RESPONSE, _RESET_RESPONSE, _THANKS_RESPONSE, _HELP_RESPONSE
+from app.services.chatbot import generate_reply
 from app.services.session_store import clear_session, get_session_slots
 from conftest import (
     MOCK_QUERY_RESULTS, MOCK_EMPTY_RESULTS,
@@ -833,7 +828,7 @@ def test_privacy_not_confused_with_service():
 
 def test_static_bot_answer_geolocation_failure():
     """Geolocation failure questions get a specific answer."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Why couldn't you get my location?")
     assert "permission" in response.lower() or "denied" in response.lower()
     assert "neighborhood" in response.lower() or "borough" in response.lower()
@@ -841,14 +836,14 @@ def test_static_bot_answer_geolocation_failure():
 
 def test_static_bot_answer_geolocation_general():
     """General geolocation questions get a relevant answer."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("How does location work?")
     assert "gps" in response.lower() or "location" in response.lower()
 
 
 def test_static_bot_answer_outside_nyc():
     """Outside-NYC questions mention 211."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Can you search outside NYC?")
     assert "211" in response
     assert "new york" in response.lower() or "nyc" in response.lower()
@@ -856,7 +851,7 @@ def test_static_bot_answer_outside_nyc():
 
 def test_static_bot_answer_services_list():
     """Service category questions list available categories."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("What services can you search for?")
     assert "food" in response.lower()
     assert "shelter" in response.lower()
@@ -865,7 +860,7 @@ def test_static_bot_answer_services_list():
 
 def test_static_bot_answer_privacy_ice():
     """ICE-related privacy questions give specific reassurance."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Can ICE see my conversation?")
     assert "ice" in response.lower()
     assert "government" in response.lower() or "identifying" in response.lower()
@@ -873,14 +868,14 @@ def test_static_bot_answer_privacy_ice():
 
 def test_static_bot_answer_privacy_police():
     """Police-related questions give specific reassurance."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Do you share with the police?")
     assert "law enforcement" in response.lower()
 
 
 def test_static_bot_answer_privacy_benefits():
     """Benefits-impact questions give specific reassurance."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Will this affect my benefits or case?")
     assert "benefits" in response.lower()
     assert "case" in response.lower() or "provider" in response.lower()
@@ -888,42 +883,42 @@ def test_static_bot_answer_privacy_benefits():
 
 def test_static_bot_answer_privacy_who_can_see():
     """Visibility questions reassure no one else can see."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Can anyone see what I said?")
     assert "no one" in response.lower() or "nobody" in response.lower()
 
 
 def test_static_bot_answer_privacy_delete():
     """Delete/clear questions explain how."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("How do I delete my conversation?")
     assert "start over" in response.lower()
 
 
 def test_static_bot_answer_privacy_identity():
     """Identity questions confirm anonymity."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Do you know my name?")
     assert "don't know" in response.lower() or "do not know" in response.lower()
 
 
 def test_static_bot_answer_privacy_general():
     """General privacy question gets comprehensive answer."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Is this confidential?")
     assert "private" in response.lower() or "anonymous" in response.lower()
 
 
 def test_static_bot_answer_how_it_works():
     """'How does this work' gets an explanation."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("How does this work?")
     assert "database" in response.lower() or "search" in response.lower()
 
 
 def test_static_bot_answer_default():
     """Unknown bot questions get a generic but useful answer."""
-    from app.services.chatbot import _static_bot_answer
+    from app.services.responses import _static_bot_answer
     response = _static_bot_answer("Why is the sky blue?")
     assert "service" in response.lower()
 
@@ -934,7 +929,7 @@ def test_static_bot_answer_default():
 
 def test_confirmation_uses_service_detail(fresh_session):
     """Confirmation message should use service_detail when available."""
-    from app.services.chatbot import _build_confirmation_message
+    from app.services.confirmation import _build_confirmation_message
     slots = {"service_type": "medical", "service_detail": "dental care", "location": "Brooklyn"}
     msg = _build_confirmation_message(slots)
     assert "dental care" in msg.lower()
@@ -943,7 +938,7 @@ def test_confirmation_uses_service_detail(fresh_session):
 
 def test_confirmation_falls_back_to_label(fresh_session):
     """Confirmation message should use generic label when no service_detail."""
-    from app.services.chatbot import _build_confirmation_message
+    from app.services.confirmation import _build_confirmation_message
     slots = {"service_type": "food", "location": "Queens"}
     msg = _build_confirmation_message(slots)
     assert "food" in msg.lower()
@@ -1094,7 +1089,7 @@ def test_repeated_frustration_shorter_response(fresh_session):
 
 def test_confirmation_with_children():
     """Confirmation message should mention children when family_status is set."""
-    from app.services.chatbot import _build_confirmation_message
+    from app.services.confirmation import _build_confirmation_message
     slots = {"service_type": "shelter", "location": "Brooklyn", "family_status": "with_children"}
     msg = _build_confirmation_message(slots)
     assert "children" in msg.lower()
@@ -1102,7 +1097,7 @@ def test_confirmation_with_children():
 
 def test_confirmation_with_family():
     """Confirmation message should mention family."""
-    from app.services.chatbot import _build_confirmation_message
+    from app.services.confirmation import _build_confirmation_message
     slots = {"service_type": "shelter", "location": "Queens", "family_status": "with_family"}
     msg = _build_confirmation_message(slots)
     assert "family" in msg.lower()
@@ -1110,7 +1105,7 @@ def test_confirmation_with_family():
 
 def test_confirmation_alone():
     """Confirmation message should mention 'yourself' when alone."""
-    from app.services.chatbot import _build_confirmation_message
+    from app.services.confirmation import _build_confirmation_message
     slots = {"service_type": "shelter", "location": "Bronx", "family_status": "alone"}
     msg = _build_confirmation_message(slots)
     assert "yourself" in msg.lower()
@@ -1118,7 +1113,7 @@ def test_confirmation_alone():
 
 def test_confirmation_no_family_status():
     """Confirmation without family_status should not mention family."""
-    from app.services.chatbot import _build_confirmation_message
+    from app.services.confirmation import _build_confirmation_message
     slots = {"service_type": "shelter", "location": "Manhattan"}
     msg = _build_confirmation_message(slots)
     assert "children" not in msg.lower()
@@ -1142,66 +1137,66 @@ def test_family_status_extracted_in_flow(fresh_session):
 
 def test_classify_action_reset():
     """Reset phrases should return 'reset' action."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     for phrase in ["start over", "reset", "new search", "cancel"]:
         assert _classify_action(phrase) == "reset", f"Failed on: {phrase}"
 
 
 def test_classify_action_greeting():
     """Short greetings should return 'greeting' action."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("hello") == "greeting"
     assert _classify_action("hi") == "greeting"
 
 
 def test_classify_action_greeting_long_message():
     """Long messages starting with 'hi' should NOT classify as greeting."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("hi I need food in Brooklyn") is None
 
 
 def test_classify_action_confirm_yes():
     """Confirmation phrases should return 'confirm_yes'."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("yes") == "confirm_yes"
     assert _classify_action("go ahead") == "confirm_yes"
 
 
 def test_classify_action_confirm_deny():
     """Denial phrases should return 'confirm_deny'."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("no") == "confirm_deny"
     assert _classify_action("not yet") == "confirm_deny"
 
 
 def test_classify_action_bot_question():
     """Bot capability questions should return 'bot_question'."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("how does this work") == "bot_question"
     assert _classify_action("is this private") == "bot_question"
 
 
 def test_classify_action_escalation():
     """Escalation phrases should return 'escalation'."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("connect me with a peer navigator") == "escalation"
 
 
 def test_classify_action_help():
     """Help phrases should return 'help'."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("help") == "help"
 
 
 def test_classify_action_none_for_service():
     """Service requests should return None (not an action)."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("I need food in Brooklyn") is None
 
 
 def test_classify_action_none_for_emotional():
     """Emotional phrases should return None (not an action)."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("I'm feeling really down") is None
 
 
@@ -1211,28 +1206,28 @@ def test_classify_action_none_for_emotional():
 
 def test_classify_tone_emotional():
     """Emotional phrases should return 'emotional'."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     assert _classify_tone("I'm feeling really down") == "emotional"
     assert _classify_tone("having a rough day") == "emotional"
 
 
 def test_classify_tone_frustrated():
     """Frustration phrases should return 'frustrated'."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     assert _classify_tone("that's not helpful") == "frustrated"
     assert _classify_tone("this is useless") == "frustrated"
 
 
 def test_classify_tone_confused():
     """Confused phrases should return 'confused'."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     assert _classify_tone("I don't know what to do") == "confused"
     assert _classify_tone("I'm overwhelmed") == "confused"
 
 
 def test_classify_tone_none_for_neutral():
     """Neutral messages should return None."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     assert _classify_tone("I need food in Brooklyn") is None
     assert _classify_tone("hello") is None
 
@@ -1240,7 +1235,7 @@ def test_classify_tone_none_for_neutral():
 def test_classify_tone_no_service_word_gate():
     """Tone classifier should detect emotion EVEN with service words.
     This is the key difference from the old _classify_message."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     # Old classifier would skip "emotional" because "need" is a service word
     assert _classify_tone("I'm struggling and need food") == "emotional"
     assert _classify_tone("I'm feeling down and need shelter") == "emotional"
@@ -1336,7 +1331,7 @@ def test_frustrated_plus_service_routes_to_service(fresh_session):
 
 def test_classify_tone_urgent():
     """Urgency phrases should return 'urgent' tone."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     phrases = [
         "I need shelter right now",
         "I have nowhere to go tonight",
@@ -1353,14 +1348,14 @@ def test_classify_tone_urgent():
 
 def test_classify_tone_emotional_beats_urgent():
     """Emotional tone should take priority over urgent."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     # "I'm scared" is emotional, "tonight" is urgent — emotional wins
     assert _classify_tone("I'm scared and need shelter tonight") == "emotional"
 
 
 def test_classify_tone_urgent_without_emotion():
     """Pure urgency without emotional content should return 'urgent'."""
-    from app.services.chatbot import _classify_tone
+    from app.services.classifier import _classify_tone
     assert _classify_tone("I need food tonight") == "urgent"
 
 
@@ -1455,14 +1450,14 @@ def test_family_status_passed_to_query(fresh_session):
 
 def test_classify_action_none_for_frustrated():
     """Frustration phrases should return None from _classify_action (tone, not action)."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("that wasn't helpful") is None
     assert _classify_action("this is useless") is None
 
 
 def test_classify_action_none_for_confused():
     """Confused phrases should return None from _classify_action."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("I don't know what to do") is None
 
 
@@ -1473,7 +1468,7 @@ def test_classify_action_none_for_urgent():
     returns 'help' from _classify_action. The urgency ('right now') is
     captured separately by _classify_tone. In generate_reply, both action
     and tone are available for combined routing."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("tonight") is None
     assert _classify_action("I need something right now") is None
     assert _classify_action("this is urgent") is None
@@ -1657,7 +1652,7 @@ def test_no_results_message_suggests_nearby_boroughs():
 
 def test_no_results_message_different_service_different_suggestions():
     """Different service types should suggest different boroughs based on availability."""
-    from app.services.chatbot import _get_nearby_boroughs
+    from app.services.confirmation import _get_nearby_boroughs
     food_nearby = _get_nearby_boroughs("food", "Staten Island")
     shelter_nearby = _get_nearby_boroughs("shelter", "Staten Island")
     # Both should return suggestions, but they may differ
@@ -1681,7 +1676,7 @@ def test_no_results_message_includes_navigator_option():
 
 def test_get_nearby_boroughs_all_boroughs_covered():
     """Every borough should have nearby suggestions for common service types."""
-    from app.services.chatbot import _get_nearby_boroughs
+    from app.services.confirmation import _get_nearby_boroughs
     boroughs = ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"]
     for service in ["food", "shelter", "clothing", "medical"]:
         for borough in boroughs:
@@ -1694,14 +1689,14 @@ def test_get_nearby_boroughs_all_boroughs_covered():
 
 def test_get_nearby_boroughs_unknown_service_uses_default():
     """Unknown service types should fall back to geographic proximity defaults."""
-    from app.services.chatbot import _get_nearby_boroughs
+    from app.services.confirmation import _get_nearby_boroughs
     nearby = _get_nearby_boroughs("xyz_unknown", "Brooklyn")
     assert len(nearby) > 0, "Should fall back to default nearby boroughs"
 
 
 def test_get_nearby_boroughs_unknown_borough():
     """Unknown borough should return empty list, not crash."""
-    from app.services.chatbot import _get_nearby_boroughs
+    from app.services.confirmation import _get_nearby_boroughs
     nearby = _get_nearby_boroughs("food", "Yonkers")
     assert isinstance(nearby, list)
 
@@ -1812,13 +1807,13 @@ def test_no_after_escalation_shows_escalation_buttons(fresh_session):
 
 def test_connect_with_person_routes_to_escalation(fresh_session):
     """'Connect with person' (Talk to a person button value) should trigger escalation."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("Connect with person") == "escalation"
 
 
 def test_connect_with_peer_navigator_routes_to_escalation(fresh_session):
     """'Connect with peer navigator' (Peer navigator button value) should trigger escalation."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("Connect with peer navigator") == "escalation"
 
 
@@ -1916,7 +1911,7 @@ def test_idk_with_location_set_is_confused(fresh_session):
 
 def test_pick_emotional_response_scared():
     """'I'm scared' should get the scared-specific response."""
-    from app.services.chatbot import _pick_emotional_response
+    from app.services.responses import _pick_emotional_response
     resp = _pick_emotional_response("I'm feeling really scared right now")
     assert "scared" in resp.lower() or "frightening" in resp.lower() or "fear" in resp.lower()
     # Must NOT mention services
@@ -1926,31 +1921,31 @@ def test_pick_emotional_response_scared():
 
 
 def test_pick_emotional_response_sad():
-    from app.services.chatbot import _pick_emotional_response
+    from app.services.responses import _pick_emotional_response
     resp = _pick_emotional_response("I'm feeling really down today")
     assert "sorry" in resp.lower() or "courage" in resp.lower()
 
 
 def test_pick_emotional_response_rough_day():
-    from app.services.chatbot import _pick_emotional_response
+    from app.services.responses import _pick_emotional_response
     resp = _pick_emotional_response("Having a really rough day")
     assert "hard" in resp.lower() or "heavy" in resp.lower()
 
 
 def test_pick_emotional_response_shame():
-    from app.services.chatbot import _pick_emotional_response
+    from app.services.responses import _pick_emotional_response
     resp = _pick_emotional_response("I'm embarrassed to ask for help")
     assert "ashamed" in resp.lower() or "strength" in resp.lower() or "nothing to be" in resp.lower()
 
 
 def test_pick_emotional_response_grief():
-    from app.services.chatbot import _pick_emotional_response
+    from app.services.responses import _pick_emotional_response
     resp = _pick_emotional_response("My friend died last week")
     assert "sorry" in resp.lower() or "loss" in resp.lower()
 
 
 def test_pick_emotional_response_alone():
-    from app.services.chatbot import _pick_emotional_response
+    from app.services.responses import _pick_emotional_response
     resp = _pick_emotional_response("I feel completely alone")
     assert "alone" in resp.lower() or "invisible" in resp.lower() or "courage" in resp.lower()
 
@@ -1972,7 +1967,7 @@ def test_emotional_no_llm_call(fresh_session):
 # ---------------------------------------------------------------------------
 
 def test_negative_preference_classification():
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     assert _classify_action("I do not want any of those") == "negative_preference"
     assert _classify_action("None of those are what I need") == "negative_preference"
     assert _classify_action("Those don't help") == "negative_preference"
@@ -1994,7 +1989,7 @@ def test_negative_preference_handler(fresh_session):
 
 def test_privacy_question_with_service_keyword(fresh_session):
     """Privacy question containing 'shelter' should route to bot_question, not service."""
-    from app.services.chatbot import _classify_action
+    from app.services.classifier import _classify_action
     action = _classify_action("If I search for shelter here, do they get my information?")
     assert action == "bot_question"
 

@@ -212,7 +212,7 @@ class TestIntegration:
 
     def test_confirmation_redacts_address(self):
         """Addresses in slot values should be redacted in confirmation."""
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         slots = {"service_type": "food", "location": "123 Main Street"}
         msg = _build_confirmation_message(slots)
         assert "123 Main Street" not in msg
@@ -220,14 +220,14 @@ class TestIntegration:
 
     def test_confirmation_redacts_phone(self):
         """Phone numbers in slot values should be redacted."""
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         slots = {"service_type": "food", "location": "212-555-1234"}
         msg = _build_confirmation_message(slots)
         assert "212-555-1234" not in msg
 
     def test_confirmation_preserves_borough(self):
         """Normal location names should pass through unchanged."""
-        from app.services.chatbot import _build_confirmation_message
+        from app.services.confirmation import _build_confirmation_message
         slots = {"service_type": "food", "location": "Brooklyn"}
         msg = _build_confirmation_message(slots)
         assert "Brooklyn" in msg
@@ -290,18 +290,18 @@ class TestBotResponseRedaction:
 
 class TestICEPoliceRouting:
     def test_police_question_mentions_law_enforcement(self):
-        from app.services.chatbot import _static_bot_answer
+        from app.services.responses import _static_bot_answer
         response = _static_bot_answer("Do you share with the police?")
         assert "law enforcement" in response.lower()
 
     def test_ice_question_mentions_ice(self):
-        from app.services.chatbot import _static_bot_answer
+        from app.services.responses import _static_bot_answer
         response = _static_bot_answer("Can ICE see my information?")
         assert "ice" in response.lower()
 
     def test_ice_not_triggered_by_police(self):
         """'police' should not match the ICE pattern (ice is substring of police)."""
-        from app.services.chatbot import _static_bot_answer
+        from app.services.responses import _static_bot_answer
         response = _static_bot_answer("Will the police find out?")
         # Should get law enforcement response, not ICE response
         assert "law enforcement" in response.lower()

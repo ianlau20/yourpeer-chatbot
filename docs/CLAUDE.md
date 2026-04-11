@@ -66,10 +66,14 @@ information, preventing hallucination.
 | `backend/app/main.py` | FastAPI app entry point, CORS, router registration |
 | `backend/app/routes/chat.py` | `POST /chat/` and `/chat/feedback` endpoints |
 | `backend/app/routes/admin.py` | Admin API: conversations, events, stats, eval runner |
-| `backend/app/services/chatbot.py` | Core conversation engine: classification, slot merging, routing, confirmation flow |
+| `backend/app/services/chatbot.py` | Conversation router: `generate_reply()`, query execution, session orchestration |
+| `backend/app/services/classifier.py` | Message classification: `_classify_action()`, `_classify_tone()`, contraction normalization, intensifier stripping |
+| `backend/app/services/phrase_lists.py` | All keyword/phrase lists, quick-reply definitions, service labels, borough suggestion data |
+| `backend/app/services/responses.py` | Response strings, emotion-specific responses, LLM prompt builders, bot-question answers |
+| `backend/app/services/confirmation.py` | Confirmation messages, quick-reply builders, no-results messages, borough suggestions |
 | `backend/app/services/bot_knowledge.py` | Bot self-knowledge: live capability sourcing, topic matching, LLM context generation |
 | `backend/app/services/crisis_detector.py` | Two-stage crisis detection (regex + Sonnet LLM), category-specific hotlines |
-| `backend/app/services/slot_extractor.py` | Regex-based slot extraction with keyword matching |
+| `backend/app/services/slot_extractor.py` | Regex-based slot extraction with keyword matching, gender/LGBTQ identity extraction |
 | `backend/app/services/llm_slot_extractor.py` | LLM slot extraction via Claude Haiku tool calling |
 | `backend/app/services/llm_classifier.py` | Unified LLM classification gate — single Haiku call returning service_type, location, tone, action when regex fails |
 | `backend/app/services/session_store.py` | In-memory session state with 30-min TTL (max 500 sessions) |
@@ -78,7 +82,7 @@ information, preventing hallucination.
 | `backend/app/rag/__init__.py` | `query_services()` entry point |
 | `backend/app/rag/query_executor.py` | DB execution, location normalization, borough/neighborhood PostGIS logic |
 | `backend/app/rag/query_templates.py` | 9 parameterized SQL templates (food, shelter, clothing, etc.) |
-| `backend/app/privacy/pii_redactor.py` | PII detection and redaction (phone, SSN, email, DOB, address, names) |
+| `backend/app/privacy/pii_redactor.py` | PII detection and redaction (phone, SSN, email, DOB, address, names, gender identity) |
 | `backend/app/models/chat_models.py` | Pydantic models: ChatRequest, ChatResponse, ServiceCard, QuickReply |
 | `frontend-next/src/components/chat/` | Chat UI components (ChatContainer, ServiceCard, QuickReplies) |
 | `frontend-next/src/lib/chat/store.ts` | Zustand chat store with `localStorage` persistence |
@@ -100,8 +104,9 @@ information, preventing hallucination.
 - **Borough + neighborhood search**: direct borough column filter or PostGIS proximity (59 NYC neighborhoods)
 - **Relaxed fallback**: auto-broadens filters when 0 results, suggests boroughs with more data
 - **Crisis detection**: regex + Sonnet LLM, covers suicide/self-harm, DV, trafficking, medical emergency, violence, youth runaway; fail-open policy returns safety response if LLM unavailable
-- **PII redaction**: phone, SSN, email, DOB, address, name detection/redaction on every message
+- **PII redaction**: phone, SSN, email, DOB, address, name, gender identity detection/redaction on every message
 - **Service cards**: structured results with name, org, address, phone, hours, fees, open/closed status, referral badges, action links
+- **Gender & LGBTQ identity filtering**: extracted only when explicitly stated (never inferred). Binary gender (male/female) passes to SQL filter. Transgender/nonbinary/LGBTQ bypass the eligibility filter and trigger taxonomy boosts for affirming services. Confirmation shows "LGBTQ-friendly" label. Gender terms redacted from stored transcripts
 - **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, emotional, negative preference, bot identity, confusion, location-unknown, correction
 - **Emotional handling (static-first)**: 6 emotion-specific static responses (scared, sad, rough_day, shame, grief, alone) selected by `_pick_emotional_response()` — LLM is NOT called. Single "Talk to a person" button, no service menu. Follows AVR pattern from clinical chatbot research
 - **Frustration 3-tier escalation**: persistent `_frustration_count` counter with varied responses — 1st: full empathetic, 2nd: shorter/direct, 3rd+: immediate navigator only. Counter survives intermediate messages
@@ -131,7 +136,7 @@ information, preventing hallucination.
 - **Stability**: 1,000-char message length limit (frontend + backend), coordinate validation (lat ±90, lng ±180), 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
 - **Observability**: `X-Request-ID` correlation IDs flow from frontend → Next.js proxy → FastAPI backend → audit log, enabling end-to-end request tracing
 - **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
-- **Test suite**: 36 pytest files (1,392 tests) covering all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, ambiguity handling (confidence scoring, disambiguation, correction recovery), post-results boundary routing, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
+- **Test suite**: 39 pytest files (1,475 tests) organized into `tests/unit/` (23 files — no DB or LLM needed) and `tests/integration/` (15 files — use mocked DB/LLM), plus an `eval/` directory. Covers all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, gender/LGBTQ identity extraction, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, ambiguity handling (confidence scoring, disambiguation, correction recovery), post-results boundary routing, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
 
 ## Known Gaps / In Progress
 
@@ -150,11 +155,14 @@ information, preventing hallucination.
 cd backend
 source venv/bin/activate
 pytest                                    # all tests (no API key or DB needed)
-pytest tests/test_chatbot.py              # single file
+pytest tests/unit/                        # fast unit tests only
+pytest tests/integration/                 # integration tests (mocked DB/LLM)
+pytest tests/unit/test_slot_extractor.py  # single file
 pytest -k reset                           # filter by test name
 ```
 
 All tests mock `claude_reply()` and `query_services()` — no live services required.
+Tests are organized into `tests/unit/` (23 files, no external deps) and `tests/integration/` (15 files, use `send()`/`send_multi()` helpers).
 Shared fixtures and helpers live in `tests/conftest.py` (use `send()`, `send_multi()`,
 `assert_classified()`). For live LLM integration tests:
 
@@ -181,7 +189,10 @@ ANTHROPIC_API_KEY=... pytest tests/test_llm_slot_extractor.py -k live
 - Editing slot extraction logic without updating both `slot_extractor.py` (regex) **and**
   `llm_slot_extractor.py` (LLM) — they must stay in sync on supported slot names/values.
 - Adding a new service category requires updates in `query_templates.py` (SQL template),
-  `slot_extractor.py` (keywords), and `chatbot.py` (routing logic).
+  `slot_extractor.py` (keywords), and `phrase_lists.py` (service label).
+- Adding a new phrase list or keyword goes in `phrase_lists.py`, not `chatbot.py`.
+  Classification logic is in `classifier.py`, response strings in `responses.py`,
+  confirmation logic in `confirmation.py`.
 - The DB is **read-only** — never add write queries.
 - `conftest.py` defines mock data used across all test files. If you change response
   shapes (e.g. `ChatResponse` fields), update the mocks there too.

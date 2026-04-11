@@ -299,7 +299,7 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
                     "location": raw.get("location"),
                     "age": raw.get("age"),
                     "urgency": raw.get("urgency"),
-                    "gender": raw.get("gender"),
+                    "_gender": raw.get("gender"),
                     "family_status": raw.get("family_status"),
                 }
 
@@ -318,7 +318,7 @@ def _empty_slots() -> dict:
         "location": None,
         "age": None,
         "urgency": None,
-        "gender": None,
+        "_gender": None,
         "family_status": None,
     }
 
@@ -378,7 +378,7 @@ def extract_slots_narrative(message: str, conversation_history: list = None) -> 
                     "location": raw.get("location"),
                     "age": raw.get("age"),
                     "urgency": raw.get("urgency"),
-                    "gender": raw.get("gender"),
+                    "_gender": raw.get("gender"),
                     "family_status": raw.get("family_status"),
                 }
                 logger.info(

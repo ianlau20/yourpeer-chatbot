@@ -14,7 +14,8 @@ Schema reference (Streetlives PostgreSQL):
     eligibility (3,646 rows)       — service_id, parameter_id, eligible_values (JSONB)
     eligibility_parameters (9)     — id, name (gender/age/familySize/income/...)
     physical_addresses (2,569)     — location_id, address_1, city, state_province, postal_code
-    regular_schedules (971)        — service_id, weekday, opens_at, closes_at
+    regular_schedules (971)        — service_id, weekday, opens_at, closes_at (STALE — pre-COVID)
+    holiday_schedules (10,593)     — service_id, weekday, opens_at, closes_at, occasion (CURRENT — 'COVID19')
     organizations (2,460)          — id, name, description, url
     phones (2,730)                 — location_id / service_id / organization_id, number
     accessibility_for_disabilities — location_id, accessibility, details
@@ -104,11 +105,17 @@ FROM services s
             END
         LIMIT 1
     ) best_phone ON TRUE
-    -- Today's schedule: regular LEFT JOIN instead of LATERAL since the
-    -- weekday value is constant per query (no per-row dependency).
-    LEFT JOIN regular_schedules today_sched
+    -- Today's schedule: uses holiday_schedules (occasion='COVID19') which
+    -- contains the current operating hours (10,593 rows covering 2,448
+    -- services). Despite the table name, this is NOT holiday-specific —
+    -- it became the de facto schedule source during COVID when orgs updated
+    -- their hours en masse. regular_schedules (971 rows) is stale pre-COVID
+    -- data. YourPeer.nyc uses this same table for its schedule display.
+    -- Weekday convention: 1=Monday...7=Sunday (matches PostgreSQL ISODOW).
+    LEFT JOIN holiday_schedules today_sched
         ON today_sched.service_id = s.id
-        AND today_sched.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int - 1
+        AND today_sched.weekday = EXTRACT(ISODOW FROM CURRENT_DATE)::int
+        AND today_sched.occasion = 'COVID19'
     -- Membership eligibility: regular LEFT JOIN instead of LATERAL.
     -- Batches the lookup across all rows instead of per-row subquery.
     LEFT JOIN eligibility membership_elig
@@ -256,13 +263,14 @@ FILTER_BY_GENDER_ELIGIBILITY = (
 )
 
 # Schedule filter — only services open on a given weekday.
-# weekday: 0=Monday … 6=Sunday (matches regular_schedules.weekday)
+# weekday: 1=Monday … 7=Sunday (matches holiday_schedules.weekday / ISODOW)
 FILTER_BY_WEEKDAY = (
     """
     EXISTS (
-        SELECT 1 FROM regular_schedules rs
+        SELECT 1 FROM holiday_schedules rs
         WHERE rs.service_id = s.id
           AND rs.weekday = :weekday
+          AND rs.occasion = 'COVID19'
     )
     """,
     ["weekday"],
@@ -272,11 +280,12 @@ FILTER_BY_WEEKDAY = (
 FILTER_BY_OPEN_NOW = (
     """
     EXISTS (
-        SELECT 1 FROM regular_schedules rs
+        SELECT 1 FROM holiday_schedules rs
         WHERE rs.service_id = s.id
           AND rs.weekday = :weekday
           AND rs.opens_at <= :current_time
           AND rs.closes_at >= :current_time
+          AND rs.occasion = 'COVID19'
     )
     """,
     ["weekday", "current_time"],
@@ -309,8 +318,29 @@ _OPEN_NOW_RANK = """CASE
     THEN 0 ELSE 1
 END"""
 
+# LGBTQ taxonomy boost: returns 0 for services tagged "LGBTQ Young Adult",
+# 1 for everything else. Floats affirming services (e.g., Ali Forney Center)
+# to the top of results without excluding non-LGBTQ services.
+# Only active when user identifies as LGBTQ/trans/nonbinary.
+_LGBTQ_BOOST_RANK = """CASE
+    WHEN EXISTS (
+        SELECT 1 FROM service_taxonomy st_lgbtq
+        JOIN taxonomies t_lgbtq ON st_lgbtq.taxonomy_id = t_lgbtq.id
+        WHERE st_lgbtq.service_id = s.id
+        AND LOWER(t_lgbtq.name) = 'lgbtq young adult'
+    ) THEN 0 ELSE 1
+END"""
+
 _ORDER_LIMIT = f"""
 ORDER BY {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_LIMIT_LGBTQ_BOOST = f"""
+ORDER BY {_LGBTQ_BOOST_RANK},
+         {_OPEN_NOW_RANK},
          l.last_validated_at DESC NULLS LAST,
          s.name
 LIMIT :max_results
@@ -320,6 +350,15 @@ LIMIT :max_results
 # Distance first, then open-now, then freshness.
 _ORDER_BY_DISTANCE_LIMIT = f"""
 ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
+         {_OPEN_NOW_RANK},
+         l.last_validated_at DESC NULLS LAST,
+         s.name
+LIMIT :max_results
+"""
+
+_ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST = f"""
+ORDER BY {_LGBTQ_BOOST_RANK},
+         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
          {_OPEN_NOW_RANK},
          l.last_validated_at DESC NULLS LAST,
          s.name
@@ -472,9 +511,10 @@ TEMPLATES = {
             "taxonomy_names": [
                 "legal services",
                 "immigration services",
+                "advocates / legal aid",
             ]
         },
-        "taxonomy_aliases": ["Legal Services", "Immigration Services"],
+        "taxonomy_aliases": ["Legal Services", "Immigration Services", "Advocates / Legal Aid"],
     },
     "employment": {
         "name": "EmploymentQuery",
@@ -659,9 +699,12 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
         params["max_results"] = _DEFAULT_MAX_RESULTS
 
     # Use distance-aware ordering when proximity search is active
-    order_clause = _ORDER_LIMIT
+    # Use LGBTQ-boosted ordering when user identifies as LGBTQ/trans/nonbinary
+    _lgbtq_boost = params.pop("lgbtq_boost", False)
     if "lat" in params and "lon" in params:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT
+        order_clause = _ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_BY_DISTANCE_LIMIT
+    else:
+        order_clause = _ORDER_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_LIMIT
 
     full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{order_clause}"
 

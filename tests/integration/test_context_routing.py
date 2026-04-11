@@ -12,7 +12,7 @@ import uuid
 from unittest.mock import patch
 from conftest import send, send_multi
 from app.services.session_store import get_session_slots
-from app.services.chatbot import _classify_tone, _classify_action
+from app.services.classifier import _classify_tone, _classify_action
 
 
 @pytest.fixture

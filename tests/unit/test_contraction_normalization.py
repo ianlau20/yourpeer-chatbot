@@ -10,9 +10,7 @@ Run with: python -m pytest tests/test_contraction_normalization.py -v
 
 import pytest
 from unittest.mock import patch
-from app.services.chatbot import (
-    _normalize_contractions, _classify_tone, _classify_action,
-)
+from app.services.classifier import _normalize_contractions, _classify_tone, _classify_action
 
 
 # -----------------------------------------------------------------------
@@ -206,12 +204,12 @@ class TestStripIntensifiers:
         ("really really sad", "sad"),  # double intensifier
     ])
     def test_strip_intensifiers(self, input_text, expected):
-        from app.services.chatbot import _strip_intensifiers
+        from app.services.classifier import _strip_intensifiers
         assert _strip_intensifiers(input_text) == expected
 
     def test_does_not_strip_negation(self):
         """'not' must never be stripped — it changes meaning."""
-        from app.services.chatbot import _strip_intensifiers
+        from app.services.classifier import _strip_intensifiers
         assert "not" in _strip_intensifiers("i'm not okay")
         assert "not" in _strip_intensifiers("not helpful")
         assert "never" in _strip_intensifiers("never helpful")

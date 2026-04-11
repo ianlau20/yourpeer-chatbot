@@ -219,7 +219,7 @@ if (extracted.get("service_type") and existing.get("service_type")
 
 | File | Change |
 |---|---|
-| `chatbot.py` | Store queue in service flow, offer after results, handle "no thanks", clear on new service |
+| `chatbot.py` | Store queue in router, offer after results, handle "no thanks", clear on new service |
 | No other files | Queue is purely a chatbot session concern |
 
 ### Test scenarios
@@ -378,7 +378,7 @@ SQL analysis of the Streetlives database confirms the value:
 |---|---|
 | `query_templates.py` | New `FILTER_BY_COLOCATED_TAXONOMY` filter, universal optional filter in `build_query()` |
 | `app/rag/__init__.py` | `colocated_service_types` param, taxonomy resolution, fallback retry |
-| `chatbot.py` | Confirmation lists all services, co-located response message, queue cleared on success |
+| `chatbot.py` / `confirmation.py` | Confirmation lists all services, co-located response message, queue cleared on success |
 
 ### Bug fixes during implementation
 

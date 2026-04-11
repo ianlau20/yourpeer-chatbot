@@ -17,7 +17,9 @@ SERVICE_KEYWORDS = {
         "farmers market", "mobile pantry",
         "something to eat", "grab a bite", "canned food",
         # NYC-specific (P3 audit)
-        "baby formula", "formula", "wic", "diapers",
+        "baby formula", "formula", "wic",
+        # Vernacular (Phase 1 audit)
+        "starving", "feed my kids", "need to eat",
     ],
 
     # --- Shelter & Housing (taxonomy: Shelter) ---
@@ -32,6 +34,9 @@ SERVICE_KEYWORDS = {
         "sleeping outside", "somewhere safe", "safe place",
         # NYC-specific (P3 audit)
         "path center", "dhs intake", "domestic violence shelter",
+        # Vernacular (Phase 1 audit)
+        "place to crash", "got put out", "somewhere warm",
+        "need a cot", "sleeping in my car", "couch surfing",
     ],
 
     # --- Clothing (taxonomy: Clothing) ---
@@ -64,6 +69,12 @@ SERVICE_KEYWORDS = {
         # Harm reduction / community health (P3 audit)
         "methadone", "suboxone", "narcan", "naloxone",
         "walk-in clinic", "walk in clinic",
+        # HIV / Harm reduction (Phase 1 audit — 188 services)
+        "harm reduction", "needle exchange", "syringe exchange",
+        "hepatitis", "hep c",
+        # Pregnancy / Maternal health (Phase 1 audit — 41 services)
+        "prenatal care", "prenatal", "maternity", "ob-gyn", "obgyn",
+        "postpartum",
     ],
 
     # --- Mental Health (taxonomy: Mental Health) ---
@@ -80,6 +91,13 @@ SERVICE_KEYWORDS = {
         # and "peer support" removed — they are emotional expressions or
         # escalation signals, not mental health service requests. Keeping
         # them here caused "I'm struggling and need shelter" to misclassify.
+        # Substance use (Phase 1 audit — "substance use treatment" is exact
+        # taxonomy name in DB, 6 services. These terms had 0% regex coverage)
+        "substance use treatment", "treatment program", "treatment center",
+        "inpatient", "outpatient", "sober living", "sober house",
+        "halfway house", "residential treatment",
+        # Anger management (Phase 1 audit — 11 services)
+        "anger management",
     ],
 
     # --- Legal Services (taxonomy: Legal Services, Advocates / Legal Aid) ---
@@ -90,6 +108,14 @@ SERVICE_KEYWORDS = {
         "public defender", "advocate", "rights",
         "landlord", "tenant", "custody", "bail",
         "housing court", "discrimination",
+        # DV-specific services (Phase 1 audit — 59 services searchable,
+        # distinct from crisis detection phrases)
+        "domestic violence help", "dv services", "abuse counseling",
+        "order of protection", "protective order",
+        "legal clinic", "legal representation",
+        # Immigration advanced (Phase 1 audit — 66 services)
+        "citizenship", "naturalization", "daca", "tps",
+        "work authorization",
     ],
 
     # --- Employment (taxonomy: Employment) ---
@@ -101,13 +127,18 @@ SERVICE_KEYWORDS = {
         "looking for work", "finding work", "help finding work",
         "finding a job", "help finding a job", "help with work",
         "apprenticeship", "part-time", "gig work",
+        # Trade / career training (Phase 1 audit — 15 services)
+        "trade school", "hvac training", "construction training",
+        "career training", "workforce development",
+        "summer youth employment", "job readiness",
+        "vocational training",
     ],
 
     # --- Other Services (taxonomy: Other service) ---
     "other": [
         "other services", "other service",
         "benefits", "snap", "ebt", "food stamps", "medicaid",
-        "social security", "disability", "ssi", "public assistance",
+        "social security", "disability", "public assistance",
         "identification", "birth certificate", "need an id",
         "free phone", "wifi", "internet", "charging", "mail",
         "mailing address", "storage", "locker",
@@ -116,6 +147,47 @@ SERVICE_KEYWORDS = {
         # NYC-specific (P3 audit)
         "voter registration", "replacement id",
         "tax prep", "tax preparation", "free tax",
+        # --- Phase 1 audit: new clusters (886 services discovered) ---
+        # Financial (32 services, 0% prior coverage)
+        "financial help", "financial advice", "financial advisor",
+        "money management", "budgeting", "credit counseling",
+        "debt help", "financial literacy",
+        "help with money", "bad with money", "money problems",
+        # Education / ESL / GED (131 services)
+        "english class", "english classes", "learn english",
+        "high school equivalency", "adult education", "adult literacy",
+        "computer class", "computer skills", "digital literacy",
+        "computer training",
+        # Housing assistance — non-shelter (112 services)
+        "rental assistance", "help with rent", "behind on rent",
+        "rent arrears", "eviction prevention",
+        "housing voucher", "housing assistance",
+        # Senior services (23 services)
+        "senior center", "senior services", "older adult",
+        "aging services", "elder services",
+        # Re-entry (40 services)
+        "reentry", "re-entry", "released from jail",
+        "released from prison", "just got out of jail",
+        # Documents
+        "social security card", "document translation",
+        # Transit / mobility
+        "access-a-ride", "transportation help",
+        # Insurance enrollment
+        "health insurance", "insurance enrollment",
+        "enroll in insurance",
+        # LGBTQ non-shelter services (13 services)
+        "lgbtq services", "lgbtq support", "lgbtq center",
+        "queer services", "queer community",
+        # Affordable housing (non-emergency)
+        "affordable housing", "nycha", "housing connect",
+        "subsidized housing",
+        # Parenting
+        "parenting class", "parenting support", "parenting program",
+        # Baby supplies (moved from food — diapers aren't food)
+        "diapers", "baby supplies", "stroller", "car seat",
+        # Disability (additional terms — "disability" already above)
+        "disabled", "disability benefits", "disability services",
+        "accessible services",
     ],
 }
 
@@ -134,6 +206,17 @@ _WORD_BOUNDARY_KEYWORDS = {
     "hat": "clothing",         # was colliding with "what", "that", "chat"
     "stress": "mental_health", # was colliding with "stressed out", "so stressed"
                                # (emotional expressions, not service requests)
+    # Phase 1 audit additions — short terms that collide as substrings
+    "ssi": "other",            # was in SERVICE_KEYWORDS, collides with "mission", "passion"
+    "ssdi": "other",           # collides with nothing known but too short to risk
+    "hiv": "medical",          # collides with "shiver", "archive"
+    "esl": "other",            # collides with "diesel", "weasel"
+    "ged": "other",            # collides with "aged", "managed", "changed"
+    "syep": "employment",      # collides with nothing but 4 chars, be safe
+    "prep": "medical",         # PrEP — collides with "prepare", "prepping"
+    "sober": "mental_health",  # collides with nothing but contextually useful
+    "parole": "other",         # re-entry
+    "probation": "other",      # re-entry
 }
 
 # Pre-compile word-boundary patterns for collision-prone keywords
@@ -184,6 +267,17 @@ _NOTABLE_SUB_TYPES = {
     "hiv testing": "HIV testing",
     "vaccination": "vaccinations",
     "vaccine": "vaccinations",
+    # medical — HIV / harm reduction (Phase 1 audit)
+    "harm reduction": "harm reduction services",
+    "needle exchange": "needle exchange",
+    "syringe exchange": "syringe exchange",
+    "hepatitis": "hepatitis services",
+    "hep c": "hepatitis C services",
+    # medical — pregnancy (Phase 1 audit)
+    "prenatal care": "prenatal care",
+    "prenatal": "prenatal care",
+    "maternity": "maternity services",
+    "postpartum": "postpartum care",
     # mental_health sub-types
     "substance abuse": "substance abuse services",
     "addiction": "addiction services",
@@ -193,10 +287,28 @@ _NOTABLE_SUB_TYPES = {
     "na meeting": "NA meetings",
     "counseling": "counseling",
     "therapy": "therapy",
+    # mental_health — substance treatment (Phase 1 audit)
+    "substance use treatment": "substance use treatment",
+    "treatment program": "treatment programs",
+    "treatment center": "treatment centers",
+    "inpatient": "inpatient treatment",
+    "outpatient": "outpatient treatment",
+    "sober living": "sober living",
+    "halfway house": "halfway houses",
+    "anger management": "anger management",
     # legal sub-types
     "immigration": "immigration services",
     "eviction": "eviction help",
     "asylum": "asylum services",
+    # legal — DV services (Phase 1 audit)
+    "domestic violence help": "domestic violence services",
+    "dv services": "domestic violence services",
+    "abuse counseling": "abuse counseling",
+    "order of protection": "order of protection",
+    # legal — immigration advanced (Phase 1 audit)
+    "citizenship": "citizenship services",
+    "naturalization": "naturalization services",
+    "daca": "DACA services",
     # personal_care sub-types
     "shower": "showers",
     "laundry": "laundry",
@@ -205,7 +317,158 @@ _NOTABLE_SUB_TYPES = {
     "soup kitchen": "soup kitchens",
     "food pantry": "food pantries",
     "groceries": "groceries",
+    # other — new clusters (Phase 1 audit)
+    "financial help": "financial services",
+    "financial advice": "financial services",
+    "financial advisor": "financial advisors",
+    "money management": "money management",
+    "budgeting": "budgeting help",
+    "financial literacy": "financial literacy",
+    "help with money": "financial services",
+    "bad with money": "financial services",
+    "money problems": "financial services",
+    "english class": "English classes",
+    "english classes": "English classes",
+    "learn english": "English classes",
+    "high school equivalency": "GED programs",
+    "adult education": "adult education",
+    "computer class": "computer classes",
+    "computer skills": "computer classes",
+    "digital literacy": "digital literacy",
+    "rental assistance": "rental assistance",
+    "help with rent": "rental assistance",
+    "eviction prevention": "eviction prevention",
+    "housing voucher": "housing vouchers",
+    "housing assistance": "housing assistance",
+    "senior center": "senior services",
+    "senior services": "senior services",
+    "older adult": "senior services",
+    "reentry": "re-entry services",
+    "re-entry": "re-entry services",
+    "released from jail": "re-entry services",
+    "affordable housing": "affordable housing",
+    "parenting class": "parenting classes",
+    "baby supplies": "baby supplies",
+    "diapers": "baby supplies",
+    "disability services": "disability services",
+    "accessible services": "accessibility services",
+    "health insurance": "health insurance enrollment",
+    "insurance enrollment": "insurance enrollment",
+    "transportation help": "transportation help",
+    "access-a-ride": "Access-A-Ride help",
+    "lgbtq services": "LGBTQ services",
+    "lgbtq support": "LGBTQ support",
 }
+
+# ---------------------------------------------------------------------------
+# GENDER / LGBTQ IDENTITY EXTRACTION
+# ---------------------------------------------------------------------------
+# Extract ONLY when the user explicitly states their gender or identity.
+# NEVER infer gender from name, voice, or phrasing.
+# Maps stated identity to DB-compatible values for eligibility filtering.
+
+_GENDER_PHRASES = {
+    # Female-identifying
+    "woman": "female", "female": "female", "girl": "female",
+    "mom": "female", "mother": "female",
+
+    # Male-identifying
+    "man": "male", "male": "male", "guy": "male",
+    "dad": "male", "father": "male",
+
+    # Trans-identifying — map to the gender they identify AS
+    # AND flag as transgender for LGBTQ-specific services
+    "transwoman": "female", "trans woman": "female",
+    "transman": "male", "trans man": "male",
+    "transgender": "transgender",
+    "mtf": "female", "ftm": "male",
+
+    # Non-binary / gender non-conforming
+    "nonbinary": "nonbinary", "non-binary": "nonbinary",
+    "non binary": "nonbinary", "enby": "nonbinary",
+    "genderqueer": "nonbinary", "gender fluid": "nonbinary",
+    "agender": "nonbinary",
+
+    # LGBTQ umbrella — doesn't specify gender but indicates need
+    # for LGBTQ-affirming services
+    "lgbtq": "lgbtq", "lgbtq+": "lgbtq", "lgbt": "lgbtq",
+    "queer": "lgbtq", "gay": "lgbtq", "lesbian": "lgbtq",
+    "bisexual": "lgbtq",
+}
+
+# Sorted longest-first so "trans woman" matches before "woman",
+# "non-binary" before "non", etc.
+_GENDER_PHRASES_SORTED = sorted(_GENDER_PHRASES.items(), key=lambda x: len(x[0]), reverse=True)
+
+# Words that contain gender keywords but are NOT gender declarations.
+# "the man at the counter" or "Manhattan" should not trigger extraction.
+_GENDER_FALSE_POSITIVE_RE = re.compile(
+    r'\b(?:man(?:hattan|age[rd]?|ual|date|kind|y|or|ic|ner)?'
+    r'|woman(?:hood|ly|ize)?'
+    r'|male(?:volent|function|ware)?'
+    r'|female(?:ness)?'
+    r'|guy(?:ana|s)?'
+    r')\b',
+    re.IGNORECASE,
+)
+
+# Patterns that indicate the user is talking about THEMSELVES
+# (vs. referring to someone else). We require one of:
+#   - "I am a ...", "I'm a ...", "im a ..."
+#   - Bare identity term as the subject: "transman, need shelter"
+#   - Comma-separated list with age: "21, LGBTQ, in Soho"
+_SELF_REFERENCE_RE = re.compile(
+    r"(?:"
+    r"\bi[' ]?m\s+(?:a\s+)?"          # "I'm a", "I'm", "im a"
+    r"|\bi am\s+(?:a\s+)?"            # "I am a", "I am"
+    r"|\bas a\s+"                       # "as a trans man"
+    r"|\b\d{1,2}\s*,\s*"               # "21, LGBTQ" (age-prefixed)
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _extract_gender(text: str) -> Optional[str]:
+    """Extract gender or LGBTQ identity from user message.
+
+    Returns one of: 'male', 'female', 'transgender', 'nonbinary',
+    'lgbtq', or None. Only extracts when explicitly stated.
+    """
+    lower = text.lower()
+
+    for phrase, value in _GENDER_PHRASES_SORTED:
+        pos = lower.find(phrase)
+        if pos == -1:
+            continue
+
+        end = pos + len(phrase)
+
+        # Word boundary check: the character before/after must be
+        # non-alphanumeric (or start/end of string)
+        if pos > 0 and lower[pos - 1].isalpha():
+            continue
+        if end < len(lower) and lower[end].isalpha():
+            # Exception: allow "transman" (no space) as a single word
+            if phrase not in ("transman", "transwoman"):
+                continue
+
+        # Guard against "the man at the counter" — check that the gender
+        # term is used as self-identification, not referring to someone else.
+        # For short unambiguous identity terms (lgbtq, trans*, nonbinary, etc.)
+        # we trust the match. For common words (man, woman, guy, girl, mom, dad)
+        # we require a self-reference pattern nearby.
+        _COMMON_GENDER_WORDS = {"man", "woman", "guy", "girl", "male", "female",
+                                 "mom", "mother", "dad", "father"}
+        if phrase in _COMMON_GENDER_WORDS:
+            # Check for self-reference pattern in the ~30 chars before the match
+            prefix = text[max(0, pos - 30):pos + end]
+            if not _SELF_REFERENCE_RE.search(prefix):
+                continue
+
+        return value
+
+    return None
+
 
 def _extract_all_service_types(text: str) -> list[tuple[str, Optional[str]]]:
     """Extract ALL service type categories from a message.
@@ -681,6 +944,7 @@ def extract_slots(message: str) -> dict:
         "urgency": _extract_urgency(message),
         "age": _extract_age(message),
         "family_status": _extract_family_status(message),
+        "_gender": _extract_gender(message),
     }
 
 

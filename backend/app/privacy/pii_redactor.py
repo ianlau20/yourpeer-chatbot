@@ -202,6 +202,25 @@ def _overlaps(start, end, claimed):
     return False
 
 
+# ---------------------------------------------------------------------------
+# 8. Gender Identity — PII-adjacent for homeless/at-risk population
+# ---------------------------------------------------------------------------
+# Gender identity is sensitive for this population — outing someone or
+# storing their gender could be harmful. Redact self-identifying phrases
+# from stored transcripts. Only matches identity declarations, not
+# incidental uses (e.g., "the man at the counter" is not redacted).
+_GENDER_IDENTITY_RE = re.compile(
+    r'\b(?:'
+    r'(?:i[\'  ]?m|i am|as) (?:a )?'  # "I'm a", "I am", "as a"
+    r'(?:trans\s*(?:woman|man|gender|masculine|feminine)|'
+    r'non[\- ]?binary|enby|genderqueer|gender[\- ]?fluid|agender|'
+    r'lgbtq\+?|lgbt|queer|gay|lesbian|bisexual|'
+    r'mtf|ftm)'
+    r')\b',
+    re.IGNORECASE,
+)
+
+
 def detect_pii(text):
     """Detect PII in text. Returns list of Detection(pii_type, start, end)."""
     detections = []
@@ -313,6 +332,14 @@ def detect_pii(text):
                 detections.append(Detection("name", s, e))
                 claimed.append((s, e))
 
+    # 8. Gender identity terms — PII-adjacent for this population.
+    # Redact self-identifying gender/LGBTQ phrases from stored transcripts.
+    for m in _GENDER_IDENTITY_RE.finditer(text):
+        s, e = m.start(), m.end()
+        if not _overlaps(s, e, claimed):
+            detections.append(Detection("gender", s, e))
+            claimed.append((s, e))
+
     return detections
 
 
@@ -325,6 +352,7 @@ _PLACEHOLDERS = {
     "dob": "[DOB]",
     "address": "[ADDRESS]",
     "name": "[NAME]",
+    "gender": "[GENDER]",
 }
 
 

@@ -20,7 +20,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from app.services.chatbot import generate_reply, _classify_action
+from app.services.classifier import _classify_action
+from app.services.chatbot import generate_reply
 from app.services.post_results import (
     classify_post_results_question,
     answer_from_results,
@@ -452,44 +453,44 @@ class TestPromptBuilders:
     """Gap #8: _build_empathetic_prompt, _build_bot_question_prompt untested."""
 
     def test_empathetic_prompt_returns_string(self):
-        from app.services.chatbot import _build_empathetic_prompt
+        from app.services.responses import _build_empathetic_prompt
         result = _build_empathetic_prompt("I'm feeling really down today", {})
         assert isinstance(result, str)
         assert len(result) > 50
 
     def test_empathetic_prompt_includes_guardrails(self):
-        from app.services.chatbot import _build_empathetic_prompt
+        from app.services.responses import _build_empathetic_prompt
         result = _build_empathetic_prompt("I'm scared", {})
         lower = result.lower()
         assert any(word in lower for word in ["don't", "do not", "never", "avoid", "peer navigator", "navigator"])
 
     def test_bot_question_prompt_returns_string(self):
-        from app.services.chatbot import _build_bot_question_prompt
+        from app.services.responses import _build_bot_question_prompt
         result = _build_bot_question_prompt("What can you help me with?", {})
         assert isinstance(result, str)
         assert len(result) > 50
 
     def test_bot_question_prompt_includes_capabilities(self):
-        from app.services.chatbot import _build_bot_question_prompt
+        from app.services.responses import _build_bot_question_prompt
         result = _build_bot_question_prompt("How does this work?", {})
         lower = result.lower()
         assert any(word in lower for word in ["service", "food", "shelter", "nyc", "help"])
 
     def test_conversational_prompt_returns_string(self):
-        from app.services.chatbot import _build_conversational_prompt
+        from app.services.responses import _build_conversational_prompt
         result = _build_conversational_prompt("Hey how's it going", {})
         assert isinstance(result, str)
         assert len(result) > 50
 
     def test_fallback_response_returns_string(self):
-        from app.services.chatbot import _fallback_response
+        from app.services.responses import _fallback_response
         with patch("app.services.chatbot.claude_reply", return_value="Hi there!"):
             result = _fallback_response("hello", {})
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_fallback_response_handles_exception(self):
-        from app.services.chatbot import _fallback_response
+        from app.services.responses import _fallback_response
         with patch("app.services.chatbot.claude_reply", side_effect=Exception("fail")):
             result = _fallback_response("hello", {})
         assert "yourpeer.nyc" in result or "try again" in result

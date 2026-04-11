@@ -152,11 +152,11 @@ The LLM prompt explicitly asks Claude to be sensitive to indirect language and t
 
 Before invoking the LLM (Stage 2), the system checks whether the message matches a known sub-crisis emotional phrase — expressions that indicate distress but not danger. Examples: "feeling scared", "I'm struggling", "rough day", "stressed out", "nobody cares."
 
-If the message matches any of these phrases, the LLM stage is **skipped entirely** and `detect_crisis` returns `None`. The message is then handled by the emotional tone handler in `chatbot.py`, which provides empathetic acknowledgment and a peer navigator offer — a more appropriate response than crisis hotlines for someone having a bad day.
+If the message matches any of these phrases, the LLM stage is **skipped entirely** and `detect_crisis` returns `None`. The message is then handled by the emotional tone handler in the chatbot router, which provides empathetic acknowledgment and a peer navigator offer — a more appropriate response than crisis hotlines for someone having a bad day.
 
 **Why this guard exists:** The LLM's crisis detection prompt says "when in doubt, err toward crisis=true." This is correct for genuinely ambiguous safety situations ("I've been on the streets for months and nothing helps anymore"), but it over-escalates clearly emotional-but-not-crisis messages. A user saying "I'm feeling scared" who receives suicide hotline numbers instead of empathy has a worse experience than one who receives no crisis resources at all — the mismatch signals that the bot doesn't understand them.
 
-The guard phrase list mirrors `_EMOTIONAL_PHRASES` from `chatbot.py` and is defined inline in `detect_crisis()` as `_SUB_CRISIS_EMOTIONAL`.
+The guard phrase list mirrors `_EMOTIONAL_PHRASES` from `phrase_lists.py` and is defined inline in `detect_crisis()` as `_SUB_CRISIS_EMOTIONAL`.
 
 **Note on "nobody cares":** This phrase was originally in both `_SUICIDE_SELF_HARM_PHRASES` (crisis regex) and `_EMOTIONAL_PHRASES`. The crisis regex fired first, over-escalating emotional loneliness to suicide crisis. Fixed by changing the crisis regex entry from bare `"nobody cares"` to the specific `"nobody cares if i"` — the "if i" suffix is the suicidal marker. Bare "nobody cares" now falls through to the emotional handler. The `_SUB_CRISIS_EMOTIONAL` guard still lists it to prevent the LLM stage from re-escalating.
 

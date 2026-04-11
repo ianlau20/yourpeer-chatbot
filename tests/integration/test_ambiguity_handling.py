@@ -15,7 +15,7 @@ from unittest.mock import patch
 from conftest import send, send_multi, MOCK_QUERY_RESULTS
 from app.services.session_store import get_session_slots, clear_session
 from app.services.audit_log import get_recent_events, clear_audit_log
-from app.services.chatbot import _classify_action
+from app.services.classifier import _classify_action
 
 
 @pytest.fixture

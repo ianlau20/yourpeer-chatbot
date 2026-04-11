@@ -162,8 +162,8 @@ pytest
 That's it. `pyproject.toml` configures the test paths and Python path automatically. To run a single file or see full output:
 
 ```
-pytest tests/test_chatbot.py          # one file
-pytest tests/test_chatbot.py -k reset # one test by name
+pytest tests/unit/test_slot_extractor.py  # one file
+pytest tests/unit/ -k reset              # one test by name
 pytest -s                             # show print output
 ```
 

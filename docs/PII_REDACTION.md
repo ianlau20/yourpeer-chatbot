@@ -16,7 +16,7 @@ The confirmation echo ("I'll search for food in Brooklyn") also runs through the
 
 **Overlap resolution.** Detections are checked against all prior matches before being added. If a span was already matched (e.g. a 9-digit number as SSN), it won't also be matched as a phone number. SSN is checked before phone because SSNs are a strict subset of the phone digit range.
 
-**Detection order.** Patterns run in a fixed order — SSN, email, credit card, phone, URL, DOB, address, name — with each stage skipping spans already claimed by earlier stages. This prevents double-counting and ensures the most specific match wins. Credit card runs before phone because 16-digit CC numbers would otherwise partially match as 10-digit phone numbers.
+**Detection order.** Patterns run in a fixed order — SSN, email, credit card, phone, URL, DOB, address, name, gender identity — with each stage skipping spans already claimed by earlier stages. This prevents double-counting and ensures the most specific match wins. Credit card runs before phone because 16-digit CC numbers would otherwise partially match as 10-digit phone numbers.
 
 ## Categories
 
@@ -28,6 +28,7 @@ The confirmation echo ("I'll search for food in Brooklyn") also runs through the
 | Date of birth | `[DOB]` | `Born 01/15/1990` | `Born [DOB]` |
 | Street address | `[ADDRESS]` | `I live at 123 Main Street Apt 4B` | `I live at [ADDRESS]` |
 | Name | `[NAME]` | `My name is Sarah` | `My name is [NAME]` |
+| Gender identity | `[GENDER]` | `I'm a trans man` | `[GENDER]` |
 | Credit card | `[CREDIT_CARD]` | `4111 1111 1111 1111` | `[CREDIT_CARD]` |
 | URL | `[URL]` | `facebook.com/john.smith` | `[URL]` |
 
