@@ -16,16 +16,17 @@
 | Trafficking | crisis_detector.py | 25 | Crisis detection — forced labor/sex work |
 | Medical emergency | crisis_detector.py | 18 | Crisis detection — immediate physical danger |
 | Violence | crisis_detector.py | 16 | Crisis detection — threats to others |
-| Emotional | chatbot.py | 51 | Sub-crisis distress routing → AVR handler |
-| Frustration | chatbot.py | 40 | System frustration → escalation handler |
+| Emotional | chatbot.py | 135 | Sub-crisis distress routing → AVR handler. Includes "i'm X", "im X", "i am X", "i feel X", and "i am feeling X" forms for 13 emotional states, plus intensifier variants |
+| Frustration | chatbot.py | 40 | System frustration → 3-tier escalation handler |
 | Confused | chatbot.py | 25 | Overwhelm → gentle guidance handler |
+| Negative preference | chatbot.py | 19 | Rejection of offered options → alternative service categories |
 | Escalation | chatbot.py | 13 | Human handoff requests |
 | Help | chatbot.py | 15 | Capability questions |
-| Bot question | chatbot.py | 45 | Privacy/capability meta-questions |
+| Bot question | chatbot.py | 65 | Privacy/capability meta-questions (includes 12 provider data-sharing phrases) |
 | Bot identity | chatbot.py | 15 | "Am I talking to a robot?" |
 | Service keywords | slot_extractor.py | 220 | Service type extraction (9 categories) |
 | Word-boundary keywords | slot_extractor.py | 6 | Collision-prone service keywords |
-| **Total** | | **636** | |
+| **Total** | | **~759** | |
 
 ---
 

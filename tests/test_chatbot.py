@@ -1763,12 +1763,13 @@ def test_bot_identity_buttons(fresh_session):
 
 
 def test_emotional_buttons_no_welcome_menu(fresh_session):
-    """Emotional response should show New search + Peer navigator, not welcome menu."""
+    """Emotional response should show only Peer navigator, not welcome menu or New search."""
     result = send("I'm scared and alone", session_id=fresh_session)
     labels = [qr["label"] for qr in result.get("quick_replies", [])]
-    assert "🔍 New search" in labels
     assert "🤝 Peer navigator" in labels
     assert "🍽️ Food" not in labels
+    # Emotional should NOT show New search — only navigator
+    assert "🔍 New search" not in labels
 
 
 def test_frustrated_first_buttons(fresh_session):
@@ -1907,3 +1908,127 @@ def test_idk_with_location_set_is_confused(fresh_session):
     result = send("I don't know", session_id=fresh_session)
     labels = [qr["label"] for qr in result.get("quick_replies", [])]
     assert "📍 Use my location" not in labels
+
+
+# ---------------------------------------------------------------------------
+# RUN 22 — Emotion-specific responses
+# ---------------------------------------------------------------------------
+
+def test_pick_emotional_response_scared():
+    """'I'm scared' should get the scared-specific response."""
+    from app.services.chatbot import _pick_emotional_response
+    resp = _pick_emotional_response("I'm feeling really scared right now")
+    assert "scared" in resp.lower() or "frightening" in resp.lower() or "fear" in resp.lower()
+    # Must NOT mention services
+    assert "food" not in resp.lower()
+    assert "shelter" not in resp.lower()
+    assert "shower" not in resp.lower()
+
+
+def test_pick_emotional_response_sad():
+    from app.services.chatbot import _pick_emotional_response
+    resp = _pick_emotional_response("I'm feeling really down today")
+    assert "sorry" in resp.lower() or "courage" in resp.lower()
+
+
+def test_pick_emotional_response_rough_day():
+    from app.services.chatbot import _pick_emotional_response
+    resp = _pick_emotional_response("Having a really rough day")
+    assert "hard" in resp.lower() or "heavy" in resp.lower()
+
+
+def test_pick_emotional_response_shame():
+    from app.services.chatbot import _pick_emotional_response
+    resp = _pick_emotional_response("I'm embarrassed to ask for help")
+    assert "ashamed" in resp.lower() or "strength" in resp.lower() or "nothing to be" in resp.lower()
+
+
+def test_pick_emotional_response_grief():
+    from app.services.chatbot import _pick_emotional_response
+    resp = _pick_emotional_response("My friend died last week")
+    assert "sorry" in resp.lower() or "loss" in resp.lower()
+
+
+def test_pick_emotional_response_alone():
+    from app.services.chatbot import _pick_emotional_response
+    resp = _pick_emotional_response("I feel completely alone")
+    assert "alone" in resp.lower() or "invisible" in resp.lower() or "courage" in resp.lower()
+
+
+def test_emotional_no_llm_call(fresh_session):
+    """Emotional handler should NOT call the LLM — static response only."""
+    import unittest.mock as mock
+    with mock.patch("app.services.chatbot.claude_reply") as mock_llm:
+        send("I'm feeling really scared right now", session_id=fresh_session)
+        # claude_reply should NOT have been called for emotional category
+        for call in mock_llm.call_args_list:
+            prompt = call[0][0] if call[0] else ""
+            assert "empathetic" not in prompt.lower(), \
+                "LLM was called with empathetic prompt — should use static response"
+
+
+# ---------------------------------------------------------------------------
+# RUN 22 — Negative preference
+# ---------------------------------------------------------------------------
+
+def test_negative_preference_classification():
+    from app.services.chatbot import _classify_action
+    assert _classify_action("I do not want any of those") == "negative_preference"
+    assert _classify_action("None of those are what I need") == "negative_preference"
+    assert _classify_action("Those don't help") == "negative_preference"
+
+
+def test_negative_preference_handler(fresh_session):
+    """Negative preference should acknowledge rejection and offer alternatives."""
+    result = send("None of those are what I need", session_id=fresh_session)
+    assert "understand" in result["response"].lower()
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    # Should show service menu + navigator
+    assert any("Peer navigator" in l for l in labels)
+    assert any("Food" in l or "Shelter" in l for l in labels)
+
+
+# ---------------------------------------------------------------------------
+# RUN 22 — Privacy routing exception
+# ---------------------------------------------------------------------------
+
+def test_privacy_question_with_service_keyword(fresh_session):
+    """Privacy question containing 'shelter' should route to bot_question, not service."""
+    from app.services.chatbot import _classify_action
+    action = _classify_action("If I search for shelter here, do they get my information?")
+    assert action == "bot_question"
+
+
+def test_privacy_question_answered(fresh_session):
+    """Privacy question should get a privacy answer, not a shelter search."""
+    result = send("Does the shelter know I searched?", session_id=fresh_session)
+    resp = result["response"].lower()
+    # Should mention privacy/anonymity, not ask for location
+    assert any(w in resp for w in ["private", "anonymous", "can't see", "won't affect"])
+
+
+# ---------------------------------------------------------------------------
+# RUN 22 — Conversational awareness guard
+# ---------------------------------------------------------------------------
+
+def test_casual_chat_no_service_buttons(fresh_session):
+    """'How are you' should NOT show service category buttons."""
+    result = send("Hey how are you doing today", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "🍽️ Food" not in labels
+    assert "🏠 Shelter" not in labels
+
+
+# ---------------------------------------------------------------------------
+# RUN 22 — Frustration 3-tier
+# ---------------------------------------------------------------------------
+
+def test_frustration_third_tier(fresh_session):
+    """Third frustration should give immediate navigator offer."""
+    send("this is not helpful", session_id=fresh_session)
+    send("still not helpful", session_id=fresh_session)
+    result = send("nothing works", session_id=fresh_session)
+    labels = [qr["label"] for qr in result.get("quick_replies", [])]
+    assert "🤝 Peer navigator" in labels
+    # Should NOT have New search on 3rd tier
+    assert "🔍 New search" not in labels

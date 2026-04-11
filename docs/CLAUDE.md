@@ -40,7 +40,10 @@ User Message
     ├─ Route by category:
     │   ├─ crisis → crisis_detector (regex + Sonnet LLM) → hotline resources
     │   ├─ correction → clears pending state, shows alternatives
-    │   ├─ greeting/thanks/help/reset/escalation/frustration → canned response
+    │   ├─ negative_preference → acknowledges rejection, offers alternatives
+    │   ├─ greeting/thanks/help/reset/escalation → canned response
+    │   ├─ frustration → 3-tier escalation (counter-based, varied responses)
+    │   ├─ emotional → static emotion-specific response (no LLM, 6 emotion keys)
     │   ├─ post-results → deterministic answers from stored cards (no LLM)
     │   ├─ disambiguation → clarifying options when intent is ambiguous
     │   ├─ service request → slot extraction (regex or Haiku LLM for complex inputs)
@@ -98,7 +101,14 @@ information, preventing hallucination.
 - **Crisis detection**: regex + Sonnet LLM, covers suicide/self-harm, DV, trafficking, medical emergency, violence, youth runaway; fail-open policy returns safety response if LLM unavailable
 - **PII redaction**: phone, SSN, email, DOB, address, name detection/redaction on every message
 - **Service cards**: structured results with name, org, address, phone, hours, fees, open/closed status, referral badges, action links
-- **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, bot identity, confusion, location-unknown
+- **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, emotional, negative preference, bot identity, confusion, location-unknown, correction
+- **Emotional handling (static-first)**: 6 emotion-specific static responses (scared, sad, rough_day, shame, grief, alone) selected by `_pick_emotional_response()` — LLM is NOT called. Single "Talk to a person" button, no service menu. Follows AVR pattern from clinical chatbot research
+- **Frustration 3-tier escalation**: persistent `_frustration_count` counter with varied responses — 1st: full empathetic, 2nd: shorter/direct, 3rd+: immediate navigator only. Counter survives intermediate messages
+- **Negative preference handling**: detects rejection of all offered options ("none of those", "not what I need" — 19 phrases). Acknowledges rejection explicitly, offers alternative service categories + peer navigator
+- **Conversational awareness guard**: casual chat patterns ("how are you", "just wanted to chat") suppress service category buttons. Prevents first-turn casual greetings from showing the full service menu
+- **Privacy routing exception**: `bot_question` overrides `has_service_intent` in routing — privacy questions like "do they get my info?" aren't swallowed by the service flow even when service keywords are present
+- **Intensifier stripping**: `_strip_intensifiers()` removes 19 common adverbs (really, very, so, just, etc.) before phrase matching. Combined with contraction normalization, `_classify_tone()` checks 4 variants per message
+- **Post-normalization emotional phrases**: `_EMOTIONAL_PHRASES` includes both contraction ("i'm scared") and expanded ("i am scared") forms for 13 emotional states (135 total phrases)
 - **Location-unknown interceptor**: when the bot asks for location and the user says "I don't know" / "anywhere" / "here", offers geolocation and borough buttons instead of falling into the confused handler. Guards: only fires when service_type is set, location is missing, and no pending confirmation
 - **Service flow continuation**: when a user already has a service_type and provides new slot data (e.g., "near me", "close by", "I'm 25", "with my kids") in a message not classified as "service", the system treats it as a service flow continuation rather than falling through to the LLM
 - **Narrative extraction**: long messages (20+ words) are detected as narratives and processed with urgency-aware slot extraction that prioritizes shelter/safety over food/employment. Regex fallback handles narrative extraction when LLM is unavailable

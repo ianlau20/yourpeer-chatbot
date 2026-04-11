@@ -23,6 +23,8 @@ Two independent classifiers run in parallel:
 | Action | Trigger | Example |
 |---|---|---|
 | `reset` | "start over", "new search", "cancel" | "start over" |
+| `correction` | "not what I meant", "you misunderstood", "that's wrong", "try again" | "not what I meant" |
+| `negative_preference` | "none of those", "not what I need", "I don't want any of those", "those don't help" | "none of those work" |
 | `bot_identity` | "are you a robot", "am I talking to a person" | "are you AI?" |
 | `bot_question` | "why can't you", "how does this work", "is this private", "can ICE see" | "is this safe?" |
 | `escalation` | "peer navigator", "talk to a person" | "connect with peer navigator" |
@@ -58,8 +60,9 @@ The routing priority is:
 | 1 | `tone == crisis` | Crisis handler (always wins) |
 | 2 | `action == reset` | Reset handler |
 | 2a | `action == correction` ("not what I meant") | Correction handler — clears pending state, shows alternatives |
+| 2b | `action == negative_preference` ("none of those") | Acknowledges rejection, offers alternative service categories + peer navigator |
 | 3 | `action` is confirmation/bot/greeting/thanks | Action handler |
-| 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exception: escalation + service without location stays as escalation |
+| 4 | `has_service_intent == True` | **Service flow** (with tone prefix if emotional/frustrated/confused/urgent). Exceptions: (a) escalation + service without location stays as escalation; (b) `bot_question` overrides service intent — privacy questions like "do they get my info?" are NOT swallowed by the service flow |
 | 4a | Location-unknown phrases + service_type set + no location | Location-unknown handler (geolocation + borough buttons) |
 | 5 | `action == help` | Help handler |
 | 6 | `action == escalation` | Escalation handler |
@@ -124,6 +127,12 @@ Instead of silently falling through to normal routing (which would lose the user
 
 This follows the industry-standard "clarification-before-classification" pattern. Messages with clear new-request signals ("I need X", "where can I go", "looking for") bypass disambiguation entirely via the post-results escape hatch — they're unambiguously new requests.
 
+### Negative Preference
+
+Detects when the user rejects all offered options — "none of those", "I don't want any of those", "those don't help", "not what I need". Instead of falling through to the general handler or frustration handler (which wouldn't acknowledge the specific rejection), the bot explicitly acknowledges that the options aren't right, offers alternative service categories via `_WELCOME_QUICK_REPLIES`, and includes a peer navigator option. Sets `_last_action = "negative_preference"`.
+
+This is distinct from frustration (which is about the bot failing) and correction (which is about the bot misunderstanding). Negative preference is: "you understood me, but the results aren't what I need."
+
 ### Bot Identity
 
 Responds honestly that the user is talking to an AI assistant, offers to connect with a real person (peer navigator). Shows service category buttons so the user can continue.
@@ -163,15 +172,37 @@ Returns a brief "you're welcome" message with service buttons in case the user w
 
 ### Frustration
 
-Acknowledges the frustration empathetically without being defensive. Shows two buttons: "🔍 New search" and "🤝 Peer navigator". Sets `_last_action = "frustration"` so "yes" connects to a peer navigator (the handler's messaging pushes toward navigator: "I think a peer navigator would be more helpful") and "New search" sends "Start over" directly via quick reply.
+Acknowledges the frustration empathetically without being defensive. Uses a persistent `_frustration_count` counter (not `_last_action` check) so frustration tracking survives intermediate messages.
 
-**Repeated frustration detection:** If the user expresses frustration a second time in a row (i.e., `_last_action` is already `"frustration"`), the bot produces a shorter, different response that avoids repeating the same wall of text. The second response acknowledges the bot isn't helping, strongly recommends a peer navigator, and mentions 311 as a backup.
+**3-tier response escalation:**
+
+| Count | Response style | Buttons |
+|---|---|---|
+| 1st | Full empathetic `_FRUSTRATION_RESPONSE` — acknowledges frustration, validates feelings, suggests trying a different search or peer navigator | "🔍 Try different search" + "👤 Peer navigator" |
+| 2nd | Shorter, more direct — acknowledges the bot isn't finding what they need, strongly recommends peer navigator, mentions 311 | "🤝 Peer navigator" + "🔄 Start over" |
+| 3rd+ | Immediate navigator offer — very short, apologetic, navigator-only | "🤝 Talk to a person" only |
+
+Sets `_last_action = "frustration"` so "yes" connects to a peer navigator.
 
 ### Emotional
 
-Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the clinical chatbot literature (see [Emotional Handling Design](#emotional-handling-design) below). Acknowledges the user's feelings with warmth before doing anything else. Uses an LLM-generated response when available, with a specialized prompt that focuses on empathy and explicitly prohibits listing services, giving advice, or diagnosing. Falls back to a static response that validates the feeling, offers peer navigator, and gently mentions practical help is available.
+Follows the **Acknowledge-Validate-Redirect (AVR)** pattern established in the clinical chatbot literature (see [Emotional Handling Design](#emotional-handling-design) below). Uses a **static-first approach** — the LLM is NOT called for emotional messages, because it frequently steers toward service-finding mode despite prompt instructions. Instead, `_pick_emotional_response(message)` selects from 6 emotion-specific static responses keyed by detected emotion:
 
-Shows only two buttons — "🔍 New search" and "🤝 Peer navigator" — not the full service menu. This prevents the experience of sharing something vulnerable and immediately being shown a service menu. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with only a navigator button (not the full service menu — per the AVR principle of not pushing task-oriented responses after emotional distress).
+| Emotion | Trigger words | Response focus |
+|---|---|---|
+| `scared` | scared, afraid, frightened, terrified, fear | Normalizes fear, offers navigator |
+| `sad` | feeling down/sad/bad, depressed, not okay | Validates courage to speak up |
+| `rough_day` | rough/bad/tough/hard day, falling apart | Acknowledges heaviness |
+| `shame` | embarrassed, ashamed, pathetic, failure | Removes stigma, affirms strength |
+| `grief` | died, passed away, grieving, mourning | Acknowledges loss |
+| `alone` | alone, no one, nobody, no friends/family | Affirms visibility and courage |
+| (default) | Other emotional phrases | Generic warm acknowledgment |
+
+None of the emotion-specific responses mention services — they focus purely on empathy. The generic fallback also avoids listing specific services.
+
+Shows only one button — "🤝 Talk to a person" — not the service menu or "New search". This prevents the experience of sharing something vulnerable and immediately being shown task-oriented options. Sets `_last_action = "emotional"` so that "yes" on the next message routes to the peer navigator, and "no" gives a gentle non-pushy response with only a navigator button.
+
+**Phrase matching** uses three techniques to maximize recall without false positives: (a) contraction normalization ("I'm" → "I am"), (b) intensifier stripping ("I'm really scared" → "I'm scared"), and (c) post-normalization variants ("i am scared" in the phrase list alongside "i'm scared").
 
 ### Location-Unknown
 
@@ -221,9 +252,11 @@ Catch-all for messages that don't fit any other category. Uses Claude Haiku for 
 
 - **With service intent** (user has partially filled slots): gently reminds them they can continue their search.
 - **Without service intent**: just responds naturally without pushing services.
-- **Unrecognized service request** (user has a location but no recognized service type after 2+ turns): redirects gracefully with "I'm not sure I can help with that specifically, but I can search for services in [location]" and shows the full service menu. This handles requests for impossible services (e.g., "helicopter ride") that would otherwise loop indefinitely.
+- **Unrecognized service request**: detects "I need X" / "find me X" patterns where X doesn't map to any known service type, even on the first turn without a location. Also catches the existing case of location set + no service type after 2+ turns. Both redirect gracefully with "I'm not sure I can help with that specifically" and show the service menu. This handles requests for impossible services (e.g., "unicorn ride", "helicopter") that would otherwise loop indefinitely.
 
-Service category buttons are only shown on the first conversational turn when the user has no service intent. After that, general responses have no buttons to avoid feeling transactional.
+**Conversational awareness guard:** Casual chat patterns ("how are you", "just wanted to chat", "good morning") are detected via `_CASUAL_CHAT_RE` and suppress service category buttons. Without this guard, "hey how are you doing today" would show the full service menu on first turn, which the eval judge flags as "pushing the service menu repeatedly."
+
+Service category buttons are only shown on the first conversational turn when the user has no service intent AND the message is not casual chat. After that, general responses have no buttons to avoid feeling transactional.
 
 ---
 
@@ -236,7 +269,6 @@ Three LLM-powered features are used in production, each with a specific model as
 | Conversational fallback | Haiku | Message classified as `general` | 1–3 sentence response |
 | Slot extraction | Haiku | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender, family_status |
 | Message classification | Haiku | Messages >3 words that regex can't classify | Single category name |
-| Emotional acknowledgment | Haiku | Messages classified as `emotional` | 2–3 sentence empathetic response |
 | Bot question answer | Haiku | Messages classified as `bot_question` | 2–3 sentence factual answer |
 | Crisis detection (Stage 2) | Sonnet | Ambiguous messages where regex didn't fire | JSON: {crisis: bool, category: string} |
 
@@ -418,9 +450,13 @@ Based on this research, the following principles govern emotional handling in th
 
 Add to `_EMOTIONAL_PHRASES` in `chatbot.py`. Avoid phrases that overlap with service keywords ("feeling hungry" should route to food service, not emotional acknowledgment). Add a test case to `test_emotional_classification`. Thanks to contraction normalization, you only need the expanded form — e.g., adding "not okay" will automatically match "isn't okay", "wasnt okay", "aren't okay", etc.
 
-### Contraction normalization
+### Contraction normalization and intensifier stripping
 
 `_normalize_contractions()` in `chatbot.py` expands 37 common contractions (e.g., "isn't" → "is not", "i'm" → "i am") before phrase matching in `_classify_tone()` and the help negators in `_classify_action()`. This means phrase lists only need the expanded "not" form to match all contraction variants. Normalization is NOT applied to crisis detection — crisis uses explicit enumeration for safety. To add a new contraction, add it to `_CONTRACTION_MAP` in `chatbot.py` and add a test in `test_contraction_normalization.py`.
+
+`_strip_intensifiers()` removes 19 common intensifier adverbs (really, very, so, super, extremely, just, kinda, etc.) from text before phrase matching. This allows "I'm really scared" to match "i'm scared" in the phrase list without needing every intensifier×emotion combination. Both `_classify_tone()` and `_classify_message()` check four variants of each message: cleaned, normalized (contractions expanded), stripped (intensifiers removed), and stripped_normalized (both). Intensifier stripping is NOT applied to crisis detection.
+
+**Post-normalization phrase variants.** Because contraction normalization converts "I'm" → "I am", the `_EMOTIONAL_PHRASES` list includes both forms: "i'm scared" and "i am scared". Without these, "I'm scared" → normalized "i am scared" → no match. The post-normalization variants cover scared, sad, down, anxious, lonely, hopeless, depressed, stuck, stressed, and pathetic.
 
 ### Modifying guardrails
 
