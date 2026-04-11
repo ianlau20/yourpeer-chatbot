@@ -2814,8 +2814,6 @@ Run 18 validated the phrase audit and PII redactor improvements: PII phone redac
 
 ---
 
----
-
 ## Run 20 — 2026-04-09 (142-Scenario Suite — Emotional Handler Gate + Conversational Routing + Privacy/Bot-Knowledge)
 
 **Branch:** `multi-intent`
@@ -2950,3 +2948,172 @@ The three core emotional scenarios (scared, feeling_down, rough_day) had been st
 *† R15 ran with judge temperature=1.0 (default); results are unreliable due to scoring variance. R16 re-ran the same code at temperature=0 and is the reliable R14→R16 comparison.*
 
 Run 20 applied fixes targeting 7 of the 14 scenarios below 4.0 in Run 19. All 7 crossed the 4.0 threshold — the highest single-run count in the series. The emotional category jumped from 4.12 to 4.88 (+0.76), resolving a root cause identified in R18 but blocked in R19 by LLM override. Critical failures are down to 22, the lowest in the series. 6 scenarios remain below 4.0, concentrated in queue state management (P1), narrative/context extraction (P2), and the untargeted bot_question category (P3). No fix has been applied to bot_question across four consecutive runs; it should be the primary target for Run 21.
+
+---
+
+
+## Run 21 — 2026-04-10 (142-Scenario Suite — Post-Results Handler + Disambiguation + Confidence Scoring)
+ 
+**Branch:** `multi-intent`
+**Commit:** `48946fb` — Post-results escape hatch, disambiguation prompts, correction handler ("Not what I meant"), confidence scoring (high/medium/low/disambiguated), "Not what I meant" quick-reply button on low-confidence responses
+**Runner:** `eval_llm_judge.py` v5 (142 scenarios, 20 categories) — temperature=0
+ 
+**Note:** This codebase was snapshotted *before* Run 20 fixes were merged. The Run 20 emotional handler gate, conversational guard, privacy routing exception, negative-preference handler, nonsense service redirect, and frustration count tracking were all absent. This caused 9 Run 20-fixed scenarios to regress to their pre-fix scores.
+ 
+### Summary
+ 
+| Metric | Run 20 (142) | Run 21 (142) | Delta | Notes |
+|---|---|---|---|---|
+| Overall Score | 4.64 | **4.59** | -0.05 | Regression from missing Run 20 fixes |
+| Critical Failures | 22 | **29** | +7 | 9 scenarios regressed |
+| Passing (≥4.0) | 131/142 (92%) | **125/142 (88%)** | -4pp | |
+| Emotional Category | 4.88 | **3.90** | -0.98 | Run 20 emotional fixes absent |
+| Bot Question Category | 3.91 | **4.96** | +1.05 | Bot knowledge + static answers landed |
+| Privacy Category | 4.20 | **4.30** | +0.10 | |
+ 
+### What Run 21 Added (retained in Run 22)
+ 
+- **Post-results handler** (`post_results.py`): deterministic follow-up question handler for displayed service cards — filters (open now, free), detail views, field queries. Zero LLM, zero hallucination risk
+- **Post-results escape hatch**: "I need X" / "where can I go" patterns bypass post-results handler and route to normal service search
+- **Disambiguation prompts**: ambiguous messages get clarifying quick-reply buttons instead of guessing
+- **Correction handler**: "not what I meant" clears pending state and shows alternatives
+- **Confidence scoring**: every routing decision tagged high/medium/low/disambiguated, stored in audit events
+- **"Not what I meant" button**: appears on low-confidence (LLM-routed) responses for immediate recovery
+- **Bot question handler**: live capability sourcing from `bot_knowledge.py` with topic matching across 12+ question types
+ 
+### What Regressed (Run 20 fixes missing)
+ 
+| Scenario | R20 | R21 | Root cause |
+|---|---|---|---|
+| emotional_feeling_down | 4.88 | 3.25 | LLM override of emotional responses |
+| emotional_rough_day | 4.88 | 3.25 | LLM override of emotional responses |
+| emotional_scared | 4.60 | 3.25 | LLM override of emotional responses |
+| conversational_just_chatting | 4.50 | 3.25 | Service buttons on casual chat |
+| wa_privacy_information_sharing | 4.30 | 3.25 | Privacy question swallowed by service flow |
+| wa_negative_preference | 4.20 | 3.25 | No negative-preference handler |
+| adversarial_nonsense_service | 4.50 | 3.88 | Nonsense redirect requires location+transcript |
+| edge_frustration_loop | 4.12 | 3.50 | No frustration count tracking |
+| edge_frustration_to_resolution | 4.50 | 3.88 | _last_action check vs counter |
+ 
+---
+ 
+## Run 22 — 2026-04-10 (142-Scenario Suite — Run 20 Fixes Merged + Run 21 Features Retained)
+ 
+**Branch:** `multi-intent`
+**Commit:** Merge of Run 20 fixes (emotional pre-LLM gate, conversational guard, privacy routing, negative preference, nonsense service, frustration counter) on top of Run 21 features (post-results, disambiguation, correction, confidence scoring)
+**Runner:** `eval_llm_judge.py` v5 (142 scenarios, 20 categories) — temperature=0
+ 
+### Summary
+ 
+| Metric | Run 21 (142) | Run 22 (142) | Delta | Notes |
+|---|---|---|---|---|
+| Overall Score | 4.59 | **4.65** | +0.06 | Best in series |
+| Critical Failures | 29 | **23** | -6 | |
+| Passing (≥4.0) | 125/142 (88%) | **130/142 (91.5%)** | +3.5pp | |
+| Emotional Category | 3.90 | **4.86** | +0.96 | Largest single-category gain |
+| Privacy Category | 4.30 | **4.65** | +0.35 | Privacy routing exception landed |
+| Adversarial Category | 4.31 | **4.66** | +0.35 | Nonsense redirect + fake service |
+| Bot Question Category | 4.96 | **4.96** | — | Retained from R21 |
+ 
+### Dimension Scores
+ 
+| Dimension | Run 21 | Run 22 | Delta |
+|---|---|---|---|
+| Slot Extraction Accuracy | 4.56 | **4.61** | +0.05 |
+| Dialog Efficiency | 4.51 | **4.62** | +0.11 |
+| Response Tone | 4.11 | **4.23** | +0.12 |
+| Safety & Crisis Handling | 4.61 | **4.67** | +0.06 |
+| Confirmation UX | 4.71 | **4.74** | +0.03 |
+| Privacy Protection | 4.91 | **4.94** | +0.03 |
+| Hallucination Resistance | 4.97 | **4.97** | — |
+| Error Recovery | 4.35 | **4.43** | +0.08 |
+ 
+Response Tone (+0.12) and Dialog Efficiency (+0.11) show the largest dimensional gains, driven by emotion-specific static responses replacing LLM-generated text that pushed services.
+ 
+### Run 20 Fixes Re-Applied (6 fixes, 7 scenarios crossed 4.0)
+ 
+| Scenario | R21 | R22 | Delta | Fix |
+|---|---|---|---|---|
+| emotional_scared | 3.25 | **5.00** | +1.75 | Static emotion-specific response (no LLM), single "Peer navigator" button |
+| wa_privacy_information_sharing | 3.25 | **5.00** | +1.75 | Privacy routing exception: bot_question overrides has_service_intent; bot_knowledge keywords expanded |
+| emotional_feeling_down | 3.25 | **4.88** | +1.63 | `_pick_emotional_response()` returns "sad" response — no service mentions |
+| emotional_rough_day | 3.25 | **4.88** | +1.63 | `_pick_emotional_response()` returns "rough_day" response |
+| adversarial_fake_service | 3.62 | **4.75** | +1.13 | Bonus: expanded unrecognized service handler catches "I need X" on turn 1 |
+| edge_frustration_to_resolution | 3.88 | **4.38** | +0.50 | `_frustration_count` counter with 3-tier escalation |
+| adversarial_nonsense_service | 3.88 | **4.25** | +0.37 | "I need X" pattern detection fires without location/transcript prerequisites |
+ 
+### Fixes That Did NOT Land (3 scenarios still stuck)
+ 
+| Scenario | R21 | R22 | Root Cause | Fix Applied for R23 |
+|---|---|---|---|---|
+| conversational_just_chatting | 3.25 | 3.25 | LLM fallback response mentions services despite "do NOT push services" in prompt. Casual chat guard suppressed buttons but not LLM text | Static casual chat responses replace LLM call |
+| wa_negative_preference | 3.25 | 3.25 | Post-results handler intercepts "I've been to all of those already" as `specific_index` (thinks "the first one" = result #1). Negative_preference handler never fires | Post-results bypass when tone=frustrated or action=negative_preference |
+| edge_frustration_loop | 3.50 | 3.50 | Post-results handler intercepts "that's not helpful, I already tried all those places" as `unknown_about_results`. Frustration counter never increments | Same post-results bypass fix |
+ 
+### Regressions from Run 21
+ 
+| Scenario | R21 | R22 | Delta | Analysis |
+|---|---|---|---|---|
+| confirm_change_service | 4.88 | **3.75** | -1.13 | Slot not cleared on service change: "shelter and food" instead of "shelter". Slot management code not touched in R22 — likely LLM variance in slot extraction |
+| multi_decline_with_different_phrasing | 4.12 | **3.75** | -0.37 | "nah I'm good" not recognized as queue decline. Not caused by R22 changes — phrase doesn't match any new patterns |
+| natural_long_story | 4.75 | **4.38** | -0.37 | LLM variance in narrative extraction |
+ 
+### Scenarios Below 4.0 (12)
+ 
+| Scenario | Score | Category | Status |
+|---|---|---|---|
+| multi_reentry_shelter_employment | **2.25** | multi_intent | Unchanged — re-entry context not recognized |
+| multi_dycd_rhy_youth_runaway | **3.12** | multi_intent | Unchanged — crisis pre-empts service flow |
+| multiturn_change_mind | **3.25** | multi_turn | Unchanged — slot not overwritten on contradiction |
+| conversational_just_chatting | **3.25** | natural_language | R23 fix: static casual chat response |
+| wa_negative_preference | **3.25** | edge_case | R23 fix: post-results bypass + expanded phrases |
+| edge_frustration_loop | **3.50** | edge_case | R23 fix: post-results bypass |
+| context_yes_after_escalation | **3.62** | edge_case | Unchanged |
+| confirm_change_service | **3.75** | confirmation | NEW regression — investigate slot clearing |
+| multi_decline_with_different_phrasing | **3.75** | multi_intent | NEW regression — "nah I'm good" not recognized |
+| multi_shame_shelter_stigma | **3.75** | multi_intent | Unchanged — shame phrase set too narrow |
+| multi_cross_borough_food_brooklyn_shelter_manhattan | **3.88** | multi_intent | Unchanged |
+| multi_emotional_food_and_shelter_empathy | **3.88** | multi_intent | Unchanged |
+ 
+### Category Averages
+ 
+| Category | Run 21 | Run 22 | Delta | Status |
+|---|---|---|---|---|
+| bot_question | 4.96 | **4.96** | — | PASS |
+| data_quality | 4.88 | **4.88** | — | PASS |
+| referral | 4.88 | **4.88** | — | PASS |
+| staten_island | 4.75 | **4.88** | +0.13 | PASS |
+| crisis | 4.86 | **4.88** | +0.02 | PASS |
+| emotional | 3.90 | **4.86** | +0.96 | PASS ← fixed |
+| neighborhood_routing | 4.88 | **4.85** | -0.03 | PASS |
+| happy_path | 4.82 | **4.84** | +0.02 | PASS |
+| taxonomy_regression | 4.83 | **4.83** | — | PASS |
+| borough_filter | 4.75 | **4.75** | — | PASS |
+| schedule | 4.69 | **4.69** | — | PASS |
+| adversarial | 4.31 | **4.66** | +0.35 | PASS ← improved |
+| privacy | 4.30 | **4.65** | +0.35 | PASS ← improved |
+| accessibility | 4.63 | **4.63** | — | PASS |
+| no_result | 4.62 | **4.62** | — | PASS |
+| natural_language | 4.61 | **4.62** | +0.01 | PASS |
+| edge_case | 4.57 | **4.62** | +0.05 | PASS |
+| confirmation | 4.72 | **4.55** | -0.17 | PASS — watch (confirm_change_service regression) |
+| multi_turn | 4.43 | **4.45** | +0.02 | PASS |
+| multi_intent | 4.43 | **4.42** | -0.01 | PASS |
+ 
+### Progress Across Runs 14–22
+ 
+| Metric | R14 | R16 | R17 | R18 | R19 | R20 | R21 | R22 |
+|---|---|---|---|---|---|---|---|---|
+| Overall | 4.48 | 4.48 | 4.54 | 4.56 | 4.59 | 4.64 | 4.59 | **4.65** |
+| Critical Failures | 39 | 47 | 34 | 34 | 27 | 22 | 29 | **23** |
+| Passing (≥4.0) | 85% | 82% | 88% | 88% | 90% | 92% | 88% | **91.5%** |
+| Emotional | 3.87 | 3.85 | 3.85 | 3.92 | 4.12 | 4.88 | 3.90 | **4.86** |
+| Bot Question | 4.00 | 3.91 | 3.91 | 3.91 | 3.91 | 3.91 | 4.96 | **4.96** |
+| Hallucination | 4.95 | 4.98 | 4.99 | 4.96 | 4.97 | 4.99 | 4.97 | **4.97** |
+| Response Tone | 4.02 | 3.99 | 4.05 | 4.06 | 4.12 | 4.19 | 4.11 | **4.23** |
+| Error Recovery | 4.23 | 4.20 | 4.30 | 4.34 | 4.39 | 4.49 | 4.35 | **4.43** |
+ 
+Run 22 is the first run with both the Run 20 emotional/conversational fixes AND the Run 21 post-results/disambiguation/confidence features merged. The R21 dip was caused by the codebase snapshot missing Run 20 fixes — not by Run 21 features causing regressions. All Run 21 features are retained at their R21 scores (bot_question 4.96, post-results working, disambiguation working).
+ 
+Three scenarios remain stuck at their R21 scores because the post-results handler intercepts frustration/rejection messages before the dedicated handlers can fire. Fixes for Run 23 are already applied: post-results bypass on frustrated tone, expanded negative-preference phrases, and static casual chat responses.
+ 

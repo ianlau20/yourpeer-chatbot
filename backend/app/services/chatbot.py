@@ -480,6 +480,14 @@ def _classify_action(text: str) -> str | None:
         "none of them work", "none of those work",
         "i need something else", "something different",
         "those aren't what i need", "those arent what i need",
+        # Experience-based rejection — user has tried the results
+        "been to all of those", "been to all of them",
+        "tried all of those", "tried them all", "tried all of them",
+        "i don't like those", "i dont like those",
+        "don't like those options", "dont like those options",
+        "don't like any of those", "dont like any of those",
+        "turned me away", "was really unsafe", "had a bad experience",
+        "already been there", "i've been there", "ive been there",
     ]
     for phrase in _NEGATIVE_PREFERENCE_PHRASES:
         if phrase in cleaned:
@@ -1511,10 +1519,23 @@ def generate_reply(
             "confirm_yes", "confirm_deny", "reset", "greeting",
         )
         if _last_results and not has_service_intent and not _is_confirmation_action:
-            # If the user provided a new location, they're likely starting a new
-            # search, not asking about displayed results.
-            _has_new_location = bool(early_extracted.get("location"))
-            if _has_new_location:
+            # Frustration and negative preference about results should NOT be
+            # handled by post-results — they need the empathetic handlers.
+            # "That's not helpful, I already tried all those places" contains
+            # result-reference words ("those places") but is frustration, not
+            # a question about the results.
+            _is_frustration_or_rejection = (
+                tone == "frustrated"
+                or _action_pre == "negative_preference"
+                or _action_pre == "correction"
+            )
+            if _is_frustration_or_rejection:
+                # Clear results and fall through to normal routing
+                existing.pop("_last_results", None)
+                save_session_slots(session_id, existing)
+            elif early_extracted.get("location"):
+                # If the user provided a new location, they're likely starting
+                # a new search, not asking about displayed results.
                 existing.pop("_last_results", None)
                 save_session_slots(session_id, existing)
             else:
@@ -1916,7 +1937,7 @@ def generate_reply(
         result = _empty_reply(
             session_id, response, existing,
             quick_replies=[
-                {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
             ],
         )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -1939,7 +1960,7 @@ def generate_reply(
                 "with a peer navigator — they can work with you directly.",
                 existing,
                 quick_replies=[
-                    {"label": "🤝 Talk to a person", "value": "Connect with peer navigator"},
+                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
                 ],
             )
         elif frust_count >= 2:
@@ -1960,8 +1981,8 @@ def generate_reply(
             result = _empty_reply(
                 session_id, _FRUSTRATION_RESPONSE, existing,
                 quick_replies=[
-                    {"label": "🔍 Try different search", "value": "Start over"},
-                    {"label": "👤 Peer navigator", "value": "Connect with peer navigator"},
+                    {"label": "🔍 New search", "value": "Start over"},
+                    {"label": "🤝 Peer navigator", "value": "Connect with peer navigator"},
                 ],
             )
         _log_turn(session_id, redacted_message, result, category, request_id=request_id, tone=tone)
@@ -2517,7 +2538,20 @@ def generate_reply(
     # Use Claude Haiku for a natural conversational response.
     # Don't push service category buttons — they were shown on welcome.
     # The user can say "what can you help with" to see them again.
-    response = _fallback_response(message, merged)
+
+    # Casual chat gets a static response — the LLM tends to mention
+    # services even with explicit "do NOT push services" in the prompt.
+    if _is_casual_chat:
+        _CASUAL_RESPONSES = [
+            "I'm doing well, thanks for asking! I'm here whenever you need me.",
+            "Hey! Just here and ready to help whenever you are.",
+            "Doing good! Let me know if there's anything I can help you find.",
+        ]
+        # Pick based on transcript length for variety
+        _idx = len(merged.get("transcript", [])) % len(_CASUAL_RESPONSES)
+        response = _CASUAL_RESPONSES[_idx]
+    else:
+        response = _fallback_response(message, merged)
     has_service_intent = bool(
         merged.get("service_type") or merged.get("location")
     )
