@@ -297,6 +297,15 @@ FILTER_NOT_HIDDEN = (
     [],
 )
 
+# Description keyword filter — narrows results by matching against
+# service descriptions using PostgreSQL regex. Used by housing_assistance
+# template (Phase 2) and will be reused by Phase 4 sub-category narrowing.
+# The pattern is a PostgreSQL ~* regex (case-insensitive).
+FILTER_BY_DESCRIPTION_KEYWORDS = (
+    "s.description ~* :description_pattern",
+    ["description_pattern"],
+)
+
 # ---------------------------------------------------------------------------
 # ORDER + LIMIT
 # ---------------------------------------------------------------------------
@@ -590,6 +599,49 @@ TEMPLATES = {
             "Residential Recovery", "Support Groups",
         ],
     },
+    "housing_assistance": {
+        "name": "HousingAssistanceQuery",
+        "description": "Find rental assistance, eviction prevention, and housing programs (not emergency shelter)",
+        "required_filters": [
+            FILTER_BY_TAXONOMY_NAME_IN,
+            FILTER_NOT_HIDDEN,
+            FILTER_BY_STATE_NY,
+            FILTER_BY_DESCRIPTION_KEYWORDS,
+        ],
+        "optional_filters": [
+            FILTER_BY_BOROUGH,
+            FILTER_BY_CITY,
+            FILTER_BY_CITY_IN_BOROUGH,
+            FILTER_BY_CITY_LIKE,
+            FILTER_BY_PROXIMITY,
+        ],
+        "default_params": {
+            "taxonomy_names": [
+                "other service",
+                "benefits",
+                "case workers",
+                "referral",
+                "housing lottery",
+            ],
+            # Description-level filter narrows results to housing programs.
+            # Without this, the broad taxonomy list would return all 940+
+            # "Other service" entries. The pattern matches rental assistance,
+            # eviction prevention, Section 8, NYCHA, affordable housing, etc.
+            "description_pattern": (
+                "rental|rent assist|rent arrear|rent program"
+                "|eviction prev|eviction defense|housing court"
+                "|housing assist|housing program|housing support"
+                "|housing applic|housing referral|housing voucher"
+                "|section 8|voucher|SCRIE|DRIE"
+                "|NYCHA|housing connect|affordable hous|subsidiz"
+                "|homeless prevention|rapid rehousing|rapid re-housing"
+            ),
+        },
+        "taxonomy_aliases": [
+            "Other service", "Benefits", "Case Workers",
+            "Referral", "Housing Lottery",
+        ],
+    },
     "other": {
         "name": "OtherServicesQuery",
         "description": "Find benefits, drop-in centers, case workers, and miscellaneous services",
@@ -600,6 +652,7 @@ TEMPLATES = {
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
+            FILTER_BY_DESCRIPTION_KEYWORDS,
         ],
         "default_params": {
             "taxonomy_names": [

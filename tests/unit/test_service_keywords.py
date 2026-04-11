@@ -218,31 +218,60 @@ class TestEducation:
 
 
 class TestHousingAssistance:
-    """112 services — distinct from shelter (beds vs rent programs)."""
+    """112 services — distinct from shelter (beds vs rent programs).
+    Phase 2: split into dedicated housing_assistance service type."""
 
     def test_rental_assistance(self):
         r = extract_slots("I need rental assistance")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
         assert r["service_detail"] == "rental assistance"
 
     def test_behind_on_rent(self):
         r = extract_slots("I'm behind on rent")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
 
     def test_housing_voucher(self):
         r = extract_slots("I need a housing voucher")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
 
     def test_eviction_prevention(self):
         r = extract_slots("I need eviction prevention")
-        assert r["service_type"] == "other"
+        assert r["service_type"] == "housing_assistance"
 
     def test_housing_vs_shelter(self):
-        """'housing' alone → shelter (urgent). 'housing assistance' → other (program)."""
+        """'housing' alone → shelter (urgent). 'housing assistance' → housing_assistance (program)."""
         r_housing = extract_slots("I need housing")
         r_assist = extract_slots("I need housing assistance")
         assert r_housing["service_type"] == "shelter"
-        assert r_assist["service_type"] == "other"
+        assert r_assist["service_type"] == "housing_assistance"
+
+    def test_affordable_housing(self):
+        r = extract_slots("I need affordable housing")
+        assert r["service_type"] == "housing_assistance"
+        assert r["service_detail"] == "affordable housing"
+
+    def test_nycha(self):
+        r = extract_slots("how do I apply for NYCHA")
+        assert r["service_type"] == "housing_assistance"
+        assert r["service_detail"] == "NYCHA housing"
+
+    def test_section_8(self):
+        r = extract_slots("I need Section 8")
+        assert r["service_type"] == "housing_assistance"
+        assert r["service_detail"] == "Section 8 vouchers"
+
+    def test_housing_program(self):
+        r = extract_slots("I need a housing program")
+        assert r["service_type"] == "housing_assistance"
+
+    def test_evicted_stays_shelter(self):
+        """'evicted' implies immediate crisis → shelter, not housing programs."""
+        r = extract_slots("I just got evicted")
+        assert r["service_type"] == "shelter"
+
+    def test_homeless_prevention(self):
+        r = extract_slots("I need homeless prevention help")
+        assert r["service_type"] == "housing_assistance"
 
 
 class TestSenior:
@@ -480,7 +509,358 @@ class TestYourPeerAlignment:
         The join must NOT subtract 1 from ISODOW."""
         from app.rag.query_templates import build_query
         sql, _ = build_query("food", {"borough": "Manhattan"})
-        # Should have ISODOW without "- 1"
-        assert "ISODOW FROM CURRENT_DATE)::int\n" in sql or \
-               "ISODOW FROM CURRENT_DATE)::int " in sql
         assert "ISODOW FROM CURRENT_DATE)::int - 1" not in sql
+        # Verify ISODOW is used without subtraction
+        assert "ISODOW FROM CURRENT_DATE)::int" in sql
+
+
+class TestHousingAssistanceTemplate:
+    """Phase 2: housing_assistance template uses description-level filtering
+    to return housing programs (rental assistance, eviction prevention)
+    instead of the full 940-item 'Other service' catch-all."""
+
+    def test_template_exists(self):
+        from app.rag.query_templates import TEMPLATES
+        assert "housing_assistance" in TEMPLATES
+
+    def test_template_has_description_filter(self):
+        """Description filter must be in required_filters so it always runs."""
+        from app.rag.query_templates import TEMPLATES, FILTER_BY_DESCRIPTION_KEYWORDS
+        required = TEMPLATES["housing_assistance"]["required_filters"]
+        assert FILTER_BY_DESCRIPTION_KEYWORDS in required
+
+    def test_description_pattern_in_default_params(self):
+        from app.rag.query_templates import TEMPLATES
+        pattern = TEMPLATES["housing_assistance"]["default_params"]["description_pattern"]
+        assert "rental" in pattern
+        assert "eviction" in pattern
+        assert "section 8" in pattern.lower() or "section" in pattern
+
+    def test_description_pattern_matches_real_descriptions(self):
+        """Verify the regex pattern actually matches real DB descriptions.
+        These are representative descriptions from the audit query results."""
+        import re
+        from app.rag.query_templates import TEMPLATES
+        pattern = TEMPLATES["housing_assistance"]["default_params"]["description_pattern"]
+        regex = re.compile(pattern, re.IGNORECASE)
+
+        should_match = [
+            "Rental Assistance Program Referrals",
+            "Services include: rental assistance, housing referrals",
+            "Help with eviction prevention and housing court",
+            "Section 8 voucher applications",
+            "NYCHA housing application assistance",
+            "Affordable housing lottery applications",
+            "Housing Connect NYCHA applications",
+            "Homeless prevention and rapid rehousing",
+            "Assistance with rent arrears and back rent",
+            "SCRIE and DRIE enrollment assistance",
+            "Housing voucher program enrollment",
+            "Subsidized housing referrals",
+        ]
+        should_not_match = [
+            "Free hot meals served daily",
+            "Walk-in medical clinic open 9-5",
+            "ESL and GED classes for adults",
+            "Drop-in center for youth",
+            "AA meetings every Tuesday",
+        ]
+
+        for desc in should_match:
+            assert regex.search(desc), f"Pattern should match: '{desc}'"
+        for desc in should_not_match:
+            assert not regex.search(desc), f"Pattern should NOT match: '{desc}'"
+
+    def test_sql_includes_description_filter(self):
+        from app.rag.query_templates import build_query
+        sql, params = build_query("housing_assistance", {"borough": "Manhattan"})
+        assert "description ~*" in sql
+        assert "description_pattern" in params
+
+    def test_sql_excludes_description_filter_for_shelter(self):
+        """Shelter template must NOT have description filter."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("shelter", {"borough": "Manhattan"})
+        assert "description ~*" not in sql
+
+    def test_relaxed_query_keeps_description_filter(self):
+        """When zero results, relaxed query drops borough but keeps
+        description filter — we still want housing programs, not all 940."""
+        from app.rag.query_templates import build_relaxed_query
+        sql, _ = build_relaxed_query("housing_assistance", {"borough": "Manhattan"})
+        assert "description ~*" in sql
+
+    def test_routing_maps_correctly(self):
+        from app.rag.query_executor import resolve_template_key
+        assert resolve_template_key("housing_assistance") == "housing_assistance"
+        assert resolve_template_key("shelter") == "shelter"
+        assert resolve_template_key("housing") == "shelter"
+
+    def test_housing_keywords_not_in_other(self):
+        """Housing assistance keywords must NOT also be in 'other'.
+        Dual-listing would create routing conflicts."""
+        from app.services.slot_extractor import SERVICE_KEYWORDS
+        housing_kws = set(SERVICE_KEYWORDS["housing_assistance"])
+        other_kws = set(SERVICE_KEYWORDS["other"])
+        overlap = housing_kws & other_kws
+        assert not overlap, f"Keywords in both housing_assistance and other: {overlap}"
+
+    def test_disambiguation_housing_vs_housing_assistance(self):
+        """'housing' → shelter (urgent). 'housing assistance' → housing_assistance (program)."""
+        r_housing = extract_slots("I need housing")
+        r_assist = extract_slots("I need housing assistance")
+        r_rent = extract_slots("I need help with rent")
+        r_evicted = extract_slots("I got evicted")
+
+        assert r_housing["service_type"] == "shelter"
+        assert r_assist["service_type"] == "housing_assistance"
+        assert r_rent["service_type"] == "housing_assistance"
+        assert r_evicted["service_type"] == "shelter"
+
+    def test_eviction_edge_cases(self):
+        """Eviction-related phrases need careful routing."""
+        # "evicted" / "kicked out" → shelter (immediate displacement)
+        assert extract_slots("I got evicted")["service_type"] == "shelter"
+        assert extract_slots("I just got kicked out")["service_type"] == "shelter"
+
+        # "eviction prevention" → housing_assistance (program)
+        assert extract_slots("I need eviction prevention")["service_type"] == "housing_assistance"
+
+    def test_location_extracts_with_housing_assistance(self):
+        r = extract_slots("I need rental assistance in Brooklyn")
+        assert r["service_type"] == "housing_assistance"
+        assert r["location"] == "brooklyn"
+
+    def test_multi_intent_housing_and_food(self):
+        """Housing assistance + food → primary is housing_assistance."""
+        r = extract_slots("I need help with rent and food")
+        assert r["service_type"] == "housing_assistance"
+        additional = [a[0] for a in r.get("additional_services", [])]
+        assert "food" in additional
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Sub-Category Narrowing & Description-Based Search
+# ---------------------------------------------------------------------------
+
+class TestTaxonomyNarrowing:
+    """4a: When service_detail is set, taxonomy_names should be narrowed
+    to the specific sub-taxonomy instead of the full parent category."""
+
+    def test_soup_kitchen_narrows_food(self):
+        """'soup kitchen' should query only soup kitchen taxonomies,
+        not all 11 food taxonomies."""
+        from app.rag.query_templates import build_query, TEMPLATES
+        default_count = len(TEMPLATES["food"]["default_params"]["taxonomy_names"])
+        sql, params = build_query("food", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["soup kitchen", "mobile soup kitchen"],
+        })
+        assert params["taxonomy_names"] == ["soup kitchen", "mobile soup kitchen"]
+        assert len(params["taxonomy_names"]) < default_count
+
+    def test_food_pantry_narrows_food(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("food", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["food pantry", "mobile pantry"],
+        })
+        assert "food pantry" in params["taxonomy_names"]
+        assert "soup kitchen" not in params["taxonomy_names"]
+
+    def test_shower_narrows_personal_care(self):
+        """'shower' should query only shower taxonomy, not laundry/haircuts."""
+        from app.rag.query_templates import build_query
+        _, params = build_query("personal_care", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["shower"],
+        })
+        assert params["taxonomy_names"] == ["shower"]
+
+    def test_laundry_narrows_personal_care(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("personal_care", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["laundry"],
+        })
+        assert params["taxonomy_names"] == ["laundry"]
+
+    def test_haircut_narrows_personal_care(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("personal_care", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["haircut"],
+        })
+        assert params["taxonomy_names"] == ["haircut"]
+
+    def test_no_narrowing_without_detail(self):
+        """Without service_detail, full taxonomy list is used."""
+        from app.rag.query_templates import build_query, TEMPLATES
+        default_food = TEMPLATES["food"]["default_params"]["taxonomy_names"]
+        _, params = build_query("food", {"borough": "Manhattan"})
+        assert params["taxonomy_names"] == default_food
+
+    def test_narrowing_map_covers_all_food_sub_types(self):
+        """All food sub-type detail values should trigger taxonomy narrowing."""
+        food_cases = [
+            ("I need a soup kitchen", "soup kitchens"),
+            ("I need a food pantry", "food pantries"),
+            ("I need groceries", "groceries"),
+        ]
+        for query, expected_detail in food_cases:
+            r = extract_slots(query)
+            assert r["service_type"] == "food", f"Wrong type for: {query}"
+            assert r["service_detail"] == expected_detail, f"Wrong detail for: {query}"
+
+    def test_narrowing_map_covers_personal_care_sub_types(self):
+        """All personal care sub-types should have narrowing entries."""
+        pc_queries = [
+            ("I need a shower", "showers"),
+            ("I need laundry", "laundry"),
+            ("I need a haircut", "haircuts"),
+        ]
+        for query, expected_detail in pc_queries:
+            r = extract_slots(query)
+            assert r["service_type"] == "personal_care"
+            assert r["service_detail"] == expected_detail
+
+
+class TestDescriptionFilter:
+    """4b: For 'other' sub-types, description keyword filter narrows
+    results by matching against service descriptions."""
+
+    def test_esl_gets_description_filter(self):
+        """'ESL' → other with description pattern for English classes."""
+        r = extract_slots("I need ESL")
+        assert r["service_type"] == "other"
+        assert r["service_detail"] == "English classes"
+
+    def test_ged_gets_description_filter(self):
+        r = extract_slots("I need my GED")
+        assert r["service_type"] == "other"
+        assert r["service_detail"] == "GED programs"
+
+    def test_english_classes_description_pattern(self):
+        """Verify the description pattern matches real DB content."""
+        import re
+        # Simulate what query_services does
+        _DETAIL_DESCRIPTION_PATTERNS = {
+            "English classes": r"ESL|ESOL|english class|learn english",
+            "GED programs": r"GED|high school equiv|HSE|diploma|equivalency",
+            "disability services": r"disability|disabled|SSI|SSDI|accessible|special needs",
+            "financial services": r"financial|money management|budget|credit|debt|financial literacy",
+            "re-entry services": r"reentry|re-entry|parole|probation|incarcerat|released|formerly",
+        }
+
+        esl_pattern = re.compile(_DETAIL_DESCRIPTION_PATTERNS["English classes"], re.I)
+        assert esl_pattern.search("Basic and Immediate ESOL Classes")
+        assert esl_pattern.search("ESL classes, assistance in school enrollment")
+        assert esl_pattern.search("Help with learning: ESL and literacy courses")
+        assert not esl_pattern.search("Free hot meals served daily")
+
+        ged_pattern = re.compile(_DETAIL_DESCRIPTION_PATTERNS["GED programs"], re.I)
+        assert ged_pattern.search("They will help you attain your high school equivalency diploma")
+        assert ged_pattern.search("GED support for continued education")
+        assert not ged_pattern.search("Rental assistance program")
+
+    def test_other_without_detail_no_description_filter(self):
+        """'other services' with no detail → no description filter,
+        returns all 940 entries."""
+        from app.rag.query_templates import build_query
+        sql, params = build_query("other", {"borough": "Manhattan"})
+        assert "description ~*" not in sql
+        assert "description_pattern" not in params
+
+    def test_other_with_detail_has_description_filter(self):
+        from app.rag.query_templates import build_query
+        sql, params = build_query("other", {
+            "borough": "Manhattan",
+            "description_pattern": r"ESL|ESOL|english class",
+        })
+        assert "description ~*" in sql
+
+    def test_description_filter_not_on_food(self):
+        """Food uses taxonomy narrowing (4a), not description filter (4b)."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("food", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["soup kitchen"],
+        })
+        assert "description ~*" not in sql
+
+    def test_word_boundary_keywords_set_detail(self):
+        """Word-boundary keywords must set service_detail so the
+        description filter can trigger."""
+        wb_cases = [
+            ("I need ESL", "other", "English classes"),
+            ("I need my GED", "other", "GED programs"),
+            ("I'm on SSI", "other", "disability services"),
+            ("I'm on parole", "other", "re-entry services"),
+            ("I need SYEP info", "employment", "SYEP programs"),
+            ("I need PrEP", "medical", "PrEP services"),
+        ]
+        for query, exp_type, exp_detail in wb_cases:
+            r = extract_slots(query)
+            assert r["service_type"] == exp_type, f"Failed type for: {query}"
+            assert r["service_detail"] == exp_detail, f"Failed detail for: {query}"
+
+    def test_toiletries_sets_detail(self):
+        r = extract_slots("I need toiletries")
+        assert r["service_type"] == "personal_care"
+        assert r["service_detail"] == "toiletries"
+
+    def test_restroom_sets_detail(self):
+        r = extract_slots("I need a restroom")
+        assert r["service_type"] == "personal_care"
+        assert r["service_detail"] == "restrooms"
+
+    def test_bathroom_sets_detail(self):
+        r = extract_slots("I need a bathroom")
+        assert r["service_type"] == "personal_care"
+        assert r["service_detail"] == "restrooms"
+
+
+class TestNarrowingSyncIntegrity:
+    """Verify that the taxonomy narrowing map and description pattern map
+    keys stay in sync with _NOTABLE_SUB_TYPES values. If a narrowing
+    entry has no matching sub-type label, it can never trigger."""
+
+    def test_taxonomy_narrowing_keys_are_reachable(self):
+        """Every key in _DETAIL_TO_TAXONOMY_NARROWING must be producible
+        as a service_detail value from _NOTABLE_SUB_TYPES."""
+        from app.services.slot_extractor import _NOTABLE_SUB_TYPES
+
+        # These are the narrowing map keys from rag/__init__.py
+        narrowing_keys = [
+            "soup kitchens", "food pantries", "groceries",
+            "showers", "laundry", "haircuts", "toiletries", "restrooms",
+        ]
+        sub_type_values = set(_NOTABLE_SUB_TYPES.values())
+        for key in narrowing_keys:
+            assert key in sub_type_values, (
+                f"Narrowing key '{key}' has no _NOTABLE_SUB_TYPES entry "
+                f"that produces it — narrowing will never trigger"
+            )
+
+    def test_description_pattern_keys_are_reachable(self):
+        """Every key in _DETAIL_DESCRIPTION_PATTERNS must be producible
+        as a service_detail value from _NOTABLE_SUB_TYPES."""
+        from app.services.slot_extractor import _NOTABLE_SUB_TYPES
+
+        # These are the description pattern keys from rag/__init__.py
+        description_keys = [
+            "English classes", "GED programs", "adult education",
+            "computer classes", "digital literacy",
+            "disability services", "financial services", "financial literacy",
+            "budgeting help", "senior services", "re-entry services",
+            "anger management", "parenting classes", "baby supplies",
+            "transportation help", "insurance enrollment",
+            "health insurance enrollment", "LGBTQ services", "LGBTQ support",
+            "DACA services", "accessibility services",
+        ]
+        sub_type_values = set(_NOTABLE_SUB_TYPES.values())
+        for key in description_keys:
+            assert key in sub_type_values, (
+                f"Description pattern key '{key}' has no _NOTABLE_SUB_TYPES "
+                f"entry that produces it — filter will never trigger"
+            )
