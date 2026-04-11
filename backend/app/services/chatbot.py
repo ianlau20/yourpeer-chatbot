@@ -193,6 +193,13 @@ _ESCALATION_PHRASES = [
     "human", "connect me", "connect with person",
     "connect with peer navigator", "call someone", "live chat",
     "case manager", "social worker", "counselor",
+    # Missing variants (regex audit — 50% miss rate)
+    "speak with someone", "speak with a person",
+    "talk to a human", "speak to a human",
+    "transfer me", "can someone call me",
+    "person i can call", "someone to call",
+    "is there a person", "actual person",
+    "get me a person", "real human",
 ]
 
 _FRUSTRATION_PHRASES = [
@@ -223,6 +230,15 @@ _FRUSTRATION_PHRASES = [
     "i keep getting the same results",
     # Resignation (P2 audit — route to frustration handler, not reset)
     "forget it", "this is pointless",
+    # Informal / vernacular frustration (regex audit)
+    "you're no help", "youre no help", "no help at all",
+    "going in circles", "keep going in circles",
+    "keeps asking the same thing", "asking me the same thing",
+    "this is bs", "this is bull",
+    "whatever",
+    "smh",
+    "bruh", "this ain't working", "this aint working",
+    "yo this trash", "this is trash",
 ]
 
 # Emotional expressions — sub-crisis distress that deserves warm
@@ -294,6 +310,20 @@ _EMOTIONAL_PHRASES = [
     "everything is falling apart", "my life is falling apart",
     "nothing ever works out", "things keep getting worse",
     "i can't catch a break", "i cant catch a break",
+    # Indirect emotional expressions (regex audit — 0% detection rate)
+    "can't take it anymore", "cant take it anymore",
+    "i just cant take it", "i just can't take it",
+    "at the end of my rope", "end of my rope",
+    "crying all day", "been crying",
+    "i hate my life", "hate my life",
+    "i have nothing", "have nothing left", "nothing left",
+    "whats the point", "what's the point",
+    "i feel broken", "im broken", "i'm broken", "i am broken",
+    "feel empty", "feel empty inside",
+    "feel like giving up", "giving up",
+    "so hard right now", "everything is so hard",
+    "i don't know what to do with myself",
+    "dont know what to do with myself",
 ]
 
 _BOT_IDENTITY_PHRASES = [
@@ -396,18 +426,25 @@ _SERVICE_LABELS = {
 # Confirmation-related phrases
 # Short words that need EXACT match to avoid false positives
 _CONFIRM_YES_EXACT = [
-    "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "correct",
+    "yes", "yeah", "yea", "yep", "yup", "sure", "ok", "okay", "correct",
     "right", "go", "please", "do it", "find",
+    # NYC youth slang / informal affirmation
+    "bet", "aight", "ight", "word", "fasho", "fo sho",
+    "facts", "say less", "cool", "def", "absolutely",
 ]
 
 # Longer phrases that can use STARTS-WITH or CONTAINS matching
 _CONFIRM_YES_STARTSWITH = [
-    "yes ", "yeah ", "yep ", "sure ", "ok ",  # "yes search", "yes please", "yes I want to"
+    "yes ", "yeah ", "yea ", "yep ", "sure ", "ok ",
     "go ahead", "looks good", "looks right", "looks correct",
     "that's right", "thats right", "that's correct", "thats correct",
     "search for", "please search", "do the search",
     "yes search", "yes please",
     "confirm", "confirmed",
+    # Informal / conversational
+    "that works", "sounds good", "sounds right", "sounds correct",
+    "lets go", "let's go", "for sure",
+    "yea search", "bet ", "aight ",
 ]
 
 _CONFIRM_CHANGE_SERVICE = [
