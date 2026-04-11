@@ -803,3 +803,64 @@ class TestDescriptionFilter:
             r = extract_slots(query)
             assert r["service_type"] == exp_type, f"Failed type for: {query}"
             assert r["service_detail"] == exp_detail, f"Failed detail for: {query}"
+
+    def test_toiletries_sets_detail(self):
+        r = extract_slots("I need toiletries")
+        assert r["service_type"] == "personal_care"
+        assert r["service_detail"] == "toiletries"
+
+    def test_restroom_sets_detail(self):
+        r = extract_slots("I need a restroom")
+        assert r["service_type"] == "personal_care"
+        assert r["service_detail"] == "restrooms"
+
+    def test_bathroom_sets_detail(self):
+        r = extract_slots("I need a bathroom")
+        assert r["service_type"] == "personal_care"
+        assert r["service_detail"] == "restrooms"
+
+
+class TestNarrowingSyncIntegrity:
+    """Verify that the taxonomy narrowing map and description pattern map
+    keys stay in sync with _NOTABLE_SUB_TYPES values. If a narrowing
+    entry has no matching sub-type label, it can never trigger."""
+
+    def test_taxonomy_narrowing_keys_are_reachable(self):
+        """Every key in _DETAIL_TO_TAXONOMY_NARROWING must be producible
+        as a service_detail value from _NOTABLE_SUB_TYPES."""
+        from app.services.slot_extractor import _NOTABLE_SUB_TYPES
+
+        # These are the narrowing map keys from rag/__init__.py
+        narrowing_keys = [
+            "soup kitchens", "food pantries", "groceries",
+            "showers", "laundry", "haircuts", "toiletries", "restrooms",
+        ]
+        sub_type_values = set(_NOTABLE_SUB_TYPES.values())
+        for key in narrowing_keys:
+            assert key in sub_type_values, (
+                f"Narrowing key '{key}' has no _NOTABLE_SUB_TYPES entry "
+                f"that produces it — narrowing will never trigger"
+            )
+
+    def test_description_pattern_keys_are_reachable(self):
+        """Every key in _DETAIL_DESCRIPTION_PATTERNS must be producible
+        as a service_detail value from _NOTABLE_SUB_TYPES."""
+        from app.services.slot_extractor import _NOTABLE_SUB_TYPES
+
+        # These are the description pattern keys from rag/__init__.py
+        description_keys = [
+            "English classes", "GED programs", "adult education",
+            "computer classes", "digital literacy",
+            "disability services", "financial services", "financial literacy",
+            "budgeting help", "senior services", "re-entry services",
+            "anger management", "parenting classes", "baby supplies",
+            "transportation help", "insurance enrollment",
+            "health insurance enrollment", "LGBTQ services", "LGBTQ support",
+            "DACA services", "accessibility services",
+        ]
+        sub_type_values = set(_NOTABLE_SUB_TYPES.values())
+        for key in description_keys:
+            assert key in sub_type_values, (
+                f"Description pattern key '{key}' has no _NOTABLE_SUB_TYPES "
+                f"entry that produces it — filter will never trigger"
+            )

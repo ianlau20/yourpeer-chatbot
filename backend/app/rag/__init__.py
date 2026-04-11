@@ -212,8 +212,9 @@ def query_services(
             "haircuts": ["haircut"],
             "toiletries": ["toiletries"],
             "restrooms": ["restrooms"],
-            # Clothing sub-types
-            "interview clothing": ["interview-ready clothing", "professional clothing"],
+            # Clothing sub-types — "interview clothing" intentionally omitted
+            # because "interview" conflicts with the employment keyword.
+            # TODO: revisit when phrase-level disambiguation is added.
         }
 
         narrowed_taxonomies = _DETAIL_TO_TAXONOMY_NARROWING.get(service_detail)

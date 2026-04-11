@@ -324,6 +324,9 @@ _NOTABLE_SUB_TYPES = {
     "shower": "showers",
     "laundry": "laundry",
     "haircut": "haircuts",
+    "toiletries": "toiletries",
+    "restroom": "restrooms",
+    "bathroom": "restrooms",
     # food sub-types
     "soup kitchen": "soup kitchens",
     "food pantry": "food pantries",
