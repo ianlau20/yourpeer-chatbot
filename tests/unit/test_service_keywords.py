@@ -637,3 +637,169 @@ class TestHousingAssistanceTemplate:
         assert r["service_type"] == "housing_assistance"
         additional = [a[0] for a in r.get("additional_services", [])]
         assert "food" in additional
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Sub-Category Narrowing & Description-Based Search
+# ---------------------------------------------------------------------------
+
+class TestTaxonomyNarrowing:
+    """4a: When service_detail is set, taxonomy_names should be narrowed
+    to the specific sub-taxonomy instead of the full parent category."""
+
+    def test_soup_kitchen_narrows_food(self):
+        """'soup kitchen' should query only soup kitchen taxonomies,
+        not all 11 food taxonomies."""
+        from app.rag.query_templates import build_query, TEMPLATES
+        default_count = len(TEMPLATES["food"]["default_params"]["taxonomy_names"])
+        sql, params = build_query("food", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["soup kitchen", "mobile soup kitchen"],
+        })
+        assert params["taxonomy_names"] == ["soup kitchen", "mobile soup kitchen"]
+        assert len(params["taxonomy_names"]) < default_count
+
+    def test_food_pantry_narrows_food(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("food", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["food pantry", "mobile pantry"],
+        })
+        assert "food pantry" in params["taxonomy_names"]
+        assert "soup kitchen" not in params["taxonomy_names"]
+
+    def test_shower_narrows_personal_care(self):
+        """'shower' should query only shower taxonomy, not laundry/haircuts."""
+        from app.rag.query_templates import build_query
+        _, params = build_query("personal_care", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["shower"],
+        })
+        assert params["taxonomy_names"] == ["shower"]
+
+    def test_laundry_narrows_personal_care(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("personal_care", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["laundry"],
+        })
+        assert params["taxonomy_names"] == ["laundry"]
+
+    def test_haircut_narrows_personal_care(self):
+        from app.rag.query_templates import build_query
+        _, params = build_query("personal_care", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["haircut"],
+        })
+        assert params["taxonomy_names"] == ["haircut"]
+
+    def test_no_narrowing_without_detail(self):
+        """Without service_detail, full taxonomy list is used."""
+        from app.rag.query_templates import build_query, TEMPLATES
+        default_food = TEMPLATES["food"]["default_params"]["taxonomy_names"]
+        _, params = build_query("food", {"borough": "Manhattan"})
+        assert params["taxonomy_names"] == default_food
+
+    def test_narrowing_map_covers_all_food_sub_types(self):
+        """All food sub-type detail values should trigger taxonomy narrowing."""
+        food_cases = [
+            ("I need a soup kitchen", "soup kitchens"),
+            ("I need a food pantry", "food pantries"),
+            ("I need groceries", "groceries"),
+        ]
+        for query, expected_detail in food_cases:
+            r = extract_slots(query)
+            assert r["service_type"] == "food", f"Wrong type for: {query}"
+            assert r["service_detail"] == expected_detail, f"Wrong detail for: {query}"
+
+    def test_narrowing_map_covers_personal_care_sub_types(self):
+        """All personal care sub-types should have narrowing entries."""
+        pc_queries = [
+            ("I need a shower", "showers"),
+            ("I need laundry", "laundry"),
+            ("I need a haircut", "haircuts"),
+        ]
+        for query, expected_detail in pc_queries:
+            r = extract_slots(query)
+            assert r["service_type"] == "personal_care"
+            assert r["service_detail"] == expected_detail
+
+
+class TestDescriptionFilter:
+    """4b: For 'other' sub-types, description keyword filter narrows
+    results by matching against service descriptions."""
+
+    def test_esl_gets_description_filter(self):
+        """'ESL' → other with description pattern for English classes."""
+        r = extract_slots("I need ESL")
+        assert r["service_type"] == "other"
+        assert r["service_detail"] == "English classes"
+
+    def test_ged_gets_description_filter(self):
+        r = extract_slots("I need my GED")
+        assert r["service_type"] == "other"
+        assert r["service_detail"] == "GED programs"
+
+    def test_english_classes_description_pattern(self):
+        """Verify the description pattern matches real DB content."""
+        import re
+        # Simulate what query_services does
+        _DETAIL_DESCRIPTION_PATTERNS = {
+            "English classes": r"ESL|ESOL|english class|learn english",
+            "GED programs": r"GED|high school equiv|HSE|diploma|equivalency",
+            "disability services": r"disability|disabled|SSI|SSDI|accessible|special needs",
+            "financial services": r"financial|money management|budget|credit|debt|financial literacy",
+            "re-entry services": r"reentry|re-entry|parole|probation|incarcerat|released|formerly",
+        }
+
+        esl_pattern = re.compile(_DETAIL_DESCRIPTION_PATTERNS["English classes"], re.I)
+        assert esl_pattern.search("Basic and Immediate ESOL Classes")
+        assert esl_pattern.search("ESL classes, assistance in school enrollment")
+        assert esl_pattern.search("Help with learning: ESL and literacy courses")
+        assert not esl_pattern.search("Free hot meals served daily")
+
+        ged_pattern = re.compile(_DETAIL_DESCRIPTION_PATTERNS["GED programs"], re.I)
+        assert ged_pattern.search("They will help you attain your high school equivalency diploma")
+        assert ged_pattern.search("GED support for continued education")
+        assert not ged_pattern.search("Rental assistance program")
+
+    def test_other_without_detail_no_description_filter(self):
+        """'other services' with no detail → no description filter,
+        returns all 940 entries."""
+        from app.rag.query_templates import build_query
+        sql, params = build_query("other", {"borough": "Manhattan"})
+        assert "description ~*" not in sql
+        assert "description_pattern" not in params
+
+    def test_other_with_detail_has_description_filter(self):
+        from app.rag.query_templates import build_query
+        sql, params = build_query("other", {
+            "borough": "Manhattan",
+            "description_pattern": r"ESL|ESOL|english class",
+        })
+        assert "description ~*" in sql
+
+    def test_description_filter_not_on_food(self):
+        """Food uses taxonomy narrowing (4a), not description filter (4b)."""
+        from app.rag.query_templates import build_query
+        sql, _ = build_query("food", {
+            "borough": "Manhattan",
+            "taxonomy_names": ["soup kitchen"],
+        })
+        assert "description ~*" not in sql
+
+    def test_word_boundary_keywords_set_detail(self):
+        """Word-boundary keywords must set service_detail so the
+        description filter can trigger."""
+        wb_cases = [
+            ("I need ESL", "other", "English classes"),
+            ("I need my GED", "other", "GED programs"),
+            ("I'm on SSI", "other", "disability services"),
+            ("I'm on parole", "other", "re-entry services"),
+            ("I need SYEP info", "employment", "SYEP programs"),
+            ("I need PrEP", "medical", "PrEP services"),
+        ]
+        for query, exp_type, exp_detail in wb_cases:
+            r = extract_slots(query)
+            assert r["service_type"] == exp_type, f"Failed type for: {query}"
+            assert r["service_detail"] == exp_detail, f"Failed detail for: {query}"

@@ -1204,6 +1204,7 @@ def _execute_and_respond(session_id: str, message: str, slots: dict, request_id:
             longitude=slots.get("_longitude") if use_coords else None,
             family_status=slots.get("family_status"),
             colocated_service_types=colocated_types,
+            service_detail=slots.get("service_detail"),
         )
 
         colocated_success = (

@@ -38,6 +38,7 @@ def query_services(
     longitude: float = None,
     family_status: str = None,
     colocated_service_types: list = None,
+    service_detail: str = None,
 ) -> dict:
     """
     High-level entry point: go from intake slots to service results.
@@ -182,6 +183,73 @@ def query_services(
             enriched = list(TEMPLATES["shelter"]["default_params"]["taxonomy_names"])
             enriched.extend(extra_taxonomies)
             user_params["taxonomy_names"] = enriched
+
+    # -----------------------------------------------------------------
+    # Sub-category narrowing (Phase 4)
+    # -----------------------------------------------------------------
+    # When service_detail is set (e.g. "soup kitchens", "showers",
+    # "English classes"), narrow results to that specific sub-type
+    # instead of returning the entire parent category.
+    #
+    # Two strategies depending on template:
+    #   4a. Taxonomy narrowing — for food, personal_care, clothing:
+    #       Replace the broad taxonomy_names with the specific sub-taxonomy.
+    #   4b. Description filter — for other:
+    #       Add a description regex pattern (FILTER_BY_DESCRIPTION_KEYWORDS)
+    #       because most "other" services share the same "Other service"
+    #       taxonomy and can only be distinguished by description.
+
+    if service_detail:
+        # 4a. Taxonomy narrowing for categories with distinct sub-taxonomies
+        _DETAIL_TO_TAXONOMY_NARROWING = {
+            # Food sub-types (YourPeer supports soup-kitchen vs pantry filter)
+            "soup kitchens": ["soup kitchen", "mobile soup kitchen"],
+            "food pantries": ["food pantry", "mobile pantry"],
+            "groceries": ["food pantry", "mobile pantry", "mobile market", "farmer's markets"],
+            # Personal care sub-types (YourPeer supports per-amenity filter)
+            "showers": ["shower"],
+            "laundry": ["laundry"],
+            "haircuts": ["haircut"],
+            "toiletries": ["toiletries"],
+            "restrooms": ["restrooms"],
+            # Clothing sub-types
+            "interview clothing": ["interview-ready clothing", "professional clothing"],
+        }
+
+        narrowed_taxonomies = _DETAIL_TO_TAXONOMY_NARROWING.get(service_detail)
+        if narrowed_taxonomies:
+            user_params["taxonomy_names"] = narrowed_taxonomies
+
+        # 4b. Description filter for "other" sub-types
+        # These services are mostly tagged "Other service" so taxonomy
+        # narrowing alone won't help — we filter by description keywords.
+        if template_key == "other":
+            _DETAIL_DESCRIPTION_PATTERNS = {
+                "English classes": r"ESL|ESOL|english class|learn.*english",
+                "GED programs": r"GED|high school equiv|HSE|diploma|equivalency",
+                "adult education": r"adult education|adult literacy|continuing education",
+                "computer classes": r"computer|digital literacy|computer skills|computer training",
+                "digital literacy": r"computer|digital literacy|computer skills",
+                "disability services": r"disability|disabled|SSI|SSDI|accessible|special needs",
+                "financial services": r"financial|money management|budget|credit|debt|financial literacy",
+                "financial literacy": r"financial literacy|financial education|money management|budget",
+                "budgeting help": r"budget|financial|money management|savings",
+                "senior services": r"senior|older adult|aging|elder|60\+|65\+|over 60",
+                "re-entry services": r"reentry|re-entry|parole|probation|incarcerat|released|formerly",
+                "anger management": r"anger management|violence prevention|conflict resolution",
+                "parenting classes": r"parenting|parent class|parent support|fatherhood|motherhood",
+                "baby supplies": r"diaper|baby|infant|stroller|car seat|formula",
+                "transportation help": r"access.a.ride|metrocard|metro card|transit|transportation",
+                "insurance enrollment": r"insurance|medicaid enroll|medicare enroll|health insurance",
+                "health insurance enrollment": r"health insurance|insurance enroll|medicaid|marketplace",
+                "LGBTQ services": r"LGBTQ|queer|transgender|gay|lesbian|bisexual|nonbinary",
+                "LGBTQ support": r"LGBTQ|queer|transgender|gay|lesbian|bisexual|nonbinary",
+                "DACA services": r"DACA|deferred action|dreamer",
+                "accessibility services": r"accessibility|accessible|wheelchair|disability|ADA",
+            }
+            pattern = _DETAIL_DESCRIPTION_PATTERNS.get(service_detail)
+            if pattern:
+                user_params["description_pattern"] = pattern
 
     # Co-located service filter: restrict results to locations that also
     # have the additional service types the user asked for.

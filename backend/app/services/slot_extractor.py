@@ -375,6 +375,18 @@ _NOTABLE_SUB_TYPES = {
     "access-a-ride": "Access-A-Ride help",
     "lgbtq services": "LGBTQ services",
     "lgbtq support": "LGBTQ support",
+    # Word-boundary keywords (Phase 4) — these need sub-type labels
+    # so service_detail is set and narrowing/description filter triggers.
+    "esl": "English classes",
+    "ged": "GED programs",
+    "hiv": "HIV services",
+    "prep": "PrEP services",
+    "ssi": "disability services",
+    "ssdi": "disability services",
+    "syep": "SYEP programs",
+    "sober": "sober living",
+    "parole": "re-entry services",
+    "probation": "re-entry services",
 }
 
 # ---------------------------------------------------------------------------

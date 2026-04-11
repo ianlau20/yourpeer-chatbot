@@ -652,6 +652,7 @@ TEMPLATES = {
             FILTER_BY_CITY_IN_BOROUGH,
             FILTER_BY_CITY_LIKE,
             FILTER_BY_PROXIMITY,
+            FILTER_BY_DESCRIPTION_KEYWORDS,
         ],
         "default_params": {
             "taxonomy_names": [
