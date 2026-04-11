@@ -878,6 +878,131 @@ def _extract_family_status(text: str) -> Optional[str]:
     return None
 
 
+# -----------------------------------------------------------------------
+# POPULATION / IDENTITY CONTEXT
+# -----------------------------------------------------------------------
+# Cross-cutting attributes representing WHO the user is, not what
+# service they need. A veteran searching for food gets veteran-friendly
+# food pantries ranked higher. A disabled user gets accessible locations
+# boosted. These modify ALL searches, not just shelter.
+
+_POPULATION_PHRASES = {
+    # Veteran — military service
+    "veteran": "veteran",
+    "military": "veteran",
+    "served in the": "veteran",
+    "navy": "veteran",
+    "marines": "veteran",
+    "air force": "veteran",
+    "national guard": "veteran",
+    "coast guard": "veteran",
+
+    # Disabled — physical/cognitive disability
+    "disabled": "disabled",
+    "disability": "disabled",
+    "wheelchair": "disabled",
+    "blind": "disabled",
+    "deaf": "disabled",
+    "hearing impaired": "disabled",
+    "mobility impaired": "disabled",
+    "vision impaired": "disabled",
+    "handicapped": "disabled",
+
+    # Reentry — criminal justice involvement
+    "just got out of jail": "reentry",
+    "just got out of prison": "reentry",
+    "released from jail": "reentry",
+    "released from prison": "reentry",
+    "released from rikers": "reentry",
+    "out of rikers": "reentry",
+    "on parole": "reentry",
+    "on probation": "reentry",
+    "formerly incarcerated": "reentry",
+
+    # DV survivor — domestic violence
+    "escaped abuse": "dv_survivor",
+    "fleeing abuse": "dv_survivor",
+    "abusive relationship": "dv_survivor",
+    "domestic violence": "dv_survivor",
+    "abusive partner": "dv_survivor",
+    "abusive husband": "dv_survivor",
+    "abusive wife": "dv_survivor",
+    "abusive boyfriend": "dv_survivor",
+    "abusive girlfriend": "dv_survivor",
+    "fleeing domestic": "dv_survivor",
+
+    # Pregnant
+    "pregnant": "pregnant",
+    "expecting a baby": "pregnant",
+    "having a baby": "pregnant",
+
+    # Senior — useful when age isn't stated as a number.
+    # When age >= 62 is extracted, query_services() auto-adds senior.
+    "senior": "senior",
+    "elderly": "senior",
+    "older adult": "senior",
+    "senior citizen": "senior",
+}
+
+# Phrases that contain population keywords but aren't identity statements.
+# Checked BEFORE the keyword scan; if any guard matches, skip that keyword.
+_POPULATION_FALSE_POSITIVES = {
+    "veteran": {"veterans day", "veterans memorial", "veterans affairs office",
+                "veterans administration"},
+    "disabled": {"disabled my", "disabled the", "disabled it",
+                 "account disabled", "was disabled"},
+    "army": {"salvation army"},
+    "blind": {"blind spot", "color blind", "blind date"},
+    "deaf": {"deaf ears", "fell on deaf"},
+}
+
+# "army" and "vet" need word-boundary matching to avoid false positives
+# ("salvation army", "veterinarian"). Handled via the false positive guards
+# and word-boundary regex below.
+_POPULATION_WORD_BOUNDARY = {
+    "vet": "veteran",  # avoid "veterinarian", "veto"
+    "army": "veteran",  # avoid "salvation army" (guarded above)
+}
+
+
+def _extract_populations(text: str) -> list[str]:
+    """Extract population/identity context from user message.
+
+    Returns a deduplicated list of population identifiers. May return
+    multiple values (e.g., "disabled veteran" → ["veteran", "disabled"]).
+    """
+    lower = text.lower()
+    found = set()
+
+    # Check longer phrases first to prevent sub-match shadowing
+    sorted_phrases = sorted(_POPULATION_PHRASES.keys(), key=len, reverse=True)
+
+    for phrase in sorted_phrases:
+        if phrase not in lower:
+            continue
+
+        population = _POPULATION_PHRASES[phrase]
+
+        # Check false positive guards
+        guards = _POPULATION_FALSE_POSITIVES.get(phrase, set())
+        if any(guard in lower for guard in guards):
+            continue
+
+        found.add(population)
+
+    # Word-boundary keywords (short words that need boundaries)
+    for keyword, population in _POPULATION_WORD_BOUNDARY.items():
+        if population in found:
+            continue  # already matched via a longer phrase
+        if re.search(rf"\b{keyword}\b", lower):
+            # Check guards
+            guards = _POPULATION_FALSE_POSITIVES.get(keyword, set())
+            if not any(guard in lower for guard in guards):
+                found.add(population)
+
+    return sorted(found)  # sorted for deterministic output
+
+
 def _extract_all_locations(text: str) -> list[tuple[int, str]]:
     """Extract ALL location matches from text with their positions.
 
@@ -977,6 +1102,7 @@ def extract_slots(message: str) -> dict:
         "age": _extract_age(message),
         "family_status": _extract_family_status(message),
         "_gender": _extract_gender(message),
+        "_populations": _extract_populations(message),
     }
 
 
@@ -986,6 +1112,13 @@ def merge_slots(existing: dict, new_values: dict) -> dict:
         # additional_services is transient extraction metadata —
         # never persist it in session state.
         if key == "additional_services":
+            continue
+        # _populations is a list — merge by union, not replace.
+        if key == "_populations":
+            if value:
+                existing_pops = set(merged.get("_populations", []))
+                existing_pops.update(value)
+                merged["_populations"] = sorted(existing_pops)
             continue
         if value not in (None, "", []):
             # If user provides a real location, replace a previous "near me"

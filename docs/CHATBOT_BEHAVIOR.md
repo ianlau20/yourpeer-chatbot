@@ -18,7 +18,7 @@ When multiple services are detected with different locations (e.g. "food in Broo
 
 ### Stage 1b — Unified LLM Classification Gate (Run 23+)
 
-When regex finds **no service_type AND no action AND no tone AND 4+ words**, a single Haiku call (`classify_unified()` in `llm_classifier.py`) returns all classification dimensions in one JSON response: service_type, location, additional_services, tone, action, urgency, age, family_status.
+When regex finds **no service_type AND no action AND no tone AND 4+ words**, a single Haiku call (`classify_unified()` in `llm_classifier.py`) returns all classification dimensions in one JSON response: service_type, location, additional_services, tone, action, urgency, age, family_status, populations.
 
 This replaces two separate LLM calls (Phase 2 slot enrichment + LLM category fallback) with one combined call. It fires on ~25% of messages — the ones where regex has nothing useful. The other ~75% are handled by regex alone at zero cost.
 
@@ -112,7 +112,7 @@ If the LLM is unavailable or returns an unrecognized category, the system falls 
 
 Crisis resources are shown immediately. The session is NOT cleared — the user can continue their service search afterward. See [CRISIS_DETECTION.md](CRISIS_DETECTION.md) for full details on the two-stage detection pipeline, six crisis categories, and fail-open policy.
 
-**Crisis step-down:** When crisis fires on a non-acute category (`safety_concern` or `domestic_violence`) AND the user has explicit service intent (regex found a service keyword like "shelter"), the bot shows crisis resources AND preserves the extracted service slots in session. The response appends: "I can also help you find [service] in [location] — would you like me to search?" with quick replies for "Yes, search" and "Peer navigator." This handles cases like "I was kicked out and need shelter in Brooklyn" where both safety resources and practical help are appropriate. Acute crisis categories (suicide, medical, trafficking, violence) always show crisis resources only.
+**Crisis step-down:** When crisis fires on a non-acute category (`safety_concern` or `domestic_violence`) AND the user has explicit service intent (regex found a service keyword like "shelter"), the bot shows crisis resources AND preserves the extracted service slots in session. The response appends: "I can also help you find [service] in [location] — would you like me to search?" with quick replies for "Yes, search" and "Peer navigator." For `domestic_violence` crises, `dv_survivor` is injected into the session's `_populations` so that the subsequent search boosts DV-specific services (shelters, legal aid, counseling) via description-based ORDER BY ranking. This injection bridges the gap between the crisis detector's 54 DV phrases and the population extractor's 10 — ensuring phrases like "he hits me" (which the crisis detector catches but the population extractor doesn't) still trigger the DV service boost. The injection also fires in the non-step-down branch (no service intent) so that if the user later asks for a service, the boost is already in session. This handles cases like "I was kicked out and need shelter in Brooklyn" where both safety resources and practical help are appropriate. Acute crisis categories (suicide, medical, trafficking, violence) always show crisis resources only.
 
 **Emotional phrase guard:** Before invoking the LLM for crisis detection (Stage 2), the system checks whether the message matches a known sub-crisis emotional phrase (e.g., "feeling scared", "I'm struggling", "rough day"). If so, the LLM stage is skipped entirely — these are handled by the emotional tone handler, not the crisis handler. This prevents the LLM's "when in doubt, err toward crisis=true" instruction from over-escalating clearly emotional-but-not-crisis messages.
 
@@ -252,6 +252,8 @@ Extracts structured slots (service type, service detail, location, age, urgency,
 
 **Family composition:** For shelter searches, the chatbot asks "Are you on your own, or do you have family or children with you?" after collecting age. The `family_status` slot (with_children, with_family, alone) is shown in the confirmation and used to enrich shelter taxonomy queries.
 
+**Population context:** The `_populations` slot extracts cross-cutting identity attributes (veteran, disabled, reentry, dv_survivor, pregnant, senior) that modify ALL service searches. Veterans get taxonomy-based sort boost; other populations get description-based sort boost via dynamic ORDER BY. Senior is auto-inferred from age ≥ 62. Confirmation messages show context-aware prefixes ("I'll search for veteran-friendly food in Brooklyn"). Populations are merged via set union across conversation turns (a user who mentions being a veteran in one message and disabled in the next gets both). Stored with `_` prefix to exclude from audit log serialization.
+
 **Multi-service extraction:** The slot extractor detects all service types in a message (e.g., "food and shelter" → both extracted). The primary type drives the current search; additional types are stored in `additional_services` for future queue handling.
 
 **Service flow continuation:** When a user already has a `service_type` in session and their new message extracts fresh slot data (location, age, family_status, etc.) but isn't classified as a "service" message by the classifier, the system treats it as a continuation of the service flow rather than falling through to the LLM. This handles replies like "near me", "close by", "I'm 25", or "with my kids" to follow-up questions — messages that contain slot data but no service keyword. Without this, these messages would route to the general conversation handler and the user would lose their search context.
@@ -279,7 +281,7 @@ Three LLM-powered features are used in production, each with a specific model as
 | Feature | Model | When It Runs | Output |
 |---|---|---|---|
 | Conversational fallback | Haiku | Message classified as `general` | 1–3 sentence response |
-| Slot extraction | Haiku | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender, family_status |
+| Slot extraction | Haiku | Complex service messages (regex handles simple ones) | JSON: service_type, location, age, urgency, gender, family_status, populations |
 | Message classification | Haiku | Messages >3 words that regex can't classify | Single category name |
 | Bot question answer | Haiku | Messages classified as `bot_question` | 2–3 sentence factual answer |
 | Crisis detection (Stage 2) | Sonnet | Ambiguous messages where regex didn't fire | JSON: {crisis: bool, category: string} |
@@ -481,7 +483,7 @@ Each prompt contains a "STRICT RULES" or "Guidelines" section that instructs the
 
 ### Testing
 
-Conversation routing is covered by 193 tests in `integration/test_chatbot.py`, 56 context routing tests in `integration/test_context_routing.py`, 31 post-results boundary tests in `unit/test_post_results_boundary.py`, 26 ambiguity handling tests in `integration/test_ambiguity_handling.py`, 29 integration scenario tests in `integration/test_integration_scenarios.py`, 28 structural fix tests in `integration/test_structural_fixes.py`, 41 phrase audit tests in `unit/test_phrase_audit.py`, 19 contraction normalization tests in `unit/test_contraction_normalization.py`, 29 edge-case tests in `unit/test_edge_cases.py`, 36 crisis detection tests in `unit/test_crisis_detector.py`, 39 gender extraction tests in `unit/test_gender_extraction.py`, and 34 PII redaction tests in `unit/test_pii_redactor.py`. Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
+Conversation routing is covered by 193 tests in `integration/test_chatbot.py`, 56 context routing tests in `integration/test_context_routing.py`, 31 post-results boundary tests in `unit/test_post_results_boundary.py`, 26 ambiguity handling tests in `integration/test_ambiguity_handling.py`, 29 integration scenario tests in `integration/test_integration_scenarios.py`, 28 structural fix tests in `integration/test_structural_fixes.py`, 41 phrase audit tests in `unit/test_phrase_audit.py`, 19 contraction normalization tests in `unit/test_contraction_normalization.py`, 29 edge-case tests in `unit/test_edge_cases.py`, 36 crisis detection tests in `unit/test_crisis_detector.py`, 39 gender extraction tests in `unit/test_gender_extraction.py`, 34 PII redaction tests in `unit/test_pii_redactor.py`, and 88 population tests in `unit/test_populations.py` (extraction, merge, false positives, query boosts, DV crisis injection, ORDER BY generation, confirmation prefixes). Use `assert_classified(message, category)` from `conftest.py` for classification tests and `send(message)` for full routing tests.
 
 ```bash
 # Run conversation tests

@@ -84,7 +84,15 @@ SELECT
      WHERE sal_co.location_id = l.id
        AND s_co.id != s.id
        AND t_co.name NOT IN ('Other service')
-    ) AS also_available
+    ) AS also_available,
+
+    -- Accessibility info from the accessibility_for_disabilities table.
+    -- Surfaced on service cards so users can make informed decisions.
+    (SELECT afd.accessibility
+     FROM accessibility_for_disabilities afd
+     WHERE afd.location_id = l.id
+     LIMIT 1
+    ) AS accessibility_info
 
 FROM services s
     JOIN service_at_locations sal  ON s.id = sal.service_id
@@ -340,39 +348,36 @@ _LGBTQ_BOOST_RANK = """CASE
     ) THEN 0 ELSE 1
 END"""
 
-_ORDER_LIMIT = f"""
-ORDER BY {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
+# Veteran taxonomy boost: floats services tagged "Veterans" to top.
+# Same pattern as LGBTQ boost. Only active when user identifies as veteran.
+_VETERAN_BOOST_RANK = """CASE
+    WHEN EXISTS (
+        SELECT 1 FROM service_taxonomy st_vet
+        JOIN taxonomies t_vet ON st_vet.taxonomy_id = t_vet.id
+        WHERE st_vet.service_id = s.id
+        AND LOWER(t_vet.name) = 'veterans'
+    ) THEN 0 ELSE 1
+END"""
 
-_ORDER_LIMIT_LGBTQ_BOOST = f"""
-ORDER BY {_LGBTQ_BOOST_RANK},
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
+# Description-based population boost: floats services whose description
+# matches a regex pattern to the top. Used for disabled, reentry,
+# dv_survivor, pregnant, senior populations. The pattern is passed as
+# :pop_boost_pattern bind parameter.
+_DESCRIPTION_BOOST_RANK = """CASE
+    WHEN s.description ~* :pop_boost_pattern THEN 0 ELSE 1
+END"""
 
-# Distance-aware ORDER BY — used when proximity params are present.
-# Distance first, then open-now, then freshness.
-_ORDER_BY_DISTANCE_LIMIT = f"""
-ORDER BY ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
+# Distance expression for proximity-based ORDER BY.
+_DISTANCE_RANK = (
+    "ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography)"
+)
 
-_ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST = f"""
-ORDER BY {_LGBTQ_BOOST_RANK},
-         ST_Distance(l.position::geography, ST_MakePoint(:lon, :lat)::geography),
-         {_OPEN_NOW_RANK},
-         l.last_validated_at DESC NULLS LAST,
-         s.name
-LIMIT :max_results
-"""
+# Base sort tiebreakers: open-now first, then freshness, then name.
+_BASE_ORDER_PARTS = [
+    _OPEN_NOW_RANK,
+    "l.last_validated_at DESC NULLS LAST",
+    "s.name",
+]
 
 _DEFAULT_MAX_RESULTS = 10
 
@@ -520,10 +525,9 @@ TEMPLATES = {
             "taxonomy_names": [
                 "legal services",
                 "immigration services",
-                "advocates / legal aid",
             ]
         },
-        "taxonomy_aliases": ["Legal Services", "Immigration Services", "Advocates / Legal Aid"],
+        "taxonomy_aliases": ["Legal Services", "Immigration Services"],
     },
     "employment": {
         "name": "EmploymentQuery",
@@ -751,13 +755,35 @@ def build_query(template_key: str, user_params: dict) -> tuple[str, dict]:
     if "max_results" not in params:
         params["max_results"] = _DEFAULT_MAX_RESULTS
 
-    # Use distance-aware ordering when proximity search is active
-    # Use LGBTQ-boosted ordering when user identifies as LGBTQ/trans/nonbinary
+    # -----------------------------------------------------------------
+    # Dynamic ORDER BY builder
+    # -----------------------------------------------------------------
+    # Builds the ORDER BY clause from active boost ranks + base sort.
+    # This replaces pre-defined ORDER BY constants (which required a
+    # combinatorial explosion of variants for each boost combination).
     _lgbtq_boost = params.pop("lgbtq_boost", False)
-    if "lat" in params and "lon" in params:
-        order_clause = _ORDER_BY_DISTANCE_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_BY_DISTANCE_LIMIT
-    else:
-        order_clause = _ORDER_LIMIT_LGBTQ_BOOST if _lgbtq_boost else _ORDER_LIMIT
+    _veteran_boost = params.pop("veteran_boost", False)
+    _has_distance = "lat" in params and "lon" in params
+    _has_pop_boost = "pop_boost_pattern" in params
+
+    order_parts = []
+
+    # 1. Population boosts (highest priority — floats matching services up)
+    if _lgbtq_boost:
+        order_parts.append(_LGBTQ_BOOST_RANK)
+    if _veteran_boost:
+        order_parts.append(_VETERAN_BOOST_RANK)
+    if _has_pop_boost:
+        order_parts.append(_DESCRIPTION_BOOST_RANK)
+
+    # 2. Distance (when proximity search is active)
+    if _has_distance:
+        order_parts.append(_DISTANCE_RANK)
+
+    # 3. Base tiebreakers: open-now, freshness, name
+    order_parts.extend(_BASE_ORDER_PARTS)
+
+    order_clause = f"\nORDER BY {', '.join(order_parts)}\nLIMIT :max_results\n"
 
     full_sql = f"{_BASE_QUERY}\nWHERE {where_sql}\n{order_clause}"
 
@@ -893,6 +919,7 @@ def format_service_card(row: dict) -> dict:
             else row.get("last_validated_at")  # pass through str or None
         ),
         "also_available": also_available if also_available else None,
+        "accessibility": row.get("accessibility_info"),
     }
 
 

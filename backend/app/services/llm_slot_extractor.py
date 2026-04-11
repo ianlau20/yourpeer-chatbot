@@ -144,6 +144,28 @@ _EXTRACT_SLOTS_TOOL = {
                     "Omit if not mentioned."
                 ),
             },
+            "populations": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": [
+                        "veteran", "disabled", "reentry",
+                        "dv_survivor", "pregnant", "senior",
+                    ],
+                },
+                "description": (
+                    "Identity/context attributes for the person seeking services. "
+                    "These are WHO they are, not WHAT service they need. "
+                    "veteran = military service (army, navy, marines, etc.). "
+                    "disabled = physical or cognitive disability, wheelchair user. "
+                    "reentry = released from jail/prison, on parole/probation. "
+                    "dv_survivor = escaping or recovering from domestic violence/abuse. "
+                    "pregnant = currently expecting a baby. "
+                    "senior = elderly or older adult. "
+                    "May include multiple values (e.g. 'disabled veteran'). "
+                    "Omit if not mentioned."
+                ),
+            },
         },
         "required": [],
     },
@@ -301,6 +323,7 @@ def extract_slots_llm(message: str, conversation_history: list = None) -> dict:
                     "urgency": raw.get("urgency"),
                     "_gender": raw.get("gender"),
                     "family_status": raw.get("family_status"),
+                    "_populations": raw.get("populations") or [],
                 }
 
         logger.warning("Claude did not return a tool call")
@@ -320,6 +343,7 @@ def _empty_slots() -> dict:
         "urgency": None,
         "_gender": None,
         "family_status": None,
+        "_populations": [],
     }
 
 
@@ -380,6 +404,7 @@ def extract_slots_narrative(message: str, conversation_history: list = None) -> 
                     "urgency": raw.get("urgency"),
                     "_gender": raw.get("gender"),
                     "family_status": raw.get("family_status"),
+                    "_populations": raw.get("populations") or [],
                 }
                 logger.info(
                     f"Narrative extraction: primary={result['service_type']}, "
@@ -566,6 +591,14 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
         for key in regex_result:
             if key in ("additional_services", "additional_service_types"):
                 continue
+            # _populations: merge via union from both sources
+            if key == "_populations":
+                llm_pops = set(narrative_result.get("_populations") or [])
+                regex_pops = set(regex_result.get("_populations") or [])
+                combined = sorted(llm_pops | regex_pops)
+                if combined:
+                    narrative_result["_populations"] = combined
+                continue
             if narrative_result.get(key) is None and regex_result.get(key) is not None:
                 narrative_result[key] = regex_result[key]
 
@@ -598,6 +631,16 @@ def extract_slots_smart(message: str, conversation_history: list = None) -> dict
         for key in regex_result:
             # Skip additional_services — handled separately below
             if key == "additional_services":
+                continue
+            # _populations: merge via union (both sources may detect
+            # different populations). Regex catches keyword phrases the
+            # LLM might miss, and vice versa.
+            if key == "_populations":
+                llm_pops = set(llm_result.get("_populations") or [])
+                regex_pops = set(regex_result.get("_populations") or [])
+                combined = sorted(llm_pops | regex_pops)
+                if combined:
+                    llm_result["_populations"] = combined
                 continue
             if llm_result.get(key) is None and regex_result.get(key) is not None:
                 llm_result[key] = regex_result[key]

@@ -22,12 +22,14 @@ unhoused New Yorkers find services (shelter, food, clothing, showers, benefits).
 
 A fully functional multi-turn chatbot that guides users through service discovery via
 slot-filling conversation. The system uses a two-stage classification pipeline (regex first,
-LLM fallback) to route messages, extracts service needs (type, location, age, urgency, gender),
-confirms with the user, then queries a read-only Streetlives PostgreSQL database using
-parameterized SQL templates. Results are returned as structured service cards with contact info,
-hours, and directions links. Crisis detection, PII redaction, and an admin console with
-LLM-as-judge evaluation are all implemented. The system works in a degraded but functional
-regex-only mode when no API key is configured.
+LLM fallback) to route messages, extracts service needs (type, location, age, urgency, gender,
+family status, population context), confirms with the user, then queries a read-only Streetlives
+PostgreSQL database using parameterized SQL templates. Population context (veteran, disabled,
+reentry, DV survivor, pregnant, senior) cross-cuts all searches — boosting relevant services
+via taxonomy or description-based ORDER BY ranking. Results are returned as structured service
+cards with contact info, hours, accessibility info, and directions links. Crisis detection, PII
+redaction, and an admin console with LLM-as-judge evaluation are all implemented. The system
+works in a degraded but functional regex-only mode when no API key is configured.
 
 ## Architecture (Actual)
 
@@ -73,7 +75,7 @@ information, preventing hallucination.
 | `backend/app/services/confirmation.py` | Confirmation messages, quick-reply builders, no-results messages, borough suggestions |
 | `backend/app/services/bot_knowledge.py` | Bot self-knowledge: live capability sourcing, topic matching, LLM context generation |
 | `backend/app/services/crisis_detector.py` | Two-stage crisis detection (regex + Sonnet LLM), category-specific hotlines |
-| `backend/app/services/slot_extractor.py` | Regex-based slot extraction with keyword matching, gender/LGBTQ identity extraction |
+| `backend/app/services/slot_extractor.py` | Regex-based slot extraction with keyword matching, gender/LGBTQ identity extraction, population context extraction (veteran, disabled, reentry, DV survivor, pregnant, senior) |
 | `backend/app/services/llm_slot_extractor.py` | LLM slot extraction via Claude Haiku tool calling |
 | `backend/app/services/llm_classifier.py` | Unified LLM classification gate — single Haiku call returning service_type, location, tone, action when regex fails |
 | `backend/app/services/session_store.py` | In-memory session state with 30-min TTL (max 500 sessions) |
@@ -81,7 +83,7 @@ information, preventing hallucination.
 | `backend/app/llm/claude_client.py` | Anthropic client (lazy init), model constants, shared helpers |
 | `backend/app/rag/__init__.py` | `query_services()` entry point |
 | `backend/app/rag/query_executor.py` | DB execution, location normalization, borough/neighborhood PostGIS logic |
-| `backend/app/rag/query_templates.py` | 9 parameterized SQL templates (food, shelter, clothing, etc.) |
+| `backend/app/rag/query_templates.py` | 10 parameterized SQL templates (food, shelter, clothing, etc.), dynamic ORDER BY with population boosts |
 | `backend/app/privacy/pii_redactor.py` | PII detection and redaction (phone, SSN, email, DOB, address, names, gender identity) |
 | `backend/app/models/chat_models.py` | Pydantic models: ChatRequest, ChatResponse, ServiceCard, QuickReply |
 | `frontend-next/src/components/chat/` | Chat UI components (ChatContainer, ServiceCard, QuickReplies) |
@@ -90,11 +92,11 @@ information, preventing hallucination.
 | `frontend-next/src/app/admin/` | Staff console pages (overview, conversations, metrics, queries, evals, models) |
 | `frontend-next/next.config.js` | CSP + HSTS headers, security config |
 | `tests/conftest.py` | Pytest fixtures, mock data, test helpers |
-| `tests/eval_llm_judge.py` | LLM-as-judge evaluation (142 scenarios, 8 dimensions) |
+| `tests/eval_llm_judge.py` | LLM-as-judge evaluation (172 scenarios, 8 dimensions) |
 
 ## What's Working
 
-- **9 service categories**: food, shelter, clothing, personal care, medical, mental health, legal, employment, other
+- **10 service categories**: food, shelter, clothing, personal care, medical, mental health, legal, employment, housing assistance, other
 - **Multi-turn slot-filling**: extracts service_type, location, age, urgency, gender across conversation turns
 - **Two-stage classification**: regex for fast deterministic routing, LLM for ambiguous messages
 - **Complexity-based LLM routing**: regex handles simple inputs, Claude Haiku handles complex/implicit/slang
@@ -107,6 +109,9 @@ information, preventing hallucination.
 - **PII redaction**: phone, SSN, email, DOB, address, name, gender identity detection/redaction on every message
 - **Service cards**: structured results with name, org, address, phone, hours, fees, open/closed status, referral badges, action links
 - **Gender & LGBTQ identity filtering**: extracted only when explicitly stated (never inferred). Binary gender (male/female) passes to SQL filter. Transgender/nonbinary/LGBTQ bypass the eligibility filter and trigger taxonomy boosts for affirming services. Confirmation shows "LGBTQ-friendly" label. Gender terms redacted from stored transcripts
+- **Population context extraction & query boosts**: `_populations` slot detects veteran, disabled, reentry, DV survivor, pregnant, senior as cross-cutting identity attributes. Veterans get taxonomy-based boost (services tagged "Veterans" rank higher). All other populations get description-based ORDER BY boost (dynamic `pop_boost_pattern` applied across all 10 templates). Senior auto-inferred from age ≥ 62. Multiple populations supported. Confirmation shows context-aware prefixes ("veteran-friendly food", "accessible shelter"). Stored with `_` prefix for PII exclusion
+- **DV crisis → population injection**: when crisis detector fires on `domestic_violence` category, `dv_survivor` is injected into session `_populations` regardless of whether the population extractor caught it. This bridges the 51-phrase gap between crisis detection (54 DV phrases) and population extraction (3 matching phrases). Fires in both step-down (service intent) and crisis-only (no service intent) branches
+- **Accessibility on service cards**: `accessibility_for_disabilities` table is queried and surfaced on cards as informational text. Not used as a filter — negative values ("Not wheelchair accessible") are displayed so users can make informed decisions
 - **Conversational routing**: greeting, thanks, help, reset, escalation, frustration, emotional, negative preference, bot identity, confusion, location-unknown, correction
 - **Emotional handling (static-first)**: 6 emotion-specific static responses (scared, sad, rough_day, shame, grief, alone) selected by `_pick_emotional_response()` — LLM is NOT called. Single "Talk to a person" button, no service menu. Follows AVR pattern from clinical chatbot research
 - **Frustration 3-tier escalation**: persistent `_frustration_count` counter with varied responses — 1st: full empathetic, 2nd: shorter/direct, 3rd+: immediate navigator only. Counter survives intermediate messages
@@ -125,7 +130,7 @@ information, preventing hallucination.
 - **Post-results escape hatch**: new service requests ("I need X", "where can I go", "looking for") are no longer intercepted by the post-results handler. Messages with a new location clear stored results automatically
 - **LLM conversational fallback**: Haiku handles general/off-topic messages
 - **Admin console**: conversation viewer, event log, metrics dashboard, in-browser eval runner
-- **LLM-as-judge eval**: 142 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
+- **LLM-as-judge eval**: 172 scenarios scored on slot accuracy, dialog efficiency, tone, safety, confirmation UX, privacy, hallucination resistance, error recovery
 - **Accessibility**: screen reader support, keyboard navigation, voice input (Web Speech API)
 - **Anonymized audit logging**: conversation turns, query executions, crisis events
 - **In-memory sessions**: no persistent conversation storage, 30-min TTL, LRU eviction at 500-session cap
@@ -136,18 +141,19 @@ information, preventing hallucination.
 - **Stability**: 1,000-char message length limit (frontend + backend), coordinate validation (lat ±90, lng ±180), 10s LLM timeout, 5s DB statement timeout, 30s frontend fetch timeout, admin endpoint rate limiting (120/min IP + 5/hr eval), rate limiter memory cap (5,000 buckets)
 - **Observability**: `X-Request-ID` correlation IDs flow from frontend → Next.js proxy → FastAPI backend → audit log, enabling end-to-end request tracing
 - **Admin data caching**: centralized Zustand store with 30-second staleness threshold; navigating between admin tabs reuses cached data
-- **Test suite**: 39 pytest files (1,475 tests) organized into `tests/unit/` (23 files — no DB or LLM needed) and `tests/integration/` (15 files — use mocked DB/LLM), plus an `eval/` directory. Covers all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, gender/LGBTQ identity extraction, bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, ambiguity handling (confidence scoring, disambiguation, correction recovery), post-results boundary routing, and DB schema/query integration. LLM-as-judge evaluation: 142 scenarios across 20 categories
+- **Test suite**: 40 pytest files (1,700 tests) organized into `tests/unit/` (25 files — no DB or LLM needed) and `tests/integration/` (15 files — use mocked DB/LLM), plus an `eval/` directory. Covers all services, routes, edge cases, geolocation, rate limiting, security, privacy, family composition, multi-service extraction, split classifier, taxonomy enrichment, nearby borough suggestions, gender/LGBTQ identity extraction, population context extraction (veteran, disabled, reentry, DV survivor, pregnant, senior — 88 tests covering extraction, merge, false positives, query boosts, confirmation messages, DV crisis injection, ORDER BY generation), bug fix regressions, narrative extraction, bot knowledge, boundary drift detection, context routing, integration scenarios, ambiguity handling (confidence scoring, disambiguation, correction recovery), post-results boundary routing, and DB schema/query integration. LLM-as-judge evaluation: 172 scenarios across 20 categories
 
 ## Known Gaps / In Progress
 
-- **Adversarial LLM false positives** — The unified classification gate classifies nonsensical service requests ("helicopter ride") as `service_type=other` instead of returning null. Fix: tighten the LLM prompt to restrict "other" to known social service subcategories. Priority for Run 24.
+- **Adversarial LLM false positives** — The unified classification gate classifies nonsensical service requests ("helicopter ride") as `service_type=other` instead of returning null. Fix: tighten the LLM prompt to restrict "other" to known social service subcategories.
 - **Slot overwrite on contradiction** — `multiturn_change_mind` (3.25): when user says "actually, shelter" mid-conversation, the filled slot is not overwritten. Requires contradiction detection.
-- **Multi-intent: per-service location** — Phase 4 per-service location binding is implemented but `multi_cross_borough` (3.88) shows it doesn't fire in all cases. Needs investigation.
-- **Multilingual support** — English only
+- **Multilingual support** — English only. Spanish keyword support is designed (Phase 6 in implementation plan) but not yet implemented.
 - **Schedule data coverage** — sparse; only walk-in services have >40% coverage
 - **`additional_info` field** — 99.7% null in DB, always empty in results
 - **LLM call instrumentation** — `log_llm_call()` API is defined in audit_log.py but not yet wired into `claude_client.py` call sites. Metrics section shows "No data" until instrumentation is added.
 - **Persistent storage** — when `PILOT_DB_PATH` is set, audit events and sessions are persisted to SQLite (WAL mode) and hydrated on startup. When unset, in-memory only
+- **`housing_assistance` not in LLM enum** — the `_SERVICE_TYPE_ENUM` in `llm_slot_extractor.py` has 9 values (no `housing_assistance`). Housing assistance keywords are routed via regex only. The LLM routes these to `other` or `shelter`. Low-impact since the regex keywords are specific ("rental assistance", "help with rent")
+- **Disabled/service keyword overlap** — "disabled" exists in both `SERVICE_KEYWORDS["other"]` and `_POPULATION_PHRASES`. "I'm disabled" extracts both `service_type=other` and `_populations=["disabled"]`. Functionally correct but could cause unexpected primary service routing when combined with other services
 
 ## Running Tests
 
@@ -162,7 +168,7 @@ pytest -k reset                           # filter by test name
 ```
 
 All tests mock `claude_reply()` and `query_services()` — no live services required.
-Tests are organized into `tests/unit/` (23 files, no external deps) and `tests/integration/` (15 files, use `send()`/`send_multi()` helpers).
+Tests are organized into `tests/unit/` (25 files, no external deps) and `tests/integration/` (15 files, use `send()`/`send_multi()` helpers).
 Shared fixtures and helpers live in `tests/conftest.py` (use `send()`, `send_multi()`,
 `assert_classified()`). For live LLM integration tests:
 

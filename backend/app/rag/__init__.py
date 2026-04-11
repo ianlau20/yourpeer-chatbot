@@ -39,6 +39,7 @@ def query_services(
     family_status: str = None,
     colocated_service_types: list = None,
     service_detail: str = None,
+    populations: list = None,
 ) -> dict:
     """
     High-level entry point: go from intake slots to service results.
@@ -251,6 +252,47 @@ def query_services(
             pattern = _DETAIL_DESCRIPTION_PATTERNS.get(service_detail)
             if pattern:
                 user_params["description_pattern"] = pattern
+
+    # -----------------------------------------------------------------
+    # Population-based query boost (Phase 3)
+    # -----------------------------------------------------------------
+    # Cross-cutting identity attributes that modify ALL searches.
+    # Veterans get veteran-tagged services boosted via taxonomy rank.
+    # Other populations get description-based sort boost via ORDER BY.
+    #
+    # IMPORTANT: This uses pop_boost_pattern (ORDER BY rank), NOT
+    # description_pattern (WHERE filter). The difference:
+    #   description_pattern → excludes non-matching services (Phase 4)
+    #   pop_boost_pattern   → floats matching services to top, keeps all
+    #
+    # Auto-infer senior from age when not explicitly stated.
+    _populations = list(populations or [])
+    if age is not None and age >= 62 and "senior" not in _populations:
+        _populations.append("senior")
+
+    # Description-based boost patterns — used as ORDER BY rank expressions.
+    # Services matching these patterns sort to the top without excluding
+    # non-matching services.
+    _POPULATION_DESCRIPTION_BOOSTS = {
+        "disabled": r"disabilit|disabled|wheelchair|accessible|ADA|blind|deaf|SSI|SSDI",
+        "reentry": r"reentry|re-entry|parole|probation|incarcerat|released|formerly",
+        "dv_survivor": r"domestic violence|DV|intimate partner|safety plan|abuse|protective order",
+        "pregnant": r"prenatal|maternity|postpartum|WIC|pregnan|maternal|newborn",
+        "senior": r"senior|older adult|aging|elder|60\+|65\+|over 60|NORC",
+    }
+
+    for pop in _populations:
+        if pop == "veteran":
+            # Taxonomy-based boost (same pattern as LGBTQ boost)
+            user_params["veteran_boost"] = True
+        else:
+            boost_pattern = _POPULATION_DESCRIPTION_BOOSTS.get(pop)
+            if boost_pattern:
+                existing_boost = user_params.get("pop_boost_pattern", "")
+                if existing_boost:
+                    user_params["pop_boost_pattern"] = f"{existing_boost}|{boost_pattern}"
+                else:
+                    user_params["pop_boost_pattern"] = boost_pattern
 
     # Co-located service filter: restrict results to locations that also
     # have the additional service types the user asked for.

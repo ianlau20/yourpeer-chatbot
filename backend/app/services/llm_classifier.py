@@ -73,13 +73,22 @@ or null,
   "gender": one of: male, female, transgender, nonbinary, lgbtq, or null. \
 Only extract if explicitly stated. lgbtq/queer/gay/lesbian = "lgbtq". \
 Trans man/FTM = "male". Trans woman/MTF = "female". Non-binary/enby/agender = "nonbinary",
-  "family_status": "with_children", "with_family", "alone", or null
+  "family_status": "with_children", "with_family", "alone", or null,
+  "populations": array of: "veteran", "disabled", "reentry", "dv_survivor", \
+"pregnant", "senior", or empty array. WHO the person IS, not what service \
+they need. veteran = military. disabled = physical/cognitive disability. \
+reentry = released from jail/prison. dv_survivor = domestic violence. \
+"I'm a disabled veteran" → ["veteran", "disabled"]. Omit if not mentioned.
 }
 
 Rules:
 - service_type is what the person is SEEKING, not what they mention in passing. \
 "I lost my job last year, now I need food" → service_type is "food" not \
 "employment". "I saw a doctor on TV" → null, not "medical".
+- populations is WHO the person IS: "I'm a vet and need food" → service_type \
+"food", populations ["veteran"]. "Just got out of Rikers, need a job" → \
+service_type "employment", populations ["reentry"]. Do NOT confuse \
+population with service type.
 - "somewhere to stay", "roof over my head", "need a bed", "sleeping in my car", \
 "got nowhere to go", "couch surfing", "got put out" → shelter
 - "I'm starving", "haven't eaten", "need to feed my kids", "can I get a plate" → food
@@ -231,5 +240,16 @@ def _validate_result(data: dict) -> dict:
     if isinstance(gender, str):
         gender = gender.lower().strip()
     result["_gender"] = gender if gender in _VALID_GENDERS else None
+
+    # Populations
+    _VALID_POPULATIONS = {"veteran", "disabled", "reentry", "dv_survivor", "pregnant", "senior"}
+    raw_pops = data.get("populations") or []
+    if isinstance(raw_pops, list):
+        result["_populations"] = sorted(
+            p.lower().strip() for p in raw_pops
+            if isinstance(p, str) and p.lower().strip() in _VALID_POPULATIONS
+        )
+    else:
+        result["_populations"] = []
 
     return result
